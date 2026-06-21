@@ -1097,6 +1097,9 @@ mod tests {
             ("0^-1", DomainErrorKind::ZeroToNegativePower),
             ("0^(-1/3)", DomainErrorKind::ZeroToNegativePower),
             ("(-8)^(1/2)", DomainErrorKind::NonRealPower),
+            ("(-1)^(sqrt(2))", DomainErrorKind::NonRealPower),
+            ("(-1)^pi", DomainErrorKind::NonRealPower),
+            ("(-1)^(2^(1/2))", DomainErrorKind::NonRealPower),
         ] {
             let mut context = EvaluationContext::default();
             let error = calculate(source, &exact_only_request(), &mut context).expect_err(source);
@@ -1106,5 +1109,19 @@ mod tests {
                 "{source}"
             );
         }
+    }
+
+    #[test]
+    fn negative_base_power_preserves_exponent_domain_errors() {
+        let mut context = EvaluationContext::default();
+        let error = calculate("(-1)^(sqrt(-1))", &exact_only_request(), &mut context)
+            .expect_err("(-1)^(sqrt(-1))");
+        assert_eq!(
+            error,
+            CalculatorError::Domain(DomainError {
+                kind: DomainErrorKind::EvenRootOfNegative,
+                span: None,
+            })
+        );
     }
 }
