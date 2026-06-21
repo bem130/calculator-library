@@ -9,6 +9,7 @@
     "./worker": "./src/worker.ts"
   },
   "scripts": {
+    "build:wasm": "wasm-pack build ../../crates/calculator-wasm --target web --out-dir ../../packages/calculator/wasm --release",
     "check": "tsc --noEmit"
   },
   "devDependencies": {

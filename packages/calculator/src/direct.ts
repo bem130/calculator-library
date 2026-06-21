@@ -13,6 +13,8 @@ export type CalculatorWasmModule = {
 
 export type CreateCalculatorOptions = {
     readonly module?: CalculatorWasmModule;
+    readonly wasmGlueUrl?: string | URL;
+    readonly wasmModuleUrl?: string | URL;
 };
 
 export interface Calculator {
@@ -39,15 +41,7 @@ export async function createCalculator(
         return createCalculatorFromWasmModule(options.module);
     }
 
-    return {
-        calculate: () => ({
-            tag: "error",
-            error: {
-                tag: "unsupportedFeature",
-                code: "evaluationEngine",
-            },
-        }),
-    };
+    return createCalculatorFromWasmModule(await loadDefaultWasmModule(options));
 }
 
 export const exactOnlyCalculationRequest: CalculationRequest = {
@@ -89,3 +83,29 @@ export const defaultCalculationRequest: CalculationRequest = {
         format: "exactDyadic",
     },
 };
+
+type GeneratedWasmModule = CalculatorWasmModule & {
+    readonly default: (input?: WasmInitInput) => Promise<unknown>;
+};
+
+type WasmInitInput = {
+    readonly module_or_path: string | URL | Request | Response | BufferSource | WebAssembly.Module;
+};
+
+async function loadDefaultWasmModule(
+    options: CreateCalculatorOptions,
+): Promise<CalculatorWasmModule> {
+    const moduleUrl = options.wasmGlueUrl ?? packageAssetUrl("calculator_wasm.js");
+    const wasmUrl = options.wasmModuleUrl ?? packageAssetUrl("calculator_wasm_bg.wasm");
+    const module = await import(
+        /* @vite-ignore */ String(moduleUrl)
+    ) as GeneratedWasmModule;
+    await module.default({
+        module_or_path: wasmUrl,
+    });
+    return module;
+}
+
+function packageAssetUrl(fileName: string): URL {
+    return new URL(`../wasm/${fileName}`, import.meta.url);
+}

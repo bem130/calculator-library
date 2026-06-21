@@ -8,7 +8,7 @@ pub struct ProtocolVersionDto {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase", tag = "tag")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
 pub enum ApiResultDto<T> {
     #[serde(rename = "ok")]
     Ok { value: T },
@@ -92,7 +92,7 @@ pub enum PowerSemanticsDto {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase", tag = "tag")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
 pub enum ExactOutputRequestDto {
     #[serde(rename = "omit")]
     Omit,
@@ -111,7 +111,7 @@ pub enum ExactFormatPreferenceDto {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase", tag = "tag")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
 pub enum ScientificOutputRequestDto {
     #[serde(rename = "omit")]
     Omit,
@@ -134,7 +134,7 @@ pub enum DecimalRoundingModeDto {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase", tag = "tag")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
 pub enum EnclosureOutputRequestDto {
     #[serde(rename = "omit")]
     Omit,
@@ -149,7 +149,7 @@ pub enum EnclosureFormatDto {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase", tag = "tag")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
 pub enum ResourceLimitRequestDto {
     #[serde(rename = "default")]
     Default,
@@ -164,7 +164,7 @@ pub struct ResourceLimitsDto {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase", tag = "tag")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
 pub enum CalculationOutcomeDto {
     #[serde(rename = "complete")]
     Complete { calculation: CalculationDto },
@@ -186,7 +186,7 @@ pub struct CalculationDto {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase", tag = "tag")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
 pub enum ExactOutputDto {
     #[serde(rename = "omitted")]
     Omitted,
@@ -195,7 +195,7 @@ pub enum ExactOutputDto {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase", tag = "tag")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
 pub enum ScientificOutputDto {
     #[serde(rename = "omitted")]
     Omitted,
@@ -208,7 +208,7 @@ pub enum ScientificOutputDto {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase", tag = "tag")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
 pub enum EnclosureOutputDto {
     #[serde(rename = "omitted")]
     Omitted,
@@ -280,7 +280,7 @@ pub struct CalculationMetadataDto {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase", tag = "tag")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
 pub enum IncompleteReasonDto {
     #[serde(rename = "precisionLimit")]
     PrecisionLimit {
@@ -292,7 +292,7 @@ pub enum IncompleteReasonDto {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase", tag = "tag")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
 pub enum SimplificationStatusDto {
     #[serde(rename = "fullySimplifiedWithinLimits")]
     FullySimplifiedWithinLimits,
@@ -301,7 +301,7 @@ pub enum SimplificationStatusDto {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase", tag = "tag")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
 pub enum PresentationNodeDto {
     #[serde(rename = "text")]
     Text { text: String },
@@ -332,7 +332,7 @@ pub enum PresentationNodeDto {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase", tag = "tag")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
 pub enum RadicalIndexDto {
     #[serde(rename = "square")]
     Square,
@@ -396,7 +396,7 @@ pub enum AssuranceLevelDto {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase", tag = "tag")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
 pub enum CalculatorErrorDto {
     #[serde(rename = "parse")]
     Parse {
@@ -429,7 +429,7 @@ pub struct TextSpanDto {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase", tag = "tag")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
 pub enum OptionalTextSpanDto {
     #[serde(rename = "none")]
     None,

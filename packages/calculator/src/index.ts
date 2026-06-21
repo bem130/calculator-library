@@ -7,6 +7,7 @@ export type {
     CertifiedIntervalPresentation,
     DecimalRoundingMode,
     EnclosureOutputRequest,
+    ExactFormatPreference,
     ExactOutputRequest,
     ParseSettings,
     PresentationNodeDto,

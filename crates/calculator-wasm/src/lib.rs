@@ -131,4 +131,89 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn wasm_dto_accepts_camel_case_scientific_request_fields() {
+        let request: CalculationRequestDto = serde_json::from_value(serde_json::json!({
+            "parse": {
+                "grammar": "default",
+                "implicitMultiplication": "enabled",
+                "unicodeAliases": "mathematicalAliases",
+                "percent": "postfixPercent"
+            },
+            "semantics": {
+                "domain": "real",
+                "angleUnit": "degree",
+                "powerSemantics": "realPrincipal"
+            },
+            "exactOutput": {
+                "tag": "include",
+                "format": "auto"
+            },
+            "scientificOutput": {
+                "tag": "include",
+                "significantDigits": 50,
+                "roundingMode": "nearestTiesToEven"
+            },
+            "enclosureOutput": {
+                "tag": "omit"
+            },
+            "limits": {
+                "tag": "default"
+            }
+        }))
+        .expect("generated TypeScript DTO casing must deserialize into Rust DTO");
+
+        assert_eq!(
+            calculate_dto("0.1 + 0.2", request),
+            ApiResultDto::Ok {
+                value: CalculationOutcomeDto::Complete {
+                    calculation: CalculationDto {
+                        exact: ExactOutputDto::Included {
+                            value: ExactPresentationDto {
+                                relation: ResultRelationDto::ExactEqual,
+                                representation: ExactRepresentationKindDto::Rational,
+                                presentation: PresentationNodeDto::Fraction {
+                                    numerator: Box::new(PresentationNodeDto::Text {
+                                        text: String::from("3"),
+                                    }),
+                                    denominator: Box::new(PresentationNodeDto::Text {
+                                        text: String::from("10"),
+                                    }),
+                                },
+                                plain_text: String::from("3/10"),
+                            },
+                        },
+                        scientific: ScientificOutputDto::Unavailable {
+                            value: UnavailableScientificOutputDto {
+                                requested_significant_digits: 50,
+                                confirmed_significant_digits: 0,
+                                rounding_mode: DecimalRoundingModeDto::NearestTiesToEven,
+                                reason: IncompleteReasonDto::ComputationLimit {
+                                    kind: ComputationLimitCodeDto::PrecisionBits,
+                                },
+                            },
+                        },
+                        enclosure: EnclosureOutputDto::Omitted,
+                        metadata: CalculationMetadataDto {
+                            exact_representation: ExactRepresentationKindDto::Rational,
+                            simplification_status:
+                                SimplificationStatusDto::FullySimplifiedWithinLimits,
+                            semantic_settings: SemanticSettingsDto {
+                                domain: EvaluationDomainDto::Real,
+                                angle_unit: AngleUnitDto::Degree,
+                                power_semantics: PowerSemanticsDto::RealPrincipal,
+                            },
+                            methods: vec![MethodTagDto::RationalReduction],
+                            internal_precision_bits: 0,
+                            refinement_rounds: 0,
+                            confirmed_significant_digits: 0,
+                            assurance: AssuranceLevelDto::Exact,
+                            protocol_version: ProtocolVersionDto { major: 1, minor: 0 },
+                        },
+                    },
+                },
+            }
+        );
+    }
 }
