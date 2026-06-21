@@ -13,9 +13,9 @@ use num_traits::{Signed, Zero};
 
 use crate::expression::{
     evaluate_interval_dag, evaluate_radical_dag, evaluate_rational_evaluation_dag,
-    evaluate_rational_pi_multiple_dag, lower_source_expression, ExactExpressionDag,
-    PiCoefficientEvaluation, RadicalEvaluation, RadicalLinearCombinationEvaluation,
-    RadicalReduction, RationalEvaluation,
+    evaluate_rational_pi_multiple_dag, evaluate_real_algebraic_dag, lower_source_expression,
+    ExactExpressionDag, PiCoefficientEvaluation, RadicalEvaluation,
+    RadicalLinearCombinationEvaluation, RadicalReduction, RationalEvaluation,
 };
 use crate::interval;
 use crate::types::*;
@@ -200,6 +200,34 @@ pub fn evaluate(
                     }
                 }
             }
+            let limits = resource_limits(&request.limits);
+            if let Some(algebraic) = evaluate_real_algebraic_dag(&dag, &limits)? {
+                let certified_enclosure =
+                    evaluate_interval_dag(&dag).map_err(|interval_error| {
+                        interval_error_to_evaluation_error(interval_error, error.clone())
+                    })?;
+                return Ok(EvaluationOutcome {
+                    value: EvaluatedValue {
+                        exact_expression: ExactExpression {
+                            source: expression.source.clone(),
+                        },
+                        recognized_exact: RecognizedExact::RealAlgebraic(algebraic),
+                        certified_enclosure: CertifiedEnclosureState::Available(
+                            certified_enclosure,
+                        ),
+                    },
+                    metadata: EvaluationMetadata {
+                        semantic_settings: request.semantics,
+                        methods: vec![
+                            MethodTag::AlgebraicMinimalPolynomial,
+                            MethodTag::AlgebraicRootIsolation,
+                            MethodTag::CertifiedIntervalEvaluation,
+                        ],
+                        internal_precision_bits: 128,
+                        refinement_rounds: 0,
+                    },
+                });
+            }
             let certified_enclosure = evaluate_interval_dag(&dag).map_err(|interval_error| {
                 interval_error_to_evaluation_error(interval_error, error.clone())
             })?;
@@ -341,6 +369,11 @@ pub fn present(
         (RecognizedExact::RationalPiMultiple(value), ExactOutputRequest::Include { .. }) => {
             ExactOutput::Included(rational_pi_presentation(value))
         }
+        (RecognizedExact::RealAlgebraic(_), ExactOutputRequest::Include { .. }) => {
+            ExactOutput::Included(real_algebraic_presentation(
+                &evaluation.value.exact_expression.source,
+            ))
+        }
         (_, ExactOutputRequest::Include { .. }) => ExactOutput::Included(symbolic_presentation(
             &evaluation.value.exact_expression.source,
         )),
@@ -467,6 +500,13 @@ fn interval_error_to_evaluation_error(
         }
         interval::IntervalError::UnsupportedExpression
         | interval::IntervalError::DivisionByIntervalContainingZero => fallback,
+    }
+}
+
+fn resource_limits(request: &ResourceLimitRequest) -> ResourceLimits {
+    match request {
+        ResourceLimitRequest::Default => ResourceLimits::default(),
+        ResourceLimitRequest::Custom(value) => value.clone(),
     }
 }
 
@@ -701,6 +741,15 @@ fn pi_numerator_node(numerator: &str) -> PresentationNode {
             PresentationNode::Text(String::from(numerator)),
             PresentationNode::Text(String::from("π")),
         ]),
+    }
+}
+
+fn real_algebraic_presentation(source: &str) -> ExactPresentation {
+    ExactPresentation {
+        relation: ResultRelation::ExactEqual,
+        representation: ExactRepresentationKind::RealAlgebraic,
+        presentation: PresentationNode::Text(String::from(source)),
+        plain_text: String::from(source),
     }
 }
 
@@ -1120,6 +1169,39 @@ mod tests {
             panic!("expected exact output");
         };
         exact.plain_text
+    }
+
+    fn assert_symbolic_fallback_with_limits(limits: ResourceLimits) {
+        let request = CalculationRequest {
+            limits: ResourceLimitRequest::Custom(limits),
+            ..CalculationRequest::default()
+        };
+        let mut context = EvaluationContext::default();
+        let outcome = calculate("2^(1/3)", &request, &mut context)
+            .expect("bounded algebraic fallback should calculate");
+        let CalculationOutcome::Partial { calculation, .. } = outcome else {
+            panic!("expected partial symbolic fallback");
+        };
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("expected retained exact output");
+        };
+        assert_eq!(
+            exact.representation,
+            ExactRepresentationKind::GeneralSymbolic
+        );
+        assert_eq!(exact.plain_text, "2^(1/3)");
+        assert_eq!(
+            calculation.metadata.exact_representation,
+            ExactRepresentationKind::GeneralSymbolic
+        );
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::SymbolicRetention));
+        assert!(!calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::AlgebraicMinimalPolynomial));
     }
 
     fn scientific_parts(
@@ -1646,6 +1728,160 @@ mod tests {
             .metadata
             .methods
             .contains(&MethodTag::CertifiedIntervalEvaluation));
+    }
+
+    #[test]
+    fn prime_root_rational_power_is_real_algebraic() {
+        let parsed = parse("2^(1/3)", &ParseSettings::default()).unwrap();
+        let mut context = EvaluationContext::default();
+        let evaluation = evaluate(
+            &parsed,
+            &EvaluationRequest {
+                semantics: SemanticSettings::default(),
+                limits: ResourceLimitRequest::Default,
+            },
+            &mut context,
+        )
+        .unwrap();
+        let RecognizedExact::RealAlgebraic(algebraic) = &evaluation.value.recognized_exact else {
+            panic!("expected real algebraic recognition");
+        };
+        assert_eq!(
+            algebraic.minimal_polynomial,
+            PrimitivePolynomial::new(vec![
+                Integer::from(-2),
+                Integer::zero(),
+                Integer::zero(),
+                Integer::one(),
+            ])
+            .unwrap()
+        );
+        assert_eq!(algebraic.real_root_index, 0);
+        assert_eq!(
+            algebraic
+                .minimal_polynomial
+                .distinct_real_root_count_in_interval(&algebraic.isolating_interval)
+                .unwrap(),
+            1
+        );
+        assert!(evaluation
+            .metadata
+            .methods
+            .contains(&MethodTag::AlgebraicMinimalPolynomial));
+        assert!(evaluation
+            .metadata
+            .methods
+            .contains(&MethodTag::AlgebraicRootIsolation));
+
+        let outcome = calculate("2^(1/3)", &CalculationRequest::default(), &mut context).unwrap();
+        let CalculationOutcome::Partial {
+            calculation,
+            reason,
+            certified_enclosure,
+        } = outcome
+        else {
+            panic!("expected partial calculation for non-rational algebraic number");
+        };
+        assert_eq!(
+            reason,
+            IncompleteReason::PrecisionLimit {
+                requested_digits: core::num::NonZeroU32::new(50).unwrap(),
+                confirmed_digits: 0,
+            }
+        );
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("expected exact algebraic output");
+        };
+        assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
+        assert_eq!(exact.plain_text, "2^(1/3)");
+        assert_eq!(
+            calculation.metadata.exact_representation,
+            ExactRepresentationKind::RealAlgebraic
+        );
+        assert_eq!(
+            calculation.metadata.assurance,
+            AssuranceLevel::CertifiedEnclosure
+        );
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::AlgebraicMinimalPolynomial));
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::AlgebraicRootIsolation));
+        let interval = CertifiedInterval {
+            lower: certified_enclosure.lower,
+            upper: certified_enclosure.upper,
+        };
+        let cubed = interval::pow_i64(&interval, 3, 128).unwrap();
+        assert!(
+            interval::contains_rational(&cubed, &Rational::from_integer(Integer::from(2)),)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn negative_prime_root_rational_power_is_real_algebraic() {
+        let parsed = parse("(-2)^(1/3)", &ParseSettings::default()).unwrap();
+        let mut context = EvaluationContext::default();
+        let evaluation = evaluate(
+            &parsed,
+            &EvaluationRequest {
+                semantics: SemanticSettings::default(),
+                limits: ResourceLimitRequest::Default,
+            },
+            &mut context,
+        )
+        .unwrap();
+        let RecognizedExact::RealAlgebraic(algebraic) = &evaluation.value.recognized_exact else {
+            panic!("expected real algebraic recognition");
+        };
+        assert_eq!(
+            algebraic.minimal_polynomial,
+            PrimitivePolynomial::new(vec![
+                Integer::from(2),
+                Integer::zero(),
+                Integer::zero(),
+                Integer::one(),
+            ])
+            .unwrap()
+        );
+        assert_eq!(algebraic.real_root_index, 0);
+        assert_eq!(
+            algebraic
+                .minimal_polynomial
+                .distinct_real_root_count_in_interval(&algebraic.isolating_interval)
+                .unwrap(),
+            1
+        );
+        let CertifiedEnclosureState::Available(enclosure) = &evaluation.value.certified_enclosure
+        else {
+            panic!("real algebraic recognition should include a certified enclosure");
+        };
+        let cubed = interval::pow_i64(enclosure, 3, 128).unwrap();
+        assert!(
+            interval::contains_rational(&cubed, &Rational::from_integer(Integer::from(-2)),)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn algebraic_root_limits_fall_back_to_symbolic_without_error() {
+        assert_symbolic_fallback_with_limits(ResourceLimits {
+            max_algebraic_degree: 2,
+            ..ResourceLimits::default()
+        });
+
+        assert_symbolic_fallback_with_limits(ResourceLimits {
+            max_polynomial_coefficient_bits: 1,
+            ..ResourceLimits::default()
+        });
+
+        assert_symbolic_fallback_with_limits(ResourceLimits {
+            max_root_isolation_steps: 0,
+            ..ResourceLimits::default()
+        });
     }
 
     #[test]
