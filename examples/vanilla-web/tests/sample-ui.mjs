@@ -195,7 +195,8 @@ async function assertRationalPowers(page) {
 
     await page.fill("#expression", "2^(1/2)");
     await page.click("#calculate");
-    await waitForText(page, "#exact-output", "= 2^(1/2)");
+    await waitForText(page, "#exact-output", "= sqrt(2)");
+    await waitForText(page, "#exact-kind", "RADICAL");
     await waitForText(page, "#scientific-state", "PRECISION LIMIT");
     await waitForText(page, "#enclosure-state", "EXACT DYADIC");
 
@@ -250,6 +251,11 @@ async function assertSpecialAngles(page) {
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "domain.tangentPole");
 
+    await page.fill("#expression", "sin(pi/4)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= sqrt(2)/2");
+    await waitForText(page, "#exact-kind", "RADICAL");
+
     await page.fill("#expression", "asin(1/2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= pi/6");
@@ -271,6 +277,7 @@ async function assertIrrationalSqrtPartial(page) {
     await page.fill("#expression", "sqrt(2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sqrt(2)");
+    await waitForText(page, "#exact-kind", "RADICAL");
     await waitForText(page, "#scientific-state", "PRECISION LIMIT");
     await waitForText(page, "#scientific-output", "Requested decimal digits are not confirmed.");
     await waitForText(page, "#enclosure-state", "EXACT DYADIC");

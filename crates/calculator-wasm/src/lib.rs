@@ -578,12 +578,9 @@ mod tests {
             }
         );
         let ExactOutputDto::Included { value: exact } = calculation.exact else {
-            panic!("expected exact symbolic output");
+            panic!("expected exact radical output");
         };
-        assert_eq!(
-            exact.representation,
-            ExactRepresentationKindDto::GeneralSymbolic
-        );
+        assert_eq!(exact.representation, ExactRepresentationKindDto::Radical);
         assert_eq!(exact.plain_text, "sqrt(2)");
         let ScientificOutputDto::Unavailable { value: scientific } = calculation.scientific else {
             panic!("expected unavailable scientific output");
@@ -593,14 +590,11 @@ mod tests {
             panic!("expected enclosure output");
         };
         assert_eq!(certified_enclosure, enclosure);
-        assert_eq!(
-            calculation.metadata.assurance,
-            AssuranceLevelDto::CertifiedEnclosure
-        );
+        assert_eq!(calculation.metadata.assurance, AssuranceLevelDto::Exact);
         assert!(calculation
             .metadata
             .methods
-            .contains(&MethodTagDto::SymbolicRetention));
+            .contains(&MethodTagDto::RadicalExtraction));
         assert!(calculation
             .metadata
             .methods
@@ -637,25 +631,19 @@ mod tests {
             }
         );
         let ExactOutputDto::Included { value: exact } = calculation.exact else {
-            panic!("expected exact symbolic output");
+            panic!("expected exact radical output");
         };
-        assert_eq!(
-            exact.representation,
-            ExactRepresentationKindDto::GeneralSymbolic
-        );
-        assert_eq!(exact.plain_text, "2^(1/2)");
+        assert_eq!(exact.representation, ExactRepresentationKindDto::Radical);
+        assert_eq!(exact.plain_text, "sqrt(2)");
         let EnclosureOutputDto::Included { value: enclosure } = calculation.enclosure else {
             panic!("expected enclosure output");
         };
         assert_eq!(certified_enclosure, enclosure);
-        assert_eq!(
-            calculation.metadata.assurance,
-            AssuranceLevelDto::CertifiedEnclosure
-        );
+        assert_eq!(calculation.metadata.assurance, AssuranceLevelDto::Exact);
         assert!(calculation
             .metadata
             .methods
-            .contains(&MethodTagDto::SymbolicRetention));
+            .contains(&MethodTagDto::RadicalExtraction));
         assert!(calculation
             .metadata
             .methods
@@ -797,6 +785,41 @@ mod tests {
         assert_eq!(exact.plain_text, "1/2");
         assert_eq!(metadata.semantic_settings.angle_unit, AngleUnitDto::Degree);
         assert!(metadata.methods.contains(&MethodTagDto::SpecialAngle));
+    }
+
+    #[test]
+    fn wasm_dto_serializes_simple_radical_exact_output() {
+        for (source, expected, special_angle) in [
+            ("sqrt(72)", "6sqrt(2)", false),
+            ("sqrt(1/2)", "sqrt(2)/2", false),
+            ("2^(1/2)", "sqrt(2)", false),
+            ("sin(pi/4)", "sqrt(2)/2", true),
+            ("tan(pi/3)", "sqrt(3)", true),
+        ] {
+            let result = calculate_dto(source, exact_only_request());
+            let ApiResultDto::Ok {
+                value:
+                    CalculationOutcomeDto::Complete {
+                        calculation:
+                            CalculationDto {
+                                exact: ExactOutputDto::Included { value: exact },
+                                metadata,
+                                ..
+                            },
+                    },
+            } = result
+            else {
+                panic!("{source}: expected complete radical calculation");
+            };
+            assert_eq!(exact.representation, ExactRepresentationKindDto::Radical);
+            assert_eq!(exact.plain_text, expected, "{source}");
+            assert!(metadata.methods.contains(&MethodTagDto::RadicalExtraction));
+            assert_eq!(
+                metadata.methods.contains(&MethodTagDto::SpecialAngle),
+                special_angle,
+                "{source}"
+            );
+        }
     }
 
     #[test]
@@ -1484,6 +1507,20 @@ pub mod wasm_tests {
     }
 
     #[wasm_bindgen_test]
+    fn wasm32_calculates_simple_radical_exact_output() {
+        for (source, expected) in [
+            ("sqrt(72)", "6sqrt(2)"),
+            ("sqrt(1/2)", "sqrt(2)/2"),
+            ("2^(1/2)", "sqrt(2)"),
+            ("sin(pi/4)", "sqrt(2)/2"),
+            ("tan(pi/3)", "sqrt(3)"),
+        ] {
+            let result = calculate_dto(source, exact_only_request());
+            assert_eq!(exact_plain_text(result), expected, "{source}");
+        }
+    }
+
+    #[wasm_bindgen_test]
     fn wasm32_calculates_inverse_trigonometric_known_values() {
         for (source, expected) in [
             ("asin(1/2)", "pi/6"),
@@ -1565,7 +1602,7 @@ pub mod wasm_tests {
         };
         assert_eq!(
             partial_exact_plain_text(calculate_dto("2^(1/2)", request)),
-            "2^(1/2)"
+            "sqrt(2)"
         );
     }
 

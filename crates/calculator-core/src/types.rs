@@ -26,6 +26,7 @@ pub enum CertifiedEnclosureState {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RecognizedExact {
     Rational(Rational),
+    Radical(SimpleRadical),
     RealAlgebraic(RealAlgebraic),
     RationalPiMultiple(Rational),
     GeneralSymbolic,
@@ -152,6 +153,12 @@ pub struct PositiveInteger {
 pub struct Rational {
     pub numerator: Integer,
     pub denominator: PositiveInteger,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SimpleRadical {
+    pub coefficient: Rational,
+    pub radicand: PositiveInteger,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1047,6 +1054,29 @@ impl Rational {
         )
     }
 
+    pub(crate) fn sqrt_as_simple_radical(&self) -> Option<SimpleRadical> {
+        if self.is_negative() || self.is_zero() {
+            return None;
+        }
+
+        let combined = &self.numerator.inner * &self.denominator.inner.inner;
+        let (outside, radicand) = extract_square_factor(combined);
+        if radicand == BigInt::one() {
+            return None;
+        }
+
+        let coefficient = Rational::new(
+            Integer::from_bigint(outside),
+            self.denominator.inner.clone(),
+        )
+        .expect("canonical rational denominator is non-zero");
+        Some(SimpleRadical {
+            coefficient,
+            radicand: PositiveInteger::new(Integer::from_bigint(radicand))
+                .expect("positive radicand remains positive after square extraction"),
+        })
+    }
+
     pub fn pow_i64(&self, exponent: i64) -> Result<Self, RationalArithmeticError> {
         if exponent == 0 {
             return Ok(Self::one());
@@ -1147,6 +1177,30 @@ impl Rational {
                 .map_err(|_| DecimalLiteralError::InvalidDigit)
         }
     }
+}
+
+const SMALL_PRIME_SQUARE_FACTORS: [u32; 16] =
+    [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53];
+
+fn extract_square_factor(mut value: BigInt) -> (BigInt, BigInt) {
+    debug_assert!(value.sign() == Sign::Plus);
+    let mut outside = BigInt::one();
+    for prime in SMALL_PRIME_SQUARE_FACTORS {
+        let prime = BigInt::from(prime);
+        let square = &prime * &prime;
+        while (&value % &square).is_zero() {
+            value /= &square;
+            outside *= &prime;
+        }
+    }
+
+    let root = floor_sqrt_nonnegative(&value);
+    if &root * &root == value {
+        outside *= root;
+        value = BigInt::one();
+    }
+
+    (outside, value)
 }
 
 pub(crate) fn floor_sqrt_nonnegative(value: &BigInt) -> BigInt {
@@ -1461,6 +1515,29 @@ mod tests {
             .is_none());
         assert!(Rational::from_integer(Integer::from(-8))
             .nth_root_if_rational(2)
+            .is_none());
+    }
+
+    #[test]
+    fn rational_square_root_extracts_simple_radical() {
+        let radical = Rational::from_integer(Integer::from(72))
+            .sqrt_as_simple_radical()
+            .unwrap();
+        assert_eq!(radical.coefficient.to_string(), "6");
+        assert_eq!(radical.radicand.inner.to_string(), "2");
+
+        let radical = Rational::new(Integer::from(1), Integer::from(2))
+            .unwrap()
+            .sqrt_as_simple_radical()
+            .unwrap();
+        assert_eq!(radical.coefficient.to_string(), "1/2");
+        assert_eq!(radical.radicand.inner.to_string(), "2");
+
+        assert!(Rational::from_integer(Integer::from(4))
+            .sqrt_as_simple_radical()
+            .is_none());
+        assert!(Rational::from_integer(Integer::from(-2))
+            .sqrt_as_simple_radical()
             .is_none());
     }
 

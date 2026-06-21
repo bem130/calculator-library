@@ -60,6 +60,18 @@
       "expectedError": "domain.tangentPole"
     },
     {
+      "id": "simple_radical_sqrt",
+      "source": "sqrt(72)",
+      "expectedParseTree": "sqrt(number(72))",
+      "expectedExact": "6sqrt(2)"
+    },
+    {
+      "id": "radical_special_angle",
+      "source": "sin(pi/4)",
+      "expectedParseTree": "sin(divide(constant(pi),number(4)))",
+      "expectedExact": "sqrt(2)/2"
+    },
+    {
       "id": "inverse_trigonometric_known_value",
       "source": "asin(1/2)",
       "expectedParseTree": "asin(divide(number(1),number(2)))",
