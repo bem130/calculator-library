@@ -609,6 +609,70 @@ mod tests {
     }
 
     #[test]
+    fn wasm_dto_handles_initial_exp_log_identities() {
+        for (source, expected) in [("exp(0)", "1"), ("log(1)", "0")] {
+            let result = calculate_dto(source, exact_only_request());
+            let ApiResultDto::Ok {
+                value:
+                    CalculationOutcomeDto::Complete {
+                        calculation:
+                            CalculationDto {
+                                exact: ExactOutputDto::Included { value: exact },
+                                ..
+                            },
+                    },
+            } = result
+            else {
+                panic!("{source}: expected complete exact calculation");
+            };
+            assert_eq!(exact.plain_text, expected);
+        }
+    }
+
+    #[test]
+    fn wasm_dto_serializes_exp_one_with_certified_enclosure() {
+        let mut request = exact_only_request();
+        request.scientific_output = ScientificOutputRequestDto::Include {
+            significant_digits: 50,
+            rounding_mode: DecimalRoundingModeDto::NearestTiesToEven,
+        };
+        request.enclosure_output = EnclosureOutputRequestDto::Include {
+            format: EnclosureFormatDto::ExactDyadic,
+        };
+        let result = calculate_dto("exp(1)", request);
+        let ApiResultDto::Ok {
+            value:
+                CalculationOutcomeDto::Partial {
+                    calculation,
+                    reason,
+                    certified_enclosure,
+                },
+        } = result
+        else {
+            panic!("expected partial exp(1) calculation");
+        };
+        assert_eq!(
+            reason,
+            IncompleteReasonDto::PrecisionLimit {
+                requested_digits: 50,
+                confirmed_digits: 0,
+            }
+        );
+        let ExactOutputDto::Included { value: exact } = calculation.exact else {
+            panic!("expected exact symbolic output");
+        };
+        assert_eq!(exact.plain_text, "exp(1)");
+        let EnclosureOutputDto::Included { value: enclosure } = calculation.enclosure else {
+            panic!("expected enclosure output");
+        };
+        assert_eq!(certified_enclosure, enclosure);
+        assert_eq!(
+            calculation.metadata.assurance,
+            AssuranceLevelDto::CertifiedEnclosure
+        );
+    }
+
+    #[test]
     fn wasm_dto_rejects_zero_significant_digits_before_core() {
         let mut request = exact_only_request();
         request.scientific_output = ScientificOutputRequestDto::Include {
