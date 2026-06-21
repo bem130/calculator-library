@@ -2393,7 +2393,7 @@ fn evaluate_interval_node(
                 evaluate_interval_node(dag, *argument, precision_bits)?;
                 interval::from_rational_bounds(&rational(-1, 1), &rational(1, 1), precision_bits)
             }
-            Function::Tan => tangent_rational_pi_interval(dag, *argument, precision_bits),
+            Function::Tan => tangent_interval(dag, *argument, precision_bits),
             Function::Atan => interval::atan(
                 &evaluate_interval_node(dag, *argument, precision_bits)?,
                 precision_bits,
@@ -2443,6 +2443,21 @@ fn tangent_rational_pi_interval(
         .divide(&denominator)
         .map_err(|_| IntervalError::DivisionByIntervalContainingZero)?;
     interval::from_rational_bounds(&bound.negate(), &bound, precision_bits)
+}
+
+fn tangent_interval(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    match tangent_rational_pi_interval(dag, argument, precision_bits) {
+        Ok(interval) => Ok(interval),
+        Err(IntervalError::UnsupportedExpression) => interval::tan(
+            &evaluate_interval_node(dag, argument, precision_bits)?,
+            precision_bits,
+        ),
+        Err(error) => Err(error),
+    }
 }
 
 fn arithmetic_error(error: RationalArithmeticError) -> EvaluationError {

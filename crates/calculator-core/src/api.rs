@@ -2651,6 +2651,7 @@ mod tests {
             "atan(1/3)",
             "asin(1/3)",
             "acos(1/3)",
+            "tan(1)",
         ] {
             let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
             let CalculationOutcome::Partial {

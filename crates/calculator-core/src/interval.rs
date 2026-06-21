@@ -181,6 +181,24 @@ pub(crate) fn acos(
     from_rational_bounds(&lower, &upper, precision_bits)
 }
 
+pub(crate) fn tan(
+    value: &CertifiedInterval,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    let lower = dyadic_to_rational(&value.lower)?;
+    let upper = dyadic_to_rational(&value.upper)?;
+    let minus_one = rational_integer(-1);
+    if compare_rationals(&lower, &minus_one) == Ordering::Less
+        || compare_rationals(&upper, &Rational::one()) == Ordering::Greater
+    {
+        return Err(IntervalError::UnsupportedExpression);
+    }
+
+    let (lower, _) = tan_rational_bounds(&lower, precision_bits)?;
+    let (_, upper) = tan_rational_bounds(&upper, precision_bits)?;
+    from_rational_bounds(&lower, &upper, precision_bits)
+}
+
 pub(crate) fn pow_i64(
     base: &CertifiedInterval,
     exponent: i64,
@@ -674,6 +692,129 @@ fn acos_rational_bounds(
     ))
 }
 
+fn tan_rational_bounds(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    let minus_one = rational_integer(-1);
+    if compare_rationals(value, &minus_one) == Ordering::Less
+        || compare_rationals(value, &Rational::one()) == Ordering::Greater
+    {
+        return Err(IntervalError::UnsupportedExpression);
+    }
+    if value.is_zero() {
+        return Ok((Rational::zero(), Rational::zero()));
+    }
+    if value.is_negative() {
+        let (lower, upper) = tan_rational_bounds(&value.negate(), precision_bits)?;
+        return Ok((upper.negate(), lower.negate()));
+    }
+
+    let (sin_lower, sin_upper) = sin_unit_rational_bounds(value, precision_bits)?;
+    let (cos_lower, cos_upper) = cos_unit_rational_bounds(value, precision_bits)?;
+    if compare_rationals(&cos_lower, &Rational::zero()) != Ordering::Greater {
+        return Err(IntervalError::UnsupportedExpression);
+    }
+    Ok((
+        divide_rational(&sin_lower, &cos_upper)?,
+        divide_rational(&sin_upper, &cos_lower)?,
+    ))
+}
+
+fn sin_unit_rational_bounds(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    if value.is_negative() {
+        let (lower, upper) = sin_unit_rational_bounds(&value.negate(), precision_bits)?;
+        return Ok((upper.negate(), lower.negate()));
+    }
+    debug_assert!(compare_rationals(value, &Rational::one()) != Ordering::Greater);
+    let value_squared = value.multiply(value);
+    let term_count = series_terms(precision_bits)?;
+    let mut sum = Rational::zero();
+    let mut term = value.clone();
+    for n in 0..=term_count {
+        if n.is_multiple_of(2) {
+            sum = sum.add(&term);
+        } else {
+            sum = sum.subtract(&term);
+        }
+        let denominator = n
+            .checked_mul(2)
+            .and_then(|value| value.checked_add(2))
+            .and_then(|value| value.checked_mul(value.checked_add(1)?))
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        term = divide_rational(
+            &term.multiply(&value_squared),
+            &rational_integer(i64::from(denominator)),
+        )?;
+    }
+
+    let next_index = term_count
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let adjacent = if next_index.is_multiple_of(2) {
+        sum.add(&term)
+    } else {
+        sum.subtract(&term)
+    };
+    ordered_rational_bounds(sum, adjacent)
+}
+
+fn cos_unit_rational_bounds(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    let value = if value.is_negative() {
+        value.negate()
+    } else {
+        value.clone()
+    };
+    debug_assert!(compare_rationals(&value, &Rational::one()) != Ordering::Greater);
+    let value_squared = value.multiply(&value);
+    let term_count = series_terms(precision_bits)?;
+    let mut sum = Rational::zero();
+    let mut term = Rational::one();
+    for n in 0..=term_count {
+        if n.is_multiple_of(2) {
+            sum = sum.add(&term);
+        } else {
+            sum = sum.subtract(&term);
+        }
+        let denominator = n
+            .checked_mul(2)
+            .and_then(|value| value.checked_add(1))
+            .and_then(|value| value.checked_mul(value.checked_add(1)?))
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        term = divide_rational(
+            &term.multiply(&value_squared),
+            &rational_integer(i64::from(denominator)),
+        )?;
+    }
+
+    let next_index = term_count
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let adjacent = if next_index.is_multiple_of(2) {
+        sum.add(&term)
+    } else {
+        sum.subtract(&term)
+    };
+    ordered_rational_bounds(sum, adjacent)
+}
+
+fn ordered_rational_bounds(
+    left: Rational,
+    right: Rational,
+) -> Result<(Rational, Rational), IntervalError> {
+    if compare_rationals(&left, &right) == Ordering::Greater {
+        Ok((right, left))
+    } else {
+        Ok((left, right))
+    }
+}
+
 fn ceil_nonnegative_rational_to_u32(value: &Rational) -> Result<u32, IntervalError> {
     debug_assert!(!value.is_negative());
     let quotient = value
@@ -1160,6 +1301,50 @@ mod tests {
         assert_eq!(
             compare_dyadic_to_rational(&negative.upper, &rational(-1, 1)).unwrap(),
             Ordering::Less
+        );
+    }
+
+    #[test]
+    fn tan_interval_is_inside_coarse_known_bounds() {
+        let positive = tan(&from_rational(&rational(1, 1), 128), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&positive.lower, &rational(3, 2)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&positive.upper, &rational(8, 5)).unwrap(),
+            Ordering::Less
+        );
+
+        let small = tan(&from_rational(&rational(1, 3), 128), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&small.lower, &rational(1, 3)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&small.upper, &rational(1, 2)).unwrap(),
+            Ordering::Less
+        );
+
+        let negative = tan(&from_rational(&rational(-1, 1), 128), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&negative.lower, &rational(-8, 5)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&negative.upper, &rational(-3, 2)).unwrap(),
+            Ordering::Less
+        );
+    }
+
+    #[test]
+    fn tan_interval_keeps_unsupported_range_separate_from_pole_domain() {
+        assert_eq!(
+            tan(
+                &from_rational_bounds(&rational(0, 1), &rational(2, 1), 16).unwrap(),
+                16,
+            ),
+            Err(IntervalError::UnsupportedExpression)
         );
     }
 
