@@ -85,6 +85,7 @@ async function runBrowserChecks(url, origin) {
             await page.locator("#mathml-output math mfrac").count() > 0,
             "MathML fraction was not rendered",
         );
+        await assertPhase2Outputs(page);
 
         await page.click("#copy");
         await waitForText(page, "#status", "Copied");
@@ -120,6 +121,30 @@ async function runBrowserChecks(url, origin) {
     } finally {
         await browser.close();
     }
+}
+
+async function assertPhase2Outputs(page) {
+    await page.check("#include-scientific");
+    await page.check("#include-enclosure");
+    await page.click("#calculate");
+
+    await waitForText(page, "#scientific-state", "50 digits");
+    await waitForText(
+        page,
+        "#scientific-output",
+        "3.0000000000000000000000000000000000000000000000000e-1",
+    );
+    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+
+    const interval = parseExactDyadicInterval(await textContent(page, "#enclosure-output"));
+    assert(
+        dyadicCompareWithRational(interval.lower, 3n, 10n) <= 0,
+        "certified enclosure lower bound is above 3/10",
+    );
+    assert(
+        dyadicCompareWithRational(interval.upper, 3n, 10n) >= 0,
+        "certified enclosure upper bound is below 3/10",
+    );
 }
 
 async function readSources(directory) {
@@ -235,6 +260,43 @@ async function waitForText(page, selector, expected) {
 
 async function textContent(page, selector) {
     return await page.locator(selector).evaluate((element) => element.textContent?.trim() ?? "");
+}
+
+function parseExactDyadicInterval(source) {
+    const match = /^\[(-?\d+) \* 2\^(-?\d+), (-?\d+) \* 2\^(-?\d+)\]$/u.exec(source);
+    assert(match !== null, `unexpected enclosure output: ${JSON.stringify(source)}`);
+    return {
+        lower: {
+            coefficient: BigInt(match[1]),
+            exponentTwo: Number.parseInt(match[2], 10),
+        },
+        upper: {
+            coefficient: BigInt(match[3]),
+            exponentTwo: Number.parseInt(match[4], 10),
+        },
+    };
+}
+
+function dyadicCompareWithRational(dyadic, numerator, denominator) {
+    assert(denominator > 0n, "denominator must be positive");
+    const coefficient = dyadic.coefficient;
+    const exponentTwo = dyadic.exponentTwo;
+    let left;
+    let right;
+    if (exponentTwo >= 0) {
+        left = coefficient * (1n << BigInt(exponentTwo)) * denominator;
+        right = numerator;
+    } else {
+        left = coefficient * denominator;
+        right = numerator * (1n << BigInt(-exponentTwo));
+    }
+    if (left < right) {
+        return -1;
+    }
+    if (left > right) {
+        return 1;
+    }
+    return 0;
 }
 
 function assert(condition, message) {
