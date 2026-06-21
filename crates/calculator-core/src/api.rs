@@ -10,7 +10,10 @@ use num_bigint::{BigInt, Sign};
 use num_integer::Integer as _;
 use num_traits::{Signed, Zero};
 
-use crate::expression::{evaluate_interval_dag, evaluate_rational_dag, lower_source_expression};
+use crate::expression::{
+    evaluate_interval_dag, evaluate_rational_dag, evaluate_rational_pi_multiple_dag,
+    lower_source_expression, ExactExpressionDag,
+};
 use crate::interval;
 use crate::types::*;
 
@@ -77,6 +80,40 @@ pub fn evaluate(
     let rational = match evaluate_rational_dag(&dag) {
         Ok(rational) => rational,
         Err(error) if should_fallback_to_symbolic_interval(&error) => {
+            if let Some(coefficient) = evaluate_rational_pi_multiple_dag(&dag)? {
+                if coefficient.is_zero() {
+                    return Ok(rational_evaluation_outcome(
+                        expression,
+                        &dag,
+                        Rational::zero(),
+                        request,
+                    ));
+                }
+                let certified_enclosure =
+                    evaluate_interval_dag(&dag).map_err(|interval_error| {
+                        interval_error_to_evaluation_error(interval_error, error.clone())
+                    })?;
+                return Ok(EvaluationOutcome {
+                    value: EvaluatedValue {
+                        exact_expression: ExactExpression {
+                            source: expression.source.clone(),
+                        },
+                        recognized_exact: RecognizedExact::RationalPiMultiple(coefficient),
+                        certified_enclosure: CertifiedEnclosureState::Available(
+                            certified_enclosure,
+                        ),
+                    },
+                    metadata: EvaluationMetadata {
+                        semantic_settings: request.semantics,
+                        methods: vec![
+                            MethodTag::SymbolicRetention,
+                            MethodTag::CertifiedIntervalEvaluation,
+                        ],
+                        internal_precision_bits: 128,
+                        refinement_rounds: 0,
+                    },
+                });
+            }
             let certified_enclosure = evaluate_interval_dag(&dag).map_err(|interval_error| {
                 interval_error_to_evaluation_error(interval_error, error.clone())
             })?;
@@ -101,13 +138,24 @@ pub fn evaluate(
         }
         Err(error) => return Err(error),
     };
-    let certified_enclosure = evaluate_interval_dag(&dag).ok();
+    Ok(rational_evaluation_outcome(
+        expression, &dag, rational, request,
+    ))
+}
+
+fn rational_evaluation_outcome(
+    expression: &ParsedExpression,
+    dag: &ExactExpressionDag,
+    rational: Rational,
+    request: &EvaluationRequest,
+) -> EvaluationOutcome {
+    let certified_enclosure = evaluate_interval_dag(dag).ok();
     let has_certified_enclosure = certified_enclosure.is_some();
     let mut methods = vec![MethodTag::RationalReduction];
     if has_certified_enclosure {
         methods.push(MethodTag::CertifiedIntervalEvaluation);
     }
-    Ok(EvaluationOutcome {
+    EvaluationOutcome {
         value: EvaluatedValue {
             exact_expression: ExactExpression {
                 source: expression.source.clone(),
@@ -123,7 +171,7 @@ pub fn evaluate(
             internal_precision_bits: if has_certified_enclosure { 128 } else { 0 },
             refinement_rounds: 0,
         },
-    })
+    }
 }
 
 pub fn present(
@@ -134,6 +182,9 @@ pub fn present(
         (_, ExactOutputRequest::Omit) => ExactOutput::Omitted,
         (RecognizedExact::Rational(rational), ExactOutputRequest::Include { .. }) => {
             ExactOutput::Included(exact_presentation(rational))
+        }
+        (RecognizedExact::RationalPiMultiple(value), ExactOutputRequest::Include { .. }) => {
+            ExactOutput::Included(rational_pi_presentation(value))
         }
         (_, ExactOutputRequest::Include { .. }) => ExactOutput::Included(symbolic_presentation(
             &evaluation.value.exact_expression.source,
@@ -300,6 +351,60 @@ fn rational_presentation(rational: &Rational) -> PresentationNode {
                 rational.denominator.inner.to_string(),
             )),
         }
+    }
+}
+
+fn rational_pi_presentation(coefficient: &Rational) -> ExactPresentation {
+    ExactPresentation {
+        relation: ResultRelation::ExactEqual,
+        representation: ExactRepresentationKind::RationalPiMultiple,
+        presentation: rational_pi_presentation_node(coefficient),
+        plain_text: rational_pi_plain_text(coefficient),
+    }
+}
+
+fn rational_pi_plain_text(coefficient: &Rational) -> String {
+    debug_assert!(!coefficient.is_zero());
+    let numerator = coefficient.numerator.to_string();
+    if coefficient.is_integer() {
+        return match numerator.as_str() {
+            "1" => String::from("pi"),
+            "-1" => String::from("-pi"),
+            _ => format!("{numerator}pi"),
+        };
+    }
+
+    let denominator = coefficient.denominator.inner.to_string();
+    match numerator.as_str() {
+        "1" => format!("pi/{denominator}"),
+        "-1" => format!("-pi/{denominator}"),
+        _ => format!("{numerator}pi/{denominator}"),
+    }
+}
+
+fn rational_pi_presentation_node(coefficient: &Rational) -> PresentationNode {
+    if coefficient.is_integer() {
+        return pi_numerator_node(&coefficient.numerator.to_string());
+    }
+    PresentationNode::Fraction {
+        numerator: Box::new(pi_numerator_node(&coefficient.numerator.to_string())),
+        denominator: Box::new(PresentationNode::Text(
+            coefficient.denominator.inner.to_string(),
+        )),
+    }
+}
+
+fn pi_numerator_node(numerator: &str) -> PresentationNode {
+    match numerator {
+        "1" => PresentationNode::Text(String::from("π")),
+        "-1" => PresentationNode::Row(vec![
+            PresentationNode::Text(String::from("-")),
+            PresentationNode::Text(String::from("π")),
+        ]),
+        _ => PresentationNode::Row(vec![
+            PresentationNode::Text(String::from(numerator)),
+            PresentationNode::Text(String::from("π")),
+        ]),
     }
 }
 
@@ -759,6 +864,41 @@ mod tests {
     }
 
     #[test]
+    fn rational_pi_multiples_are_recognized_exactly() {
+        for (source, expected) in [
+            ("pi", "pi"),
+            ("pi/6", "pi/6"),
+            ("3*pi/4", "3pi/4"),
+            ("-11*pi/7", "-11pi/7"),
+            ("pi/6 + pi/3", "pi/2"),
+            ("pi - pi", "0"),
+        ] {
+            assert_eq!(exact_plain_text(source), expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn rational_pi_multiples_use_exact_representation_kind() {
+        let mut context = EvaluationContext::default();
+        let outcome = calculate("3*pi/4", &exact_only_request(), &mut context).unwrap();
+        let CalculationOutcome::Complete(calculation) = outcome else {
+            panic!("expected complete calculation");
+        };
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("expected exact output");
+        };
+        assert_eq!(
+            exact.representation,
+            ExactRepresentationKind::RationalPiMultiple
+        );
+        assert_eq!(
+            calculation.metadata.exact_representation,
+            ExactRepresentationKind::RationalPiMultiple
+        );
+        assert_eq!(exact.plain_text, "3pi/4");
+    }
+
+    #[test]
     fn perfect_square_sqrt_is_exact_rational() {
         assert_eq!(exact_plain_text("sqrt(4)"), "2");
         assert_eq!(exact_plain_text("sqrt(9/16)"), "3/4");
@@ -874,7 +1014,50 @@ mod tests {
 
     #[test]
     fn constants_return_partial_with_certified_enclosures() {
-        for source in ["e", "pi"] {
+        let source = "e";
+        let mut context = EvaluationContext::default();
+        let outcome = calculate(source, &CalculationRequest::default(), &mut context)
+            .unwrap_or_else(|error| panic!("{source}: {error:?}"));
+        let CalculationOutcome::Partial {
+            calculation,
+            reason,
+            certified_enclosure,
+        } = outcome
+        else {
+            panic!("{source}: expected partial calculation");
+        };
+        assert_eq!(
+            reason,
+            IncompleteReason::PrecisionLimit {
+                requested_digits: core::num::NonZeroU32::new(50).unwrap(),
+                confirmed_digits: 0,
+            }
+        );
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("{source}: expected retained exact expression");
+        };
+        assert_eq!(
+            exact.representation,
+            ExactRepresentationKind::GeneralSymbolic
+        );
+        assert_eq!(exact.plain_text, source);
+        let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
+            panic!("{source}: expected requested enclosure output");
+        };
+        assert_eq!(certified_enclosure, enclosure);
+        assert_eq!(
+            calculation.metadata.assurance,
+            AssuranceLevel::CertifiedEnclosure
+        );
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::CertifiedIntervalEvaluation));
+    }
+
+    #[test]
+    fn non_rational_pi_multiples_return_partial_with_certified_enclosures() {
+        for source in ["pi", "pi/6"] {
             let mut context = EvaluationContext::default();
             let outcome = calculate(source, &CalculationRequest::default(), &mut context)
                 .unwrap_or_else(|error| panic!("{source}: {error:?}"));
@@ -898,9 +1081,8 @@ mod tests {
             };
             assert_eq!(
                 exact.representation,
-                ExactRepresentationKind::GeneralSymbolic
+                ExactRepresentationKind::RationalPiMultiple
             );
-            assert_eq!(exact.plain_text, source);
             let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
                 panic!("{source}: expected requested enclosure output");
             };
@@ -909,10 +1091,6 @@ mod tests {
                 calculation.metadata.assurance,
                 AssuranceLevel::CertifiedEnclosure
             );
-            assert!(calculation
-                .metadata
-                .methods
-                .contains(&MethodTag::CertifiedIntervalEvaluation));
         }
     }
 

@@ -664,51 +664,132 @@ mod tests {
 
     #[test]
     fn wasm_dto_serializes_partial_constants_with_certified_enclosures() {
-        for source in ["e", "pi"] {
-            let mut request = exact_only_request();
-            request.scientific_output = ScientificOutputRequestDto::Include {
-                significant_digits: 50,
-                rounding_mode: DecimalRoundingModeDto::NearestTiesToEven,
-            };
-            request.enclosure_output = EnclosureOutputRequestDto::Include {
-                format: EnclosureFormatDto::ExactDyadic,
-            };
-            let result = calculate_dto(source, request);
+        let source = "e";
+        let mut request = exact_only_request();
+        request.scientific_output = ScientificOutputRequestDto::Include {
+            significant_digits: 50,
+            rounding_mode: DecimalRoundingModeDto::NearestTiesToEven,
+        };
+        request.enclosure_output = EnclosureOutputRequestDto::Include {
+            format: EnclosureFormatDto::ExactDyadic,
+        };
+        let result = calculate_dto(source, request);
+        let ApiResultDto::Ok {
+            value:
+                CalculationOutcomeDto::Partial {
+                    calculation,
+                    reason,
+                    certified_enclosure,
+                },
+        } = result
+        else {
+            panic!("{source}: expected partial constant calculation");
+        };
+        assert_eq!(
+            reason,
+            IncompleteReasonDto::PrecisionLimit {
+                requested_digits: 50,
+                confirmed_digits: 0,
+            }
+        );
+        let ExactOutputDto::Included { value: exact } = calculation.exact else {
+            panic!("{source}: expected exact symbolic output");
+        };
+        assert_eq!(
+            exact.representation,
+            ExactRepresentationKindDto::GeneralSymbolic
+        );
+        assert_eq!(exact.plain_text, source);
+        let EnclosureOutputDto::Included { value: enclosure } = calculation.enclosure else {
+            panic!("{source}: expected enclosure output");
+        };
+        assert_eq!(certified_enclosure, enclosure);
+        assert_eq!(
+            calculation.metadata.assurance,
+            AssuranceLevelDto::CertifiedEnclosure
+        );
+    }
+
+    #[test]
+    fn wasm_dto_serializes_rational_pi_multiple_exact_output() {
+        for (source, expected) in [
+            ("pi", "pi"),
+            ("pi/6", "pi/6"),
+            ("3*pi/4", "3pi/4"),
+            ("-11*pi/7", "-11pi/7"),
+        ] {
+            let result = calculate_dto(source, exact_only_request());
             let ApiResultDto::Ok {
                 value:
-                    CalculationOutcomeDto::Partial {
-                        calculation,
-                        reason,
-                        certified_enclosure,
+                    CalculationOutcomeDto::Complete {
+                        calculation:
+                            CalculationDto {
+                                exact: ExactOutputDto::Included { value: exact },
+                                metadata,
+                                ..
+                            },
                     },
             } = result
             else {
-                panic!("{source}: expected partial constant calculation");
-            };
-            assert_eq!(
-                reason,
-                IncompleteReasonDto::PrecisionLimit {
-                    requested_digits: 50,
-                    confirmed_digits: 0,
-                }
-            );
-            let ExactOutputDto::Included { value: exact } = calculation.exact else {
-                panic!("{source}: expected exact symbolic output");
+                panic!("{source}: expected complete rational pi multiple calculation");
             };
             assert_eq!(
                 exact.representation,
-                ExactRepresentationKindDto::GeneralSymbolic
+                ExactRepresentationKindDto::RationalPiMultiple
             );
-            assert_eq!(exact.plain_text, source);
-            let EnclosureOutputDto::Included { value: enclosure } = calculation.enclosure else {
-                panic!("{source}: expected enclosure output");
-            };
-            assert_eq!(certified_enclosure, enclosure);
             assert_eq!(
-                calculation.metadata.assurance,
-                AssuranceLevelDto::CertifiedEnclosure
+                metadata.exact_representation,
+                ExactRepresentationKindDto::RationalPiMultiple
             );
+            assert_eq!(exact.plain_text, expected, "{source}");
         }
+    }
+
+    #[test]
+    fn wasm_dto_serializes_partial_rational_pi_multiple_with_certified_enclosure() {
+        let mut request = exact_only_request();
+        request.scientific_output = ScientificOutputRequestDto::Include {
+            significant_digits: 50,
+            rounding_mode: DecimalRoundingModeDto::NearestTiesToEven,
+        };
+        request.enclosure_output = EnclosureOutputRequestDto::Include {
+            format: EnclosureFormatDto::ExactDyadic,
+        };
+        let result = calculate_dto("pi/6", request);
+        let ApiResultDto::Ok {
+            value:
+                CalculationOutcomeDto::Partial {
+                    calculation,
+                    reason,
+                    certified_enclosure,
+                },
+        } = result
+        else {
+            panic!("expected partial rational pi multiple calculation");
+        };
+        assert_eq!(
+            reason,
+            IncompleteReasonDto::PrecisionLimit {
+                requested_digits: 50,
+                confirmed_digits: 0,
+            }
+        );
+        let ExactOutputDto::Included { value: exact } = calculation.exact else {
+            panic!("expected exact output");
+        };
+        assert_eq!(
+            exact.representation,
+            ExactRepresentationKindDto::RationalPiMultiple
+        );
+        assert_eq!(exact.plain_text, "pi/6");
+        let EnclosureOutputDto::Included { value: enclosure } = calculation.enclosure else {
+            panic!("expected enclosure output");
+        };
+        assert_eq!(certified_enclosure, enclosure);
+        assert_eq!(
+            calculation.metadata.assurance,
+            AssuranceLevelDto::CertifiedEnclosure
+        );
     }
 
     #[test]
@@ -1232,6 +1313,35 @@ pub mod wasm_tests {
     fn wasm32_calculates_exact_rational_expression() {
         let result = calculate_dto("0.1 + 0.2", exact_only_request());
         assert_eq!(exact_plain_text(result), "3/10");
+    }
+
+    #[wasm_bindgen_test]
+    fn wasm32_calculates_rational_pi_multiple_exact_output() {
+        for (source, expected) in [
+            ("pi", "pi"),
+            ("pi/6", "pi/6"),
+            ("3*pi/4", "3pi/4"),
+            ("-11*pi/7", "-11pi/7"),
+        ] {
+            let result = calculate_dto(source, exact_only_request());
+            assert_eq!(exact_plain_text(result), expected, "{source}");
+        }
+    }
+
+    #[wasm_bindgen_test]
+    fn wasm32_serializes_partial_rational_pi_multiple_with_certified_enclosure() {
+        let mut request = exact_only_request();
+        request.scientific_output = ScientificOutputRequestDto::Include {
+            significant_digits: 50,
+            rounding_mode: DecimalRoundingModeDto::NearestTiesToEven,
+        };
+        request.enclosure_output = EnclosureOutputRequestDto::Include {
+            format: EnclosureFormatDto::ExactDyadic,
+        };
+        assert_eq!(
+            partial_exact_plain_text(calculate_dto("pi/6", request)),
+            "pi/6"
+        );
     }
 
     #[wasm_bindgen_test]

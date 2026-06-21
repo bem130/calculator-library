@@ -13,7 +13,8 @@ The implementation is following [doc/design.md](doc/design.md). The current work
 - Rational evaluation carries an internal exact-dyadic certified interval and can produce exact significant-digit scientific notation.
 - Integer powers and rational powers follow the `RealPrincipal` semantics: perfect roots such as `(-8)^(1/3)` and `(-8)^(2/3)` are exact, non-perfect roots such as `2^(1/2)` return certified enclosures with `Partial`, and negative bases with non-rational exponents report `NonRealPower`.
 - `sqrt` preserves perfect-square rational results exactly and returns a certified enclosure with `Partial` for irrational rational inputs such as `sqrt(2)`.
-- `e` and `pi` constants return certified enclosures with `Partial` until requested decimal digits are confirmed.
+- `pi`, `pi/6`, and other rational multiples of `pi` are recognized structurally as exact `RationalPiMultiple` values and return certified enclosures with `Partial` until requested decimal digits are confirmed.
+- The `e` constant returns a certified enclosure with `Partial` until requested decimal digits are confirmed.
 - `exp` / `log` identities are exact when proven over rational values, including `exp(0)`, `log(1)`, `exp(log(x))` for proven positive rational `x`, and `log(exp(x))` for rational `x`; `exp(1)` returns the certified enclosure for `e`.
 - `calculator-cli` evaluates exact expressions such as `0.1 + 0.2`.
 - `calculator-wasm` exposes DTO-based calculation through `wasm-bindgen`.
@@ -84,7 +85,8 @@ The Pages workflow in [.github/workflows/pages.yml](.github/workflows/pages.yml)
 
 The example e2e test covers the public worker API path, MathML rendering,
 clipboard copy, worker cancellation, rational scientific/enclosure output,
-guarded `exp` / `log` identities, and exact rational power semantics.
+guarded `exp` / `log` identities, exact rational power semantics, and rational
+`pi` multiple output.
 
 ## Verification
 
