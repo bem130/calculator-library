@@ -60,12 +60,7 @@ const state: CalculatorState = {
     statusMessage: "",
 };
 
-const assetBaseUrl = new URL(import.meta.env.BASE_URL, window.location.href);
-const wasmOptions = {
-    wasmGlueUrl: new URL("wasm/calculator_wasm.js", assetBaseUrl),
-    wasmModuleUrl: new URL("wasm/calculator_wasm_bg.wasm", assetBaseUrl),
-};
-const workerCalculator = createWorkerCalculator(wasmOptions);
+const workerCalculator = createWorkerCalculator();
 let activeSession: CalculatorSession | null = null;
 let activeCalculation: ActiveCalculation | null = null;
 let operationVersion = 0;
@@ -534,7 +529,7 @@ async function sessionForCurrentExpression(operation: number): Promise<Calculato
     }
     const expression = state.expression;
     const policy = buildInputPolicy();
-    const session = await createSession(policy, wasmOptions);
+    const session = await createSession(policy);
     if (!isCurrentOperation(operation) || expression !== state.expression) {
         return null;
     }
