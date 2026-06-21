@@ -8,9 +8,10 @@ use core::cmp::Ordering;
 
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer as _;
-use num_traits::{One, Signed, Zero};
+use num_traits::{Signed, Zero};
 
-use crate::expression::{evaluate_rational_dag, lower_source_expression};
+use crate::expression::{evaluate_interval_dag, evaluate_rational_dag, lower_source_expression};
+use crate::interval;
 use crate::types::*;
 
 pub fn calculate(
@@ -66,18 +67,26 @@ pub fn evaluate(
 ) -> Result<EvaluationOutcome, EvaluationError> {
     let dag = lower_source_expression(&expression.root)?;
     let rational = evaluate_rational_dag(&dag)?;
+    let certified_enclosure = evaluate_interval_dag(&dag).ok();
+    let has_certified_enclosure = certified_enclosure.is_some();
+    let mut methods = vec![MethodTag::RationalReduction];
+    if has_certified_enclosure {
+        methods.push(MethodTag::CertifiedIntervalEvaluation);
+    }
     Ok(EvaluationOutcome {
         value: EvaluatedValue {
             exact_expression: ExactExpression {
                 source: expression.source.clone(),
             },
             recognized_exact: RecognizedExact::Rational(rational),
-            certified_enclosure: CertifiedEnclosureState::NotRequested,
+            certified_enclosure: certified_enclosure
+                .map(CertifiedEnclosureState::Available)
+                .unwrap_or(CertifiedEnclosureState::Unavailable),
         },
         metadata: EvaluationMetadata {
             semantic_settings: request.semantics,
-            methods: vec![MethodTag::RationalReduction],
-            internal_precision_bits: 0,
+            methods,
+            internal_precision_bits: if has_certified_enclosure { 128 } else { 0 },
             refinement_rounds: 0,
         },
     })
@@ -264,14 +273,16 @@ fn dyadic_interval_presentation(
     format: EnclosureFormat,
     precision_bits: u32,
 ) -> Result<CertifiedIntervalPresentation, PresentationError> {
-    let scale = BigInt::one() << precision_bits;
-    let scaled_numerator = &rational.numerator.inner * scale;
-    let denominator = &rational.denominator.inner.inner;
-    let lower = scaled_numerator.div_floor(denominator);
-    let upper = scaled_numerator.div_ceil(denominator);
-    let exponent_two = -BigInt::from(precision_bits);
-    let lower = normalize_dyadic(lower, exponent_two.clone());
-    let upper = normalize_dyadic(upper, exponent_two);
+    let interval = interval::from_rational(rational, precision_bits);
+    if !interval::contains_rational(&interval, rational).map_err(|_| precision_limit_error())? {
+        return Err(PresentationError::InternalInvariant(
+            InternalInvariantError {
+                code: InternalInvariantCode::InvalidCertifiedInterval,
+            },
+        ));
+    }
+    let lower = interval.lower;
+    let upper = interval.upper;
 
     Ok(CertifiedIntervalPresentation {
         relation: ResultRelation::ElementOf,
@@ -386,23 +397,6 @@ fn round_nearest_magnitude(
                 }
             }
         },
-    }
-}
-
-fn normalize_dyadic(mut coefficient: BigInt, mut exponent_two: BigInt) -> ExactDyadic {
-    if coefficient.is_zero() {
-        return ExactDyadic {
-            coefficient: Integer::zero(),
-            exponent_two: Integer::zero(),
-        };
-    }
-    while coefficient.is_even() {
-        coefficient >>= 1_u8;
-        exponent_two += 1_u8;
-    }
-    ExactDyadic {
-        coefficient: Integer::from_bigint(coefficient),
-        exponent_two: Integer::from_bigint(exponent_two),
     }
 }
 
@@ -662,9 +656,41 @@ mod tests {
             panic!("expected enclosure output");
         };
         let rational = Rational::new(Integer::from(3), Integer::from(10)).unwrap();
-        assert!(dyadic_le_rational(&enclosure.lower, &rational));
-        assert!(dyadic_ge_rational(&enclosure.upper, &rational));
+        assert!(interval::contains_rational(
+            &CertifiedInterval {
+                lower: enclosure.lower,
+                upper: enclosure.upper,
+            },
+            &rational
+        )
+        .unwrap());
         assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::CertifiedIntervalEvaluation));
+    }
+
+    #[test]
+    fn evaluation_carries_certified_interval_for_rational_dag() {
+        let parsed = parse("0.1 + 0.2", &ParseSettings::default()).unwrap();
+        let mut context = EvaluationContext::default();
+        let evaluation = evaluate(
+            &parsed,
+            &EvaluationRequest {
+                semantics: SemanticSettings::default(),
+                limits: ResourceLimitRequest::Default,
+            },
+            &mut context,
+        )
+        .unwrap();
+        let CertifiedEnclosureState::Available(interval) = &evaluation.value.certified_enclosure
+        else {
+            panic!("expected certified interval");
+        };
+        let rational = Rational::new(Integer::from(3), Integer::from(10)).unwrap();
+        assert!(interval::contains_rational(interval, &rational).unwrap());
+        assert_eq!(evaluation.metadata.internal_precision_bits, 128);
+        assert!(evaluation
             .metadata
             .methods
             .contains(&MethodTag::CertifiedIntervalEvaluation));
@@ -681,26 +707,5 @@ mod tests {
                 span: None,
             })
         );
-    }
-
-    fn dyadic_le_rational(dyadic: &ExactDyadic, rational: &Rational) -> bool {
-        compare_dyadic_to_rational(dyadic, rational) != Ordering::Greater
-    }
-
-    fn dyadic_ge_rational(dyadic: &ExactDyadic, rational: &Rational) -> bool {
-        compare_dyadic_to_rational(dyadic, rational) != Ordering::Less
-    }
-
-    fn compare_dyadic_to_rational(dyadic: &ExactDyadic, rational: &Rational) -> Ordering {
-        let exponent = &dyadic.exponent_two.inner;
-        if exponent.sign() == Sign::Minus {
-            let scale = BigInt::one() << exponent.abs().to_string().parse::<u32>().unwrap();
-            (&dyadic.coefficient.inner * &rational.denominator.inner.inner)
-                .cmp(&(&rational.numerator.inner * scale))
-        } else {
-            let scale = BigInt::one() << exponent.to_string().parse::<u32>().unwrap();
-            (&dyadic.coefficient.inner * scale * &rational.denominator.inner.inner)
-                .cmp(&rational.numerator.inner)
-        }
     }
 }

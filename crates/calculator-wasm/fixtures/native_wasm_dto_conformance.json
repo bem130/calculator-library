@@ -70,9 +70,10 @@
                 "powerSemantics": "realPrincipal"
               },
               "methods": [
-                "rationalReduction"
+                "rationalReduction",
+                "certifiedIntervalEvaluation"
               ],
-              "internalPrecisionBits": 0,
+              "internalPrecisionBits": 128,
               "refinementRounds": 0,
               "confirmedSignificantDigits": 0,
               "assurance": "exact",
