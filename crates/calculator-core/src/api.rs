@@ -1867,6 +1867,72 @@ mod tests {
     }
 
     #[test]
+    fn translated_prime_root_sum_is_real_algebraic() {
+        let source = "2^(1/3)+1";
+        let parsed = parse(source, &ParseSettings::default()).unwrap();
+        let mut context = EvaluationContext::default();
+        let evaluation = evaluate(
+            &parsed,
+            &EvaluationRequest {
+                semantics: SemanticSettings::default(),
+                limits: ResourceLimitRequest::Default,
+            },
+            &mut context,
+        )
+        .unwrap();
+        let RecognizedExact::RealAlgebraic(algebraic) = &evaluation.value.recognized_exact else {
+            panic!("expected translated real algebraic recognition");
+        };
+        assert_eq!(
+            algebraic.minimal_polynomial,
+            PrimitivePolynomial::new(vec![
+                Integer::from(-3),
+                Integer::from(3),
+                Integer::from(-3),
+                Integer::one(),
+            ])
+            .unwrap()
+        );
+        assert_eq!(algebraic.real_root_index, 0);
+        assert_eq!(
+            algebraic
+                .minimal_polynomial
+                .distinct_real_root_count_in_interval(&algebraic.isolating_interval)
+                .unwrap(),
+            1
+        );
+
+        let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+        let CalculationOutcome::Partial {
+            calculation,
+            certified_enclosure,
+            ..
+        } = outcome
+        else {
+            panic!("expected partial calculation for translated algebraic number");
+        };
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("expected exact translated algebraic output");
+        };
+        assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
+        assert_eq!(exact.plain_text, source);
+        let interval = CertifiedInterval {
+            lower: certified_enclosure.lower,
+            upper: certified_enclosure.upper,
+        };
+        let shifted = interval::add(
+            &interval,
+            &interval::from_rational(&Rational::from_integer(Integer::from(-1)), 128),
+        )
+        .unwrap();
+        let cubed = interval::pow_i64(&shifted, 3, 128).unwrap();
+        assert!(
+            interval::contains_rational(&cubed, &Rational::from_integer(Integer::from(2)),)
+                .unwrap()
+        );
+    }
+
+    #[test]
     fn algebraic_root_limits_fall_back_to_symbolic_without_error() {
         assert_symbolic_fallback_with_limits(ResourceLimits {
             max_algebraic_degree: 2,

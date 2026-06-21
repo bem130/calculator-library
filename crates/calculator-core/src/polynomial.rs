@@ -69,6 +69,31 @@ impl RealAlgebraic {
             isolating_interval,
         })
     }
+
+    pub(crate) fn add_rational_bounded(
+        &self,
+        rhs: &Rational,
+        max_polynomial_coefficient_bits: u32,
+        max_root_isolation_steps: u32,
+    ) -> Result<Option<Self>, RealAlgebraicConstructionError> {
+        let minimal_polynomial = self
+            .minimal_polynomial
+            .translate_root_by_rational(rhs)
+            .map_err(RealAlgebraicConstructionError::PolynomialConstruction)?;
+        if minimal_polynomial.max_coefficient_bits() > u64::from(max_polynomial_coefficient_bits) {
+            return Ok(None);
+        }
+        let isolating_interval = RationalInterval {
+            lower: self.isolating_interval.lower.add(rhs),
+            upper: self.isolating_interval.upper.add(rhs),
+        };
+        Self::from_irreducible_polynomial(
+            minimal_polynomial,
+            isolating_interval,
+            max_root_isolation_steps,
+        )
+        .map(Some)
+    }
 }
 
 impl PrimitivePolynomial {
@@ -154,6 +179,35 @@ impl PrimitivePolynomial {
             }
         }
         Self::new(coefficients_low_to_high)
+    }
+
+    pub fn translate_root_by_rational(
+        &self,
+        shift: &Rational,
+    ) -> Result<Self, PrimitivePolynomialConstructionError> {
+        let coefficients = effective_coefficients(&self.coefficients_low_to_high);
+        if coefficients.is_empty() {
+            return Err(PrimitivePolynomialConstructionError::ZeroPolynomial);
+        }
+
+        let degree = coefficients.len() - 1;
+        let shift_numerator = &shift.numerator.inner;
+        let shift_denominator = &shift.denominator.inner.inner;
+        let mut translated = vec![BigInt::zero(); degree + 1];
+        for (source_degree, coefficient) in coefficients.iter().enumerate() {
+            for (target_degree, target_coefficient) in
+                translated.iter_mut().enumerate().take(source_degree + 1)
+            {
+                let mut term = coefficient.inner.clone();
+                term *= binomial_usize(source_degree, target_degree);
+                term *=
+                    pow_bigint_usize(&(-shift_numerator.clone()), source_degree - target_degree);
+                term *= pow_bigint_usize(shift_denominator, degree - source_degree + target_degree);
+                *target_coefficient += term;
+            }
+        }
+
+        Self::new(translated.into_iter().map(Integer::from_bigint).collect())
     }
 
     pub fn derivative(&self) -> Result<Self, PrimitivePolynomialConstructionError> {
@@ -788,6 +842,19 @@ fn pow_bigint_usize(base: &BigInt, exponent: usize) -> BigInt {
     result
 }
 
+fn binomial_usize(n: usize, k: usize) -> BigInt {
+    if k > n {
+        return BigInt::zero();
+    }
+    let k = k.min(n - k);
+    let mut value = BigInt::one();
+    for step in 1..=k {
+        value *= BigInt::from(n - k + step);
+        value /= BigInt::from(step);
+    }
+    value
+}
+
 fn bareiss_determinant(mut matrix: Vec<Vec<BigInt>>) -> BigInt {
     let size = matrix.len();
     match size {
@@ -1205,6 +1272,29 @@ mod tests {
                 .unwrap()
                 .coefficients_low_to_high,
             integers(&[-1, 0, 1])
+        );
+    }
+
+    #[test]
+    fn translate_root_by_rational_shifts_minimal_polynomial() {
+        let square_root_two = PrimitivePolynomial::new(integers(&[-2, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        assert_eq!(
+            square_root_two
+                .translate_root_by_rational(&rational(1, 2))
+                .unwrap(),
+            PrimitivePolynomial::new(integers(&[-7, -4, 4]))
+                .expect("translated polynomial normalizes")
+        );
+
+        let cube_root_two = PrimitivePolynomial::new(integers(&[-2, 0, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        assert_eq!(
+            cube_root_two
+                .translate_root_by_rational(&rational(1, 1))
+                .unwrap(),
+            PrimitivePolynomial::new(integers(&[-3, 3, -3, 1]))
+                .expect("translated polynomial normalizes")
         );
     }
 
@@ -1773,6 +1863,38 @@ mod tests {
 
         assert_eq!(positive_wide, positive_refined);
         assert_ne!(positive_wide, negative);
+    }
+
+    #[test]
+    fn real_algebraic_add_rational_translates_polynomial_and_interval() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-2, 0, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        let algebraic = RealAlgebraic::from_irreducible_polynomial(
+            polynomial,
+            rational_interval(1, 1, 2, 1),
+            64,
+        )
+        .expect("cube root interval isolates one root");
+
+        let translated = algebraic
+            .add_rational_bounded(&rational(1, 1), 1_000_000, 64)
+            .unwrap()
+            .expect("translated polynomial remains within coefficient limit");
+
+        assert_eq!(
+            translated.minimal_polynomial(),
+            &PrimitivePolynomial::new(integers(&[-3, 3, -3, 1]))
+                .expect("translated polynomial normalizes")
+        );
+        assert_eq!(translated.real_root_index(), 0);
+        assert_eq!(
+            translated.isolating_interval(),
+            &rational_interval(2, 1, 3, 1)
+        );
+        assert_eq!(
+            algebraic.add_rational_bounded(&rational(1, 1), 1, 64),
+            Ok(None)
+        );
     }
 
     #[test]

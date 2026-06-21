@@ -210,6 +210,13 @@ async function assertRationalPowers(page) {
         dyadicSquareCompareWithRational(interval.upper, 2n, 1n) >= 0,
         "2^(1/2) upper bound squared is below 2",
     );
+
+    await page.fill("#expression", "2^(1/3)+1");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 2^(1/3)+1");
+    await waitForText(page, "#exact-kind", "REAL ALGEBRAIC");
+    await waitForText(page, "#scientific-state", "PRECISION LIMIT");
+    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
 }
 
 async function assertPiPartial(page) {
