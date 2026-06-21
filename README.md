@@ -11,6 +11,7 @@ The implementation is following [doc/design.md](doc/design.md). The current work
 
 - `calculator-core` parses and evaluates rational expressions without `f32` / `f64`.
 - Rational evaluation carries an internal exact-dyadic certified interval and can produce exact significant-digit scientific notation.
+- Integer powers and exact rational powers such as `(-8)^(1/3)` and `(-8)^(2/3)` follow the `RealPrincipal` semantics.
 - `sqrt` preserves perfect-square rational results exactly and returns a certified enclosure with `Partial` for irrational rational inputs such as `sqrt(2)`.
 - `e` and `pi` constants return certified enclosures with `Partial` until requested decimal digits are confirmed.
 - `exp` / `log` identities are exact when proven over rational values, including `exp(0)`, `log(1)`, `exp(log(x))` for proven positive rational `x`, and `log(exp(x))` for rational `x`; `exp(1)` returns the certified enclosure for `e`.
@@ -82,8 +83,8 @@ corepack pnpm --dir examples/vanilla-web run build
 The Pages workflow in [.github/workflows/pages.yml](.github/workflows/pages.yml) builds `examples/vanilla-web/dist` and deploys it from `main`.
 
 The example e2e test covers the public worker API path, MathML rendering,
-clipboard copy, worker cancellation, rational scientific/enclosure output, and
-guarded `exp` / `log` identities.
+clipboard copy, worker cancellation, rational scientific/enclosure output,
+guarded `exp` / `log` identities, and exact rational power semantics.
 
 ## Verification
 

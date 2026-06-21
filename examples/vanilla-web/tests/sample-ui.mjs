@@ -95,6 +95,7 @@ async function runBrowserChecks(url, origin) {
         await assertIrrationalSqrtPartial(page);
         await assertPiPartial(page);
         await assertInitialExpLog(page);
+        await assertRationalPowers(page);
 
         await page.fill("#expression", "");
         await page.click('button[data-key="7"]');
@@ -179,6 +180,16 @@ async function assertInitialExpLog(page) {
     await page.fill("#expression", "log(exp(2))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 2");
+}
+
+async function assertRationalPowers(page) {
+    await page.fill("#expression", "(-8)^(1/3)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= -2");
+
+    await page.fill("#expression", "(-8)^(2/3)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 4");
 }
 
 async function assertPiPartial(page) {

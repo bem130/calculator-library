@@ -1,5 +1,7 @@
 use alloc::{vec, vec::Vec};
 
+use num_traits::ToPrimitive;
+
 use crate::{
     interval::{self, IntervalError},
     syntax::{SourceExpr, UnaryOperator},
@@ -92,16 +94,7 @@ fn evaluate_node(dag: &ExactExpressionDag, id: ExprId) -> Result<Rational, Evalu
         } => evaluate_node(dag, *numerator)?
             .divide(&evaluate_node(dag, *denominator)?)
             .map_err(arithmetic_error),
-        ExpressionNode::Power { base, exponent } => {
-            let exponent = evaluate_node(dag, *exponent)?.as_i64_if_integer().ok_or(
-                EvaluationError::UnsupportedFeature(UnsupportedFeatureError {
-                    feature: UnsupportedFeature::NonIntegerPower,
-                }),
-            )?;
-            evaluate_node(dag, *base)?
-                .pow_i64(exponent)
-                .map_err(arithmetic_error)
-        }
+        ExpressionNode::Power { base, exponent } => evaluate_power(dag, *base, *exponent),
         ExpressionNode::Function { function, argument } => match function {
             Function::Sqrt => {
                 let argument = evaluate_node(dag, *argument)?;
@@ -132,6 +125,59 @@ fn evaluate_node(dag: &ExactExpressionDag, id: ExprId) -> Result<Rational, Evalu
                 },
             )),
         },
+    }
+}
+
+fn evaluate_power(
+    dag: &ExactExpressionDag,
+    base: ExprId,
+    exponent: ExprId,
+) -> Result<Rational, EvaluationError> {
+    let base = evaluate_node(dag, base)?;
+    let exponent = evaluate_node(dag, exponent)?;
+    evaluate_rational_power(&base, &exponent)
+}
+
+fn evaluate_rational_power(
+    base: &Rational,
+    exponent: &Rational,
+) -> Result<Rational, EvaluationError> {
+    if base.is_zero() {
+        return evaluate_zero_power(exponent);
+    }
+
+    let exponent_numerator = exponent
+        .numerator
+        .inner
+        .to_i64()
+        .ok_or_else(exponent_too_large_error)?;
+    if exponent.is_integer() {
+        return base.pow_i64(exponent_numerator).map_err(arithmetic_error);
+    }
+
+    let root_index = exponent
+        .denominator
+        .inner
+        .inner
+        .to_u32()
+        .ok_or_else(exponent_too_large_error)?;
+    if base.is_negative() && root_index.is_multiple_of(2) {
+        return Err(domain_error(DomainErrorKind::NonRealPower));
+    }
+
+    let root = base
+        .nth_root_if_rational(root_index)
+        .ok_or_else(non_integer_power_error)?;
+    root.pow_i64(exponent_numerator).map_err(arithmetic_error)
+}
+
+fn evaluate_zero_power(exponent: &Rational) -> Result<Rational, EvaluationError> {
+    if exponent.is_zero() {
+        Err(domain_error(DomainErrorKind::IndeterminateZeroToZero))
+    } else if exponent.is_negative() {
+        Err(domain_error(DomainErrorKind::ZeroToNegativePower))
+    } else {
+        Ok(Rational::zero())
     }
 }
 
@@ -207,11 +253,24 @@ fn unsupported_function_evaluation() -> EvaluationError {
     })
 }
 
-fn logarithm_of_non_positive_error() -> EvaluationError {
-    EvaluationError::Domain(DomainError {
-        kind: DomainErrorKind::LogarithmOfNonPositive,
-        span: None,
+fn non_integer_power_error() -> EvaluationError {
+    EvaluationError::UnsupportedFeature(UnsupportedFeatureError {
+        feature: UnsupportedFeature::NonIntegerPower,
     })
+}
+
+fn exponent_too_large_error() -> EvaluationError {
+    EvaluationError::ComputationLimit(ComputationLimitError {
+        kind: ComputationLimitKind::LogicalWorkUnits,
+    })
+}
+
+fn logarithm_of_non_positive_error() -> EvaluationError {
+    domain_error(DomainErrorKind::LogarithmOfNonPositive)
+}
+
+fn domain_error(kind: DomainErrorKind) -> EvaluationError {
+    EvaluationError::Domain(DomainError { kind, span: None })
 }
 
 fn evaluate_interval_node(

@@ -997,6 +997,40 @@ impl Rational {
         )
     }
 
+    pub(crate) fn nth_root_if_rational(&self, index: u32) -> Option<Self> {
+        debug_assert!(index > 0);
+        if index == 1 {
+            return Some(self.clone());
+        }
+        if self.is_negative() && index.is_multiple_of(2) {
+            return None;
+        }
+
+        let numerator_magnitude = self.numerator.inner.abs();
+        let numerator_root = floor_nth_root_nonnegative(&numerator_magnitude, index);
+        if numerator_root.pow(index) != numerator_magnitude {
+            return None;
+        }
+
+        let denominator_root = floor_nth_root_nonnegative(&self.denominator.inner.inner, index);
+        if denominator_root.pow(index) != self.denominator.inner.inner {
+            return None;
+        }
+
+        let numerator = if self.is_negative() {
+            -numerator_root
+        } else {
+            numerator_root
+        };
+        Some(
+            Self::new(
+                Integer::from_bigint(numerator),
+                Integer::from_bigint(denominator_root),
+            )
+            .expect("root of a canonical rational preserves a non-zero denominator"),
+        )
+    }
+
     pub fn pow_i64(&self, exponent: i64) -> Result<Self, RationalArithmeticError> {
         if exponent == 0 {
             return Ok(Self::one());
@@ -1113,6 +1147,32 @@ pub(crate) fn floor_sqrt_nonnegative(value: &BigInt) -> BigInt {
     while &low + 1_u8 < high {
         let mid = (&low + &high) >> 1_u8;
         if &mid * &mid <= *value {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+    low
+}
+
+pub(crate) fn floor_nth_root_nonnegative(value: &BigInt, index: u32) -> BigInt {
+    debug_assert!(value.sign() != Sign::Minus);
+    debug_assert!(index > 0);
+    if index == 1 {
+        return value.clone();
+    }
+    if value.is_zero() {
+        return BigInt::zero();
+    }
+
+    let mut high = BigInt::one();
+    while high.pow(index) <= *value {
+        high <<= 1_u8;
+    }
+    let mut low = &high >> 1_u8;
+    while &low + 1_u8 < high {
+        let mid = (&low + &high) >> 1_u8;
+        if mid.pow(index) <= *value {
             low = mid;
         } else {
             high = mid;
@@ -1341,6 +1401,26 @@ mod tests {
         let reciprocal = value.pow_i64(-2).unwrap();
         assert_eq!(reciprocal.numerator.to_string(), "9");
         assert_eq!(reciprocal.denominator.inner.to_string(), "4");
+    }
+
+    #[test]
+    fn rational_nth_root_requires_exact_rational_root() {
+        let value = Rational::new(Integer::from(-27), Integer::from(8)).unwrap();
+        let root = value.nth_root_if_rational(3).unwrap();
+        assert_eq!(root.numerator.to_string(), "-3");
+        assert_eq!(root.denominator.inner.to_string(), "2");
+
+        let value = Rational::new(Integer::from(16), Integer::from(81)).unwrap();
+        let root = value.nth_root_if_rational(4).unwrap();
+        assert_eq!(root.numerator.to_string(), "2");
+        assert_eq!(root.denominator.inner.to_string(), "3");
+
+        assert!(Rational::from_integer(Integer::from(2))
+            .nth_root_if_rational(2)
+            .is_none());
+        assert!(Rational::from_integer(Integer::from(-8))
+            .nth_root_if_rational(2)
+            .is_none());
     }
 
     #[test]
