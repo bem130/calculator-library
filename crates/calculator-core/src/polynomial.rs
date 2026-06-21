@@ -1,12 +1,15 @@
 use alloc::{vec, vec::Vec};
+use core::cmp::Ordering;
 
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer as _;
-use num_traits::{Signed, Zero};
+use num_traits::{One, Signed, Zero};
 
 use crate::types::{
     Integer, PrimitivePolynomial, PrimitivePolynomialConstructionError,
-    PrimitivePolynomialDivisionError, PrimitiveSquareFreeFactor,
+    PrimitivePolynomialDivisionError, PrimitivePolynomialRootCountingError,
+    PrimitivePolynomialSign, PrimitiveSquareFreeFactor, Rational, RationalInterval,
+    SignedPrimitivePolynomial,
 };
 
 impl PrimitivePolynomial {
@@ -46,6 +49,13 @@ impl PrimitivePolynomial {
             value += &coefficient.inner;
         }
         Integer::from_bigint(value)
+    }
+
+    pub fn evaluate_rational_sign(&self, x: &Rational) -> Sign {
+        evaluate_rational_sign_coefficients(
+            effective_coefficients(&self.coefficients_low_to_high),
+            x,
+        )
     }
 
     pub fn negate(&self) -> Result<Self, PrimitivePolynomialConstructionError> {
@@ -211,6 +221,80 @@ impl PrimitivePolynomial {
 
         Ok(factors)
     }
+
+    pub fn sturm_sequence(
+        &self,
+    ) -> Result<Vec<SignedPrimitivePolynomial>, PrimitivePolynomialConstructionError> {
+        let polynomial =
+            Self::new(effective_coefficients(&self.coefficients_low_to_high).to_vec())?;
+        let mut sequence = vec![SignedPrimitivePolynomial {
+            sign: PrimitivePolynomialSign::Positive,
+            polynomial,
+        }];
+        if !is_nonconstant(&sequence[0].polynomial) {
+            return Ok(sequence);
+        }
+
+        sequence.push(SignedPrimitivePolynomial {
+            sign: PrimitivePolynomialSign::Positive,
+            polynomial: sequence[0]
+                .polynomial
+                .derivative()
+                .expect("non-constant polynomial has a non-zero derivative in characteristic zero"),
+        });
+
+        loop {
+            let previous = &sequence[sequence.len() - 2];
+            let current = &sequence[sequence.len() - 1];
+            let remainder = pseudo_remainder_coefficients(
+                effective_coefficients(&previous.polynomial.coefficients_low_to_high),
+                effective_coefficients(&current.polynomial.coefficients_low_to_high),
+            )
+            .expect("current Sturm divisor is non-zero");
+            let Some(remainder) = signed_primitive_polynomial_from_coefficients(remainder)? else {
+                break;
+            };
+            sequence.push(SignedPrimitivePolynomial {
+                sign: negate_polynomial_sign(multiply_polynomial_signs(
+                    previous.sign,
+                    remainder.sign,
+                )),
+                polynomial: remainder.polynomial,
+            });
+        }
+
+        Ok(sequence)
+    }
+
+    pub fn sturm_sign_variations_at_rational(
+        &self,
+        x: &Rational,
+    ) -> Result<usize, PrimitivePolynomialConstructionError> {
+        let sequence = self.sturm_sequence()?;
+        Ok(sturm_sign_variations_at_rational(&sequence, x))
+    }
+
+    pub fn distinct_real_root_count_in_interval(
+        &self,
+        interval: &RationalInterval,
+    ) -> Result<u32, PrimitivePolynomialRootCountingError> {
+        if interval.lower.compare(&interval.upper) == Ordering::Greater {
+            return Err(PrimitivePolynomialRootCountingError::InvalidInterval);
+        }
+
+        let sequence = self
+            .sturm_sequence()
+            .map_err(root_counting_construction_error)?;
+        let lower_variations = sturm_sign_variations_at_rational(&sequence, &interval.lower);
+        let upper_variations = sturm_sign_variations_at_rational(&sequence, &interval.upper);
+        let mut count = lower_variations
+            .checked_sub(upper_variations)
+            .expect("Sturm variations are monotone over ordered real endpoints");
+        if self.evaluate_rational_sign(&interval.lower) == Sign::NoSign {
+            count += 1;
+        }
+        u32::try_from(count).map_err(|_| PrimitivePolynomialRootCountingError::CountOverflow)
+    }
 }
 
 fn add_polynomials(
@@ -283,6 +367,21 @@ fn pseudo_remainder_coefficients(
         trim_trailing_zeroes(&mut remainder);
     }
     Ok(remainder)
+}
+
+fn evaluate_rational_sign_coefficients(coefficients: &[Integer], x: &Rational) -> Sign {
+    let Some((leading, remaining)) = coefficients.split_last() else {
+        return Sign::NoSign;
+    };
+
+    let mut numerator = leading.inner.clone();
+    let mut denominator_power = BigInt::one();
+    for coefficient in remaining.iter().rev() {
+        denominator_power *= &x.denominator.inner.inner;
+        numerator *= &x.numerator.inner;
+        numerator += &coefficient.inner * &denominator_power;
+    }
+    numerator.sign()
 }
 
 fn exact_quotient_coefficients(
@@ -382,12 +481,111 @@ fn is_nonconstant(polynomial: &PrimitivePolynomial) -> bool {
     polynomial.degree().is_some_and(|degree| degree > 0)
 }
 
+fn signed_primitive_polynomial_from_coefficients(
+    mut coefficients_low_to_high: Vec<Integer>,
+) -> Result<Option<SignedPrimitivePolynomial>, PrimitivePolynomialConstructionError> {
+    trim_trailing_zeroes(&mut coefficients_low_to_high);
+    let Some(leading_coefficient) = coefficients_low_to_high.last() else {
+        return Ok(None);
+    };
+    let sign = match leading_coefficient.sign() {
+        Sign::Plus => PrimitivePolynomialSign::Positive,
+        Sign::Minus => PrimitivePolynomialSign::Negative,
+        Sign::NoSign => unreachable!("zero leading coefficients were trimmed"),
+    };
+    Ok(Some(SignedPrimitivePolynomial {
+        sign,
+        polynomial: PrimitivePolynomial::new(coefficients_low_to_high)?,
+    }))
+}
+
+fn sturm_sign_variations_at_rational(
+    sequence: &[SignedPrimitivePolynomial],
+    x: &Rational,
+) -> usize {
+    let mut variations = 0;
+    let mut previous_sign = Sign::NoSign;
+    for polynomial in sequence {
+        let sign = apply_polynomial_sign(
+            polynomial.sign,
+            polynomial.polynomial.evaluate_rational_sign(x),
+        );
+        if sign == Sign::NoSign {
+            continue;
+        }
+        if previous_sign != Sign::NoSign && previous_sign != sign {
+            variations += 1;
+        }
+        previous_sign = sign;
+    }
+    variations
+}
+
+fn apply_polynomial_sign(polynomial_sign: PrimitivePolynomialSign, value_sign: Sign) -> Sign {
+    match (polynomial_sign, value_sign) {
+        (_, Sign::NoSign) => Sign::NoSign,
+        (PrimitivePolynomialSign::Positive, sign) => sign,
+        (PrimitivePolynomialSign::Negative, Sign::Plus) => Sign::Minus,
+        (PrimitivePolynomialSign::Negative, Sign::Minus) => Sign::Plus,
+    }
+}
+
+fn multiply_polynomial_signs(
+    left: PrimitivePolynomialSign,
+    right: PrimitivePolynomialSign,
+) -> PrimitivePolynomialSign {
+    match (left, right) {
+        (PrimitivePolynomialSign::Positive, PrimitivePolynomialSign::Positive)
+        | (PrimitivePolynomialSign::Negative, PrimitivePolynomialSign::Negative) => {
+            PrimitivePolynomialSign::Positive
+        }
+        (PrimitivePolynomialSign::Positive, PrimitivePolynomialSign::Negative)
+        | (PrimitivePolynomialSign::Negative, PrimitivePolynomialSign::Positive) => {
+            PrimitivePolynomialSign::Negative
+        }
+    }
+}
+
+fn negate_polynomial_sign(sign: PrimitivePolynomialSign) -> PrimitivePolynomialSign {
+    match sign {
+        PrimitivePolynomialSign::Positive => PrimitivePolynomialSign::Negative,
+        PrimitivePolynomialSign::Negative => PrimitivePolynomialSign::Positive,
+    }
+}
+
+fn root_counting_construction_error(
+    error: PrimitivePolynomialConstructionError,
+) -> PrimitivePolynomialRootCountingError {
+    match error {
+        PrimitivePolynomialConstructionError::ZeroPolynomial => {
+            PrimitivePolynomialRootCountingError::ZeroPolynomial
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn integers(values: &[i64]) -> Vec<Integer> {
         values.iter().copied().map(Integer::from).collect()
+    }
+
+    fn rational(numerator: i64, denominator: i64) -> Rational {
+        Rational::new(Integer::from(numerator), Integer::from(denominator))
+            .expect("test rational denominator is non-zero")
+    }
+
+    fn rational_interval(
+        lower_numerator: i64,
+        lower_denominator: i64,
+        upper_numerator: i64,
+        upper_denominator: i64,
+    ) -> RationalInterval {
+        RationalInterval {
+            lower: rational(lower_numerator, lower_denominator),
+            upper: rational(upper_numerator, upper_denominator),
+        }
     }
 
     #[test]
@@ -431,6 +629,10 @@ mod tests {
         assert_eq!(
             polynomial.evaluate_integer(&Integer::from(3)),
             Integer::from(7)
+        );
+        assert_eq!(
+            polynomial.evaluate_rational_sign(&rational(-1, 2)),
+            Sign::NoSign
         );
         assert_eq!(polynomial.max_coefficient_bits(), 2);
     }
@@ -751,5 +953,138 @@ mod tests {
             PrimitivePolynomial::new(integers(&[7])).expect("non-zero polynomial normalizes");
 
         assert_eq!(polynomial.square_free_decomposition().unwrap(), vec![]);
+    }
+
+    #[test]
+    fn sturm_sequence_preserves_negative_remainder_sign() {
+        let polynomial =
+            PrimitivePolynomial::new(integers(&[1, 0, 1])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            polynomial.sturm_sequence().unwrap(),
+            vec![
+                SignedPrimitivePolynomial {
+                    sign: PrimitivePolynomialSign::Positive,
+                    polynomial: PrimitivePolynomial::new(integers(&[1, 0, 1]))
+                        .expect("non-zero polynomial normalizes"),
+                },
+                SignedPrimitivePolynomial {
+                    sign: PrimitivePolynomialSign::Positive,
+                    polynomial: PrimitivePolynomial::new(integers(&[0, 1]))
+                        .expect("non-zero polynomial normalizes"),
+                },
+                SignedPrimitivePolynomial {
+                    sign: PrimitivePolynomialSign::Negative,
+                    polynomial: PrimitivePolynomial::new(integers(&[1]))
+                        .expect("non-zero polynomial normalizes"),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn sturm_variations_use_exact_rational_signs() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-2, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            polynomial.evaluate_rational_sign(&rational(3, 2)),
+            Sign::Plus
+        );
+        assert_eq!(
+            polynomial.evaluate_rational_sign(&rational(-3, 2)),
+            Sign::Plus
+        );
+        assert_eq!(
+            polynomial.evaluate_rational_sign(&rational(1, 1)),
+            Sign::Minus
+        );
+        assert_eq!(
+            polynomial
+                .sturm_sign_variations_at_rational(&rational(-2, 1))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            polynomial
+                .sturm_sign_variations_at_rational(&rational(2, 1))
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn sturm_root_count_counts_distinct_closed_interval_roots() {
+        let two_real_roots = PrimitivePolynomial::new(integers(&[-2, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        let no_real_roots =
+            PrimitivePolynomial::new(integers(&[1, 0, 1])).expect("non-zero polynomial normalizes");
+        let three_real_roots = PrimitivePolynomial::new(integers(&[0, -1, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        let repeated_root = PrimitivePolynomial::new(integers(&[1, -2, 1]))
+            .expect("non-zero polynomial normalizes");
+        let endpoint_root =
+            PrimitivePolynomial::new(integers(&[0, 1])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            two_real_roots
+                .distinct_real_root_count_in_interval(&rational_interval(-2, 1, 2, 1))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            two_real_roots
+                .distinct_real_root_count_in_interval(&rational_interval(0, 1, 2, 1))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            no_real_roots
+                .distinct_real_root_count_in_interval(&rational_interval(-10, 1, 10, 1))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            three_real_roots
+                .distinct_real_root_count_in_interval(&rational_interval(-2, 1, 2, 1))
+                .unwrap(),
+            3
+        );
+        assert_eq!(
+            repeated_root
+                .distinct_real_root_count_in_interval(&rational_interval(0, 1, 2, 1))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            endpoint_root
+                .distinct_real_root_count_in_interval(&rational_interval(0, 1, 1, 1))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            endpoint_root
+                .distinct_real_root_count_in_interval(&rational_interval(-1, 1, 0, 1))
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn sturm_root_count_rejects_invalid_inputs() {
+        let polynomial =
+            PrimitivePolynomial::new(integers(&[0, 1])).expect("non-zero polynomial normalizes");
+        let zero = PrimitivePolynomial {
+            coefficients_low_to_high: integers(&[0, 0]),
+        };
+
+        assert_eq!(
+            polynomial.distinct_real_root_count_in_interval(&rational_interval(1, 1, 0, 1)),
+            Err(PrimitivePolynomialRootCountingError::InvalidInterval)
+        );
+        assert_eq!(
+            zero.distinct_real_root_count_in_interval(&rational_interval(-1, 1, 1, 1)),
+            Err(PrimitivePolynomialRootCountingError::ZeroPolynomial)
+        );
     }
 }
