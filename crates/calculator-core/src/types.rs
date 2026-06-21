@@ -210,6 +210,24 @@ pub struct PrimitiveSquareFreeFactor {
     pub multiplicity: usize,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PrimitivePolynomialFactor {
+    pub factor: PrimitivePolynomial,
+    pub multiplicity: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PrimitivePolynomialRationalRootFactorization {
+    pub factors: Vec<PrimitivePolynomialFactor>,
+    pub residual: Option<PrimitivePolynomial>,
+    pub incomplete_reason: Option<PrimitivePolynomialFactorizationIncompleteReason>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrimitivePolynomialFactorizationIncompleteReason {
+    WorkLimitExceeded,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrimitivePolynomialSign {
     Positive,
