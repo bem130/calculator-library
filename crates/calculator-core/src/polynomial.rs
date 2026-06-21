@@ -1,4 +1,4 @@
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer as _;
@@ -44,6 +44,98 @@ impl PrimitivePolynomial {
         }
         Integer::from_bigint(value)
     }
+
+    pub fn negate(&self) -> Result<Self, PrimitivePolynomialConstructionError> {
+        let coefficients_low_to_high = effective_coefficients(&self.coefficients_low_to_high)
+            .iter()
+            .map(|coefficient| Integer::from_bigint(-coefficient.inner.clone()))
+            .collect();
+        Self::new(coefficients_low_to_high)
+    }
+
+    pub fn add(&self, rhs: &Self) -> Result<Self, PrimitivePolynomialConstructionError> {
+        add_polynomials(
+            effective_coefficients(&self.coefficients_low_to_high),
+            effective_coefficients(&rhs.coefficients_low_to_high),
+        )
+    }
+
+    pub fn subtract(&self, rhs: &Self) -> Result<Self, PrimitivePolynomialConstructionError> {
+        subtract_polynomials(
+            effective_coefficients(&self.coefficients_low_to_high),
+            effective_coefficients(&rhs.coefficients_low_to_high),
+        )
+    }
+
+    pub fn multiply(&self, rhs: &Self) -> Result<Self, PrimitivePolynomialConstructionError> {
+        let lhs = effective_coefficients(&self.coefficients_low_to_high);
+        let rhs = effective_coefficients(&rhs.coefficients_low_to_high);
+        if lhs.is_empty() || rhs.is_empty() {
+            return Err(PrimitivePolynomialConstructionError::ZeroPolynomial);
+        }
+
+        let mut coefficients_low_to_high = vec![Integer::zero(); lhs.len() + rhs.len() - 1];
+        for (lhs_index, lhs_coefficient) in lhs.iter().enumerate() {
+            for (rhs_index, rhs_coefficient) in rhs.iter().enumerate() {
+                coefficients_low_to_high[lhs_index + rhs_index].inner +=
+                    &lhs_coefficient.inner * &rhs_coefficient.inner;
+            }
+        }
+        Self::new(coefficients_low_to_high)
+    }
+
+    pub fn derivative(&self) -> Result<Self, PrimitivePolynomialConstructionError> {
+        let coefficients = effective_coefficients(&self.coefficients_low_to_high);
+        let coefficients_low_to_high = coefficients
+            .iter()
+            .enumerate()
+            .skip(1)
+            .map(|(degree, coefficient)| {
+                Integer::from_bigint(&coefficient.inner * BigInt::from(degree))
+            })
+            .collect();
+        Self::new(coefficients_low_to_high)
+    }
+}
+
+fn add_polynomials(
+    lhs: &[Integer],
+    rhs: &[Integer],
+) -> Result<PrimitivePolynomial, PrimitivePolynomialConstructionError> {
+    let len = lhs.len().max(rhs.len());
+    let mut coefficients_low_to_high = Vec::with_capacity(len);
+    for index in 0..len {
+        let lhs = lhs.get(index).map(|value| &value.inner);
+        let rhs = rhs.get(index).map(|value| &value.inner);
+        let coefficient = match (lhs, rhs) {
+            (Some(lhs), Some(rhs)) => lhs + rhs,
+            (Some(lhs), None) => lhs.clone(),
+            (None, Some(rhs)) => rhs.clone(),
+            (None, None) => unreachable!("index is bounded by the maximum input length"),
+        };
+        coefficients_low_to_high.push(Integer::from_bigint(coefficient));
+    }
+    PrimitivePolynomial::new(coefficients_low_to_high)
+}
+
+fn subtract_polynomials(
+    lhs: &[Integer],
+    rhs: &[Integer],
+) -> Result<PrimitivePolynomial, PrimitivePolynomialConstructionError> {
+    let len = lhs.len().max(rhs.len());
+    let mut coefficients_low_to_high = Vec::with_capacity(len);
+    for index in 0..len {
+        let lhs = lhs.get(index).map(|value| &value.inner);
+        let rhs = rhs.get(index).map(|value| &value.inner);
+        let coefficient = match (lhs, rhs) {
+            (Some(lhs), Some(rhs)) => lhs - rhs,
+            (Some(lhs), None) => lhs.clone(),
+            (None, Some(rhs)) => -rhs,
+            (None, None) => unreachable!("index is bounded by the maximum input length"),
+        };
+        coefficients_low_to_high.push(Integer::from_bigint(coefficient));
+    }
+    PrimitivePolynomial::new(coefficients_low_to_high)
 }
 
 fn primitive_coefficients(
@@ -145,5 +237,71 @@ mod tests {
             Integer::from(7)
         );
         assert_eq!(polynomial.max_coefficient_bits(), 2);
+    }
+
+    #[test]
+    fn primitive_polynomial_addition_and_subtraction_normalize_results() {
+        let parabola = PrimitivePolynomial::new(integers(&[-1, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        let line =
+            PrimitivePolynomial::new(integers(&[1, 1])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            parabola.add(&line).unwrap().coefficients_low_to_high,
+            integers(&[0, 1, 1])
+        );
+        assert_eq!(
+            parabola.subtract(&line).unwrap().coefficients_low_to_high,
+            integers(&[-2, -1, 1])
+        );
+        assert_eq!(
+            parabola.subtract(&parabola),
+            Err(PrimitivePolynomialConstructionError::ZeroPolynomial)
+        );
+    }
+
+    #[test]
+    fn primitive_polynomial_multiplication_normalizes_product() {
+        let x_minus_one =
+            PrimitivePolynomial::new(integers(&[-1, 1])).expect("non-zero polynomial normalizes");
+        let x_plus_one =
+            PrimitivePolynomial::new(integers(&[1, 1])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            x_minus_one
+                .multiply(&x_plus_one)
+                .unwrap()
+                .coefficients_low_to_high,
+            integers(&[-1, 0, 1])
+        );
+    }
+
+    #[test]
+    fn primitive_polynomial_derivative_normalizes_and_rejects_zero_derivative() {
+        let cubic = PrimitivePolynomial::new(integers(&[-1, -1, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        let constant =
+            PrimitivePolynomial::new(integers(&[7])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            cubic.derivative().unwrap().coefficients_low_to_high,
+            integers(&[-1, 0, 3])
+        );
+        assert_eq!(
+            constant.derivative(),
+            Err(PrimitivePolynomialConstructionError::ZeroPolynomial)
+        );
+    }
+
+    #[test]
+    fn primitive_polynomial_negation_preserves_positive_leading_coefficient() {
+        let polynomial =
+            PrimitivePolynomial::new(integers(&[1, -2])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(polynomial.coefficients_low_to_high, integers(&[-1, 2]));
+        assert_eq!(
+            polynomial.negate().unwrap().coefficients_low_to_high,
+            integers(&[-1, 2])
+        );
     }
 }
