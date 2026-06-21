@@ -7,7 +7,7 @@ use num_traits::{One, Signed, Zero};
 
 use crate::types::{
     Integer, PrimitivePolynomial, PrimitivePolynomialConstructionError,
-    PrimitivePolynomialDivisionError, PrimitivePolynomialFactor,
+    PrimitivePolynomialDivisionError, PrimitivePolynomialFactor, PrimitivePolynomialFactorization,
     PrimitivePolynomialFactorizationIncompleteReason, PrimitivePolynomialRationalRootFactorization,
     PrimitivePolynomialResultantError, PrimitivePolynomialRootCountingError,
     PrimitivePolynomialRootIsolationError, PrimitivePolynomialSign, PrimitiveSquareFreeFactor,
@@ -749,6 +749,77 @@ impl PrimitivePolynomial {
 
         Ok(rational_root_factorization(factors, current, None))
     }
+
+    pub fn factor_bounded(
+        &self,
+        max_work: u32,
+    ) -> Result<PrimitivePolynomialFactorization, PrimitivePolynomialConstructionError> {
+        let mut current =
+            Self::new(effective_coefficients(&self.coefficients_low_to_high).to_vec())?;
+        let mut factors = Vec::new();
+        let mut work = 0;
+
+        while is_nonconstant(&current) {
+            if current.degree() == Some(1) {
+                factors = push_factor(factors, current, 1);
+                return Ok(polynomial_factorization(factors, None, None));
+            }
+
+            let factor = match find_rational_linear_factor(&current, &mut work, max_work) {
+                Ok(Some(factor)) => Some(factor),
+                Ok(None) => match find_kronecker_factor(&current, &mut work, max_work) {
+                    Ok(factor) => factor,
+                    Err(reason) => {
+                        return Ok(polynomial_factorization(
+                            factors,
+                            Some(current),
+                            Some(reason),
+                        ));
+                    }
+                },
+                Err(reason) => {
+                    return Ok(polynomial_factorization(
+                        factors,
+                        Some(current),
+                        Some(reason),
+                    ));
+                }
+            };
+
+            let Some(factor) = factor else {
+                factors = push_factor(factors, current, 1);
+                return Ok(polynomial_factorization(factors, None, None));
+            };
+
+            let mut multiplicity = 0;
+            loop {
+                match current.exact_quotient(&factor) {
+                    Ok(Some(quotient)) => {
+                        multiplicity += 1;
+                        current = quotient;
+                        if !is_nonconstant(&current) {
+                            break;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(PrimitivePolynomialDivisionError::NotDivisible) => break,
+                    Err(PrimitivePolynomialDivisionError::ZeroDivisor) => {
+                        unreachable!("Kronecker factor is non-zero")
+                    }
+                }
+                if consume_factorization_work(&mut work, max_work).is_err() {
+                    return Ok(polynomial_factorization(
+                        push_factor(factors, factor, multiplicity),
+                        Some(current),
+                        Some(PrimitivePolynomialFactorizationIncompleteReason::WorkLimitExceeded),
+                    ));
+                }
+            }
+            factors = push_factor(factors, factor, multiplicity);
+        }
+
+        Ok(polynomial_factorization(factors, None, None))
+    }
 }
 
 fn add_polynomials(
@@ -1021,6 +1092,53 @@ fn interpolate_integer_polynomial_at_consecutive_integers(
     PrimitivePolynomial::new(integer_coefficients).map_err(resultant_construction_error)
 }
 
+fn interpolate_integer_polynomial_at_points(
+    points: &[BigInt],
+    values: &[BigInt],
+) -> Option<PrimitivePolynomial> {
+    debug_assert_eq!(points.len(), values.len());
+    if points.is_empty() {
+        return None;
+    }
+
+    let mut coefficients = vec![Rational::zero(); points.len()];
+    for (sample_index, sample_point) in points.iter().enumerate() {
+        let mut basis = vec![Rational::one()];
+        let mut denominator = BigInt::one();
+        for (other_index, other_point) in points.iter().enumerate() {
+            if other_index == sample_index {
+                continue;
+            }
+            denominator *= sample_point - other_point;
+            let root = Rational::from_integer(Integer::from_bigint(other_point.clone()));
+            let mut next_basis = vec![Rational::zero(); basis.len() + 1];
+            for (degree, coefficient) in basis.iter().enumerate() {
+                next_basis[degree] = next_basis[degree].subtract(&coefficient.multiply(&root));
+                next_basis[degree + 1] = next_basis[degree + 1].add(coefficient);
+            }
+            basis = next_basis;
+        }
+
+        let scale = Rational::new(
+            Integer::from_bigint(values[sample_index].clone()),
+            Integer::from_bigint(denominator),
+        )
+        .expect("interpolation points are distinct");
+        for (degree, coefficient) in basis.iter().enumerate() {
+            coefficients[degree] = coefficients[degree].add(&coefficient.multiply(&scale));
+        }
+    }
+
+    let mut integer_coefficients = Vec::with_capacity(coefficients.len());
+    for coefficient in coefficients {
+        if !coefficient.is_integer() {
+            return None;
+        }
+        integer_coefficients.push(coefficient.numerator);
+    }
+    PrimitivePolynomial::new(integer_coefficients).ok()
+}
+
 fn isolate_away_from_zero(
     polynomial: &PrimitivePolynomial,
     interval: &RationalInterval,
@@ -1258,6 +1376,136 @@ fn rational_linear_factor_if_root(
     ))
 }
 
+fn find_kronecker_factor(
+    polynomial: &PrimitivePolynomial,
+    work: &mut u32,
+    max_work: u32,
+) -> Result<Option<PrimitivePolynomial>, PrimitivePolynomialFactorizationIncompleteReason> {
+    let Some(degree) = polynomial.degree() else {
+        return Ok(None);
+    };
+    for factor_degree in 2..=degree / 2 {
+        let points = non_zero_evaluation_points(polynomial, factor_degree + 1, work, max_work)?;
+        let mut value_choices = Vec::with_capacity(points.len());
+        for point in &points {
+            let value = polynomial.evaluate_integer(&Integer::from_bigint(point.clone()));
+            value_choices.push(signed_divisors_bounded(&value.inner, work, max_work)?);
+        }
+        let mut selected_values = Vec::with_capacity(points.len());
+        if let Some(factor) = enumerate_kronecker_values(
+            polynomial,
+            &points,
+            &value_choices,
+            &mut selected_values,
+            work,
+            max_work,
+        )? {
+            return Ok(Some(factor));
+        }
+    }
+    Ok(None)
+}
+
+fn non_zero_evaluation_points(
+    polynomial: &PrimitivePolynomial,
+    count: usize,
+    work: &mut u32,
+    max_work: u32,
+) -> Result<Vec<BigInt>, PrimitivePolynomialFactorizationIncompleteReason> {
+    let mut points = Vec::with_capacity(count);
+    let mut magnitude = BigInt::zero();
+    while points.len() < count {
+        if magnitude.is_zero() {
+            consume_factorization_work(work, max_work)?;
+            if !polynomial.evaluate_integer(&Integer::zero()).is_zero() {
+                points.push(BigInt::zero());
+            }
+            magnitude = BigInt::one();
+            continue;
+        }
+
+        let positive = magnitude.clone();
+        consume_factorization_work(work, max_work)?;
+        if !polynomial
+            .evaluate_integer(&Integer::from_bigint(positive.clone()))
+            .is_zero()
+        {
+            points.push(positive);
+            if points.len() == count {
+                break;
+            }
+        }
+
+        let negative = -magnitude.clone();
+        consume_factorization_work(work, max_work)?;
+        if !polynomial
+            .evaluate_integer(&Integer::from_bigint(negative.clone()))
+            .is_zero()
+        {
+            points.push(negative);
+        }
+        magnitude += 1_u8;
+    }
+    Ok(points)
+}
+
+fn enumerate_kronecker_values(
+    polynomial: &PrimitivePolynomial,
+    points: &[BigInt],
+    value_choices: &[Vec<BigInt>],
+    selected_values: &mut Vec<BigInt>,
+    work: &mut u32,
+    max_work: u32,
+) -> Result<Option<PrimitivePolynomial>, PrimitivePolynomialFactorizationIncompleteReason> {
+    if selected_values.len() == value_choices.len() {
+        consume_factorization_work(work, max_work)?;
+        let Some(candidate) = interpolate_integer_polynomial_at_points(points, selected_values)
+        else {
+            return Ok(None);
+        };
+        if !is_nonconstant(&candidate) || candidate.degree() == polynomial.degree() {
+            return Ok(None);
+        }
+        return match polynomial.exact_quotient(&candidate) {
+            Ok(Some(quotient)) if is_nonconstant(&quotient) => Ok(Some(candidate)),
+            Ok(_) | Err(PrimitivePolynomialDivisionError::NotDivisible) => Ok(None),
+            Err(PrimitivePolynomialDivisionError::ZeroDivisor) => {
+                unreachable!("candidate interpolation returned a non-zero polynomial")
+            }
+        };
+    }
+
+    let choices = &value_choices[selected_values.len()];
+    for choice in choices {
+        selected_values.push(choice.clone());
+        if let Some(factor) = enumerate_kronecker_values(
+            polynomial,
+            points,
+            value_choices,
+            selected_values,
+            work,
+            max_work,
+        )? {
+            return Ok(Some(factor));
+        }
+        selected_values.pop();
+    }
+    Ok(None)
+}
+
+fn signed_divisors_bounded(
+    value: &BigInt,
+    work: &mut u32,
+    max_work: u32,
+) -> Result<Vec<BigInt>, PrimitivePolynomialFactorizationIncompleteReason> {
+    let mut divisors = Vec::new();
+    for divisor in positive_divisors_bounded(&value.abs(), work, max_work)? {
+        divisors.push(divisor.clone());
+        divisors.push(-divisor);
+    }
+    Ok(divisors)
+}
+
 fn positive_divisors_bounded(
     value: &BigInt,
     work: &mut u32,
@@ -1324,6 +1572,18 @@ fn rational_root_factorization(
     PrimitivePolynomialRationalRootFactorization {
         factors,
         residual: is_nonconstant(&residual).then_some(residual),
+        incomplete_reason,
+    }
+}
+
+fn polynomial_factorization(
+    factors: Vec<PrimitivePolynomialFactor>,
+    residual: Option<PrimitivePolynomial>,
+    incomplete_reason: Option<PrimitivePolynomialFactorizationIncompleteReason>,
+) -> PrimitivePolynomialFactorization {
+    PrimitivePolynomialFactorization {
+        factors,
+        residual: residual.filter(is_nonconstant),
         incomplete_reason,
     }
 }
@@ -2569,6 +2829,127 @@ mod tests {
 
         assert_eq!(
             zero.factor_rational_roots(64),
+            Err(PrimitivePolynomialConstructionError::ZeroPolynomial)
+        );
+    }
+
+    #[test]
+    fn factor_bounded_splits_non_linear_integer_factors() {
+        let polynomial = PrimitivePolynomial::new(integers(&[6, 0, -5, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        let square_root_two =
+            PrimitivePolynomial::new(integers(&[-2, 0, 1])).expect("factor normalizes");
+        let square_root_three =
+            PrimitivePolynomial::new(integers(&[-3, 0, 1])).expect("factor normalizes");
+
+        let factorization = polynomial.factor_bounded(10_000).unwrap();
+
+        assert_eq!(factorization.residual, None);
+        assert_eq!(factorization.incomplete_reason, None);
+        assert!(factorization.factors.contains(&PrimitivePolynomialFactor {
+            factor: square_root_two,
+            multiplicity: 1,
+        }));
+        assert!(factorization.factors.contains(&PrimitivePolynomialFactor {
+            factor: square_root_three,
+            multiplicity: 1,
+        }));
+        assert_eq!(factorization.factors.len(), 2);
+    }
+
+    #[test]
+    fn factor_bounded_splits_non_monic_non_linear_factors() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-6, -12, 1, 2]))
+            .expect("non-zero polynomial normalizes");
+        let primitive_linear =
+            PrimitivePolynomial::new(integers(&[1, 2])).expect("factor normalizes");
+        let non_monic_quadratic =
+            PrimitivePolynomial::new(integers(&[-6, 0, 1])).expect("factor normalizes");
+
+        let factorization = polynomial.factor_bounded(10_000).unwrap();
+
+        assert_eq!(
+            factorization,
+            PrimitivePolynomialFactorization {
+                factors: vec![
+                    PrimitivePolynomialFactor {
+                        factor: primitive_linear,
+                        multiplicity: 1,
+                    },
+                    PrimitivePolynomialFactor {
+                        factor: non_monic_quadratic,
+                        multiplicity: 1,
+                    },
+                ],
+                residual: None,
+                incomplete_reason: None,
+            }
+        );
+    }
+
+    #[test]
+    fn factor_bounded_groups_repeated_non_linear_factors() {
+        let polynomial = PrimitivePolynomial::new(integers(&[4, 0, -4, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        let square_root_two =
+            PrimitivePolynomial::new(integers(&[-2, 0, 1])).expect("factor normalizes");
+
+        assert_eq!(
+            polynomial.factor_bounded(10_000).unwrap(),
+            PrimitivePolynomialFactorization {
+                factors: vec![PrimitivePolynomialFactor {
+                    factor: square_root_two,
+                    multiplicity: 2,
+                }],
+                residual: None,
+                incomplete_reason: None,
+            }
+        );
+    }
+
+    #[test]
+    fn factor_bounded_keeps_irreducible_root_sum_polynomial() {
+        let polynomial = PrimitivePolynomial::new(integers(&[1, 0, -10, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            polynomial.factor_bounded(10_000).unwrap(),
+            PrimitivePolynomialFactorization {
+                factors: vec![PrimitivePolynomialFactor {
+                    factor: polynomial,
+                    multiplicity: 1,
+                }],
+                residual: None,
+                incomplete_reason: None,
+            }
+        );
+    }
+
+    #[test]
+    fn factor_bounded_preserves_residual_on_work_limit() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-2, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            polynomial.factor_bounded(0).unwrap(),
+            PrimitivePolynomialFactorization {
+                factors: vec![],
+                residual: Some(polynomial),
+                incomplete_reason: Some(
+                    PrimitivePolynomialFactorizationIncompleteReason::WorkLimitExceeded
+                ),
+            }
+        );
+    }
+
+    #[test]
+    fn factor_bounded_rejects_zero_polynomial() {
+        let zero = PrimitivePolynomial {
+            coefficients_low_to_high: vec![Integer::zero()],
+        };
+
+        assert_eq!(
+            zero.factor_bounded(64),
             Err(PrimitivePolynomialConstructionError::ZeroPolynomial)
         );
     }
