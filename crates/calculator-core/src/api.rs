@@ -2110,6 +2110,52 @@ mod tests {
     }
 
     #[test]
+    fn prime_root_quotient_is_real_algebraic() {
+        let source = "2^(1/3)/4^(1/3)";
+        let parsed = parse(source, &ParseSettings::default()).unwrap();
+        let mut context = EvaluationContext::default();
+        let evaluation = evaluate(
+            &parsed,
+            &EvaluationRequest {
+                semantics: SemanticSettings::default(),
+                limits: ResourceLimitRequest::Default,
+            },
+            &mut context,
+        )
+        .unwrap();
+        let RecognizedExact::RealAlgebraic(algebraic) = &evaluation.value.recognized_exact else {
+            panic!("expected quotient real algebraic recognition");
+        };
+        assert_eq!(
+            algebraic.minimal_polynomial,
+            PrimitivePolynomial::new(vec![
+                Integer::from(-1),
+                Integer::zero(),
+                Integer::zero(),
+                Integer::from(2),
+            ])
+            .unwrap()
+        );
+        assert_eq!(
+            algebraic
+                .minimal_polynomial
+                .distinct_real_root_count_in_interval(&algebraic.isolating_interval)
+                .unwrap(),
+            1
+        );
+
+        let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+        let CalculationOutcome::Partial { calculation, .. } = outcome else {
+            panic!("expected partial calculation for quotient algebraic number");
+        };
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("expected exact algebraic output");
+        };
+        assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
+        assert_eq!(exact.plain_text, source);
+    }
+
+    #[test]
     fn algebraic_sum_limits_fall_back_to_symbolic_without_error() {
         let source = "2^(1/3)+2^(1/3)";
         assert_source_symbolic_fallback_with_limits(
@@ -2131,6 +2177,25 @@ mod tests {
     #[test]
     fn algebraic_product_limits_fall_back_to_symbolic_without_error() {
         let source = "2^(1/3)*2^(1/3)";
+        assert_source_symbolic_fallback_with_limits(
+            source,
+            ResourceLimits {
+                max_resultant_degree: 2,
+                ..ResourceLimits::default()
+            },
+        );
+        assert_source_symbolic_fallback_with_limits(
+            source,
+            ResourceLimits {
+                max_factorization_work: 0,
+                ..ResourceLimits::default()
+            },
+        );
+    }
+
+    #[test]
+    fn algebraic_quotient_limits_fall_back_to_symbolic_without_error() {
+        let source = "2^(1/3)/4^(1/3)";
         assert_source_symbolic_fallback_with_limits(
             source,
             ResourceLimits {

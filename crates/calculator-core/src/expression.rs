@@ -710,15 +710,21 @@ fn evaluate_real_algebraic_quotient(
     let Some(denominator) = evaluate_real_algebraic_node(dag, denominator, limits)? else {
         return Ok(None);
     };
-    let numerator = match evaluate_node(dag, numerator) {
-        Ok(value) => value,
-        Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
-        Err(error) => return Err(error),
-    };
-    let Some(reciprocal) = reciprocal_real_algebraic(denominator, limits)? else {
+    let Some(reciprocal_denominator) = reciprocal_real_algebraic(denominator, limits)? else {
         return Ok(None);
     };
-    scale_real_algebraic_by_rational(reciprocal, numerator.value(), limits)
+    match evaluate_node(dag, numerator) {
+        Ok(numerator) => {
+            scale_real_algebraic_by_rational(reciprocal_denominator, numerator.value(), limits)
+        }
+        Err(error) if is_unsupported_exact_expression(&error) => {
+            let Some(numerator) = evaluate_real_algebraic_node(dag, numerator, limits)? else {
+                return Ok(None);
+            };
+            multiply_real_algebraics(numerator, reciprocal_denominator, limits)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn scale_real_algebraic_by_rational(
@@ -2164,6 +2170,25 @@ mod tests {
             evaluate_real_algebraic_dag(&dag, &ResourceLimits::default())
                 .unwrap()
                 .is_some()
+        );
+    }
+
+    #[test]
+    fn real_algebraic_over_real_algebraic_is_recognized_as_real_algebraic() {
+        let dag = lower("2^(1/3)/4^(1/3)");
+        let quotient = evaluate_real_algebraic_dag(&dag, &ResourceLimits::default())
+            .unwrap()
+            .expect("algebraic quotient should be recognized");
+
+        assert_eq!(
+            quotient.minimal_polynomial(),
+            &PrimitivePolynomial::new(vec![
+                Integer::from(-1),
+                Integer::zero(),
+                Integer::zero(),
+                Integer::from(2),
+            ])
+            .expect("minimal polynomial normalizes")
         );
     }
 }
