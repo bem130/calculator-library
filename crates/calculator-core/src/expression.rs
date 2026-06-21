@@ -134,8 +134,18 @@ fn evaluate_power(
     exponent: ExprId,
 ) -> Result<Rational, EvaluationError> {
     let base = evaluate_node(dag, base)?;
-    let exponent = evaluate_node(dag, exponent)?;
+    let exponent = match evaluate_node(dag, exponent) {
+        Ok(exponent) => exponent,
+        Err(error) if base.is_negative() && is_unsupported_exact_exponent(&error) => {
+            return Err(domain_error(DomainErrorKind::NonRealPower));
+        }
+        Err(error) => return Err(error),
+    };
     evaluate_rational_power(&base, &exponent)
+}
+
+fn is_unsupported_exact_exponent(error: &EvaluationError) -> bool {
+    matches!(error, EvaluationError::UnsupportedFeature(_))
 }
 
 fn evaluate_rational_power(

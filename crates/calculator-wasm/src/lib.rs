@@ -532,6 +532,8 @@ mod tests {
             ("0^0", DomainErrorCodeDto::IndeterminateZeroToZero),
             ("0^-1", DomainErrorCodeDto::ZeroToNegativePower),
             ("(-8)^(1/2)", DomainErrorCodeDto::NonRealPower),
+            ("(-1)^(sqrt(2))", DomainErrorCodeDto::NonRealPower),
+            ("(-1)^pi", DomainErrorCodeDto::NonRealPower),
         ] {
             assert_eq!(
                 calculate_dto(source, exact_only_request()),
@@ -1177,6 +1179,8 @@ pub mod wasm_tests {
             ("0^0", DomainErrorCodeDto::IndeterminateZeroToZero),
             ("0^-1", DomainErrorCodeDto::ZeroToNegativePower),
             ("(-8)^(1/2)", DomainErrorCodeDto::NonRealPower),
+            ("(-1)^(sqrt(2))", DomainErrorCodeDto::NonRealPower),
+            ("(-1)^pi", DomainErrorCodeDto::NonRealPower),
         ] {
             assert_eq!(
                 calculator_error(source, exact_only_request()),
