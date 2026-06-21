@@ -738,7 +738,7 @@ mod tests {
 
     #[test]
     fn wasm_dto_serializes_affine_real_algebraic_expression() {
-        for source in ["1-2^(1/3)", "2^(1/3)/2+1"] {
+        for source in ["1-2^(1/3)", "2^(1/3)/2+1", "1/2^(1/3)+1"] {
             let mut request = exact_only_request();
             request.scientific_output = ScientificOutputRequestDto::Include {
                 significant_digits: 50,

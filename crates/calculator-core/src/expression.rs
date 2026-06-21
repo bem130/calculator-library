@@ -637,18 +637,33 @@ fn evaluate_real_algebraic_quotient(
     denominator: ExprId,
     limits: &ResourceLimits,
 ) -> Result<Option<RealAlgebraic>, EvaluationError> {
-    let Some(numerator) = evaluate_real_algebraic_node(dag, numerator, limits)? else {
+    let denominator_rational = match evaluate_node(dag, denominator) {
+        Ok(value) => Some(value),
+        Err(error) if is_unsupported_exact_expression(&error) => None,
+        Err(error) => return Err(error),
+    };
+    if let Some(denominator_rational) = denominator_rational {
+        let Some(numerator) = evaluate_real_algebraic_node(dag, numerator, limits)? else {
+            return Ok(None);
+        };
+        let scalar = Rational::one()
+            .divide(denominator_rational.value())
+            .map_err(arithmetic_error)?;
+        return scale_real_algebraic_by_rational(numerator, &scalar, limits);
+    }
+
+    let Some(denominator) = evaluate_real_algebraic_node(dag, denominator, limits)? else {
         return Ok(None);
     };
-    let denominator = match evaluate_node(dag, denominator) {
+    let numerator = match evaluate_node(dag, numerator) {
         Ok(value) => value,
         Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
         Err(error) => return Err(error),
     };
-    let scalar = Rational::one()
-        .divide(denominator.value())
-        .map_err(arithmetic_error)?;
-    scale_real_algebraic_by_rational(numerator, &scalar, limits)
+    let Some(reciprocal) = reciprocal_real_algebraic(denominator, limits)? else {
+        return Ok(None);
+    };
+    scale_real_algebraic_by_rational(reciprocal, numerator.value(), limits)
 }
 
 fn scale_real_algebraic_by_rational(
@@ -664,6 +679,22 @@ fn scale_real_algebraic_by_rational(
     }
     match algebraic.scale_rational_bounded(
         scalar,
+        limits.max_polynomial_coefficient_bits,
+        limits.max_root_isolation_steps,
+    ) {
+        Ok(value) => Ok(value),
+        Err(RealAlgebraicConstructionError::RootIsolation(
+            PrimitivePolynomialRootIsolationError::StepLimitExceeded,
+        )) => Ok(None),
+        Err(error) => Err(real_algebraic_construction_error(error)),
+    }
+}
+
+fn reciprocal_real_algebraic(
+    algebraic: RealAlgebraic,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraic>, EvaluationError> {
+    match algebraic.reciprocal_bounded(
         limits.max_polynomial_coefficient_bits,
         limits.max_root_isolation_steps,
     ) {
@@ -2052,5 +2083,32 @@ mod tests {
         let dag = lower("7 - 2");
         assert!(matches!(dag.node(dag.root()), ExpressionNode::Add(_)));
         assert_eq!(evaluate_rational_dag(&dag).unwrap().to_string(), "5");
+    }
+
+    #[test]
+    fn rational_over_real_algebraic_is_recognized_as_real_algebraic() {
+        let dag = lower("1/2^(1/3)");
+        let ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } = dag.node(dag.root())
+        else {
+            panic!("expected divide");
+        };
+        let denominator =
+            evaluate_real_algebraic_node(&dag, *denominator, &ResourceLimits::default())
+                .unwrap()
+                .expect("denominator should be algebraic");
+        assert!(evaluate_node(&dag, *numerator).is_ok());
+        assert!(
+            reciprocal_real_algebraic(denominator, &ResourceLimits::default())
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            evaluate_real_algebraic_dag(&dag, &ResourceLimits::default())
+                .unwrap()
+                .is_some()
+        );
     }
 }
