@@ -11,8 +11,9 @@ use num_integer::Integer as _;
 use num_traits::{Signed, Zero};
 
 use crate::expression::{
-    evaluate_interval_dag, evaluate_rational_evaluation_dag, evaluate_rational_pi_multiple_dag,
-    lower_source_expression, ExactExpressionDag, PiCoefficientEvaluation, RationalEvaluation,
+    evaluate_interval_dag, evaluate_radical_dag, evaluate_rational_evaluation_dag,
+    evaluate_rational_pi_multiple_dag, lower_source_expression, ExactExpressionDag,
+    PiCoefficientEvaluation, RadicalEvaluation, RationalEvaluation,
 };
 use crate::interval;
 use crate::types::*;
@@ -120,6 +121,36 @@ pub fn evaluate(
                     },
                 });
             }
+            if let Some(radical) = evaluate_radical_dag(&dag)? {
+                let certified_enclosure =
+                    radical_enclosure(&dag, &radical).map_err(|interval_error| {
+                        interval_error_to_evaluation_error(interval_error, error.clone())
+                    })?;
+                let mut methods = vec![
+                    MethodTag::RadicalExtraction,
+                    MethodTag::CertifiedIntervalEvaluation,
+                ];
+                if radical.used_special_angle() {
+                    methods.push(MethodTag::SpecialAngle);
+                }
+                return Ok(EvaluationOutcome {
+                    value: EvaluatedValue {
+                        exact_expression: ExactExpression {
+                            source: expression.source.clone(),
+                        },
+                        recognized_exact: RecognizedExact::Radical(radical.into_value()),
+                        certified_enclosure: CertifiedEnclosureState::Available(
+                            certified_enclosure,
+                        ),
+                    },
+                    metadata: EvaluationMetadata {
+                        semantic_settings: request.semantics,
+                        methods,
+                        internal_precision_bits: 128,
+                        refinement_rounds: 0,
+                    },
+                });
+            }
             let certified_enclosure = evaluate_interval_dag(&dag).map_err(|interval_error| {
                 interval_error_to_evaluation_error(interval_error, error.clone())
             })?;
@@ -158,6 +189,21 @@ fn rational_pi_enclosure(
             &interval::from_rational(value.coefficient(), 128),
             &interval::constant(Constant::Pi, 128)?,
         ),
+        error => Err(error),
+    })
+}
+
+fn radical_enclosure(
+    dag: &ExactExpressionDag,
+    value: &RadicalEvaluation,
+) -> Result<CertifiedInterval, interval::IntervalError> {
+    evaluate_interval_dag(dag).or_else(|error| match error {
+        interval::IntervalError::UnsupportedExpression => {
+            let coefficient = interval::from_rational(&value.value().coefficient, 128);
+            let radicand = Rational::from_integer(value.value().radicand.inner.clone());
+            let radical = interval::sqrt(&interval::from_rational(&radicand, 128), 128)?;
+            interval::multiply(&coefficient, &radical)
+        }
         error => Err(error),
     })
 }
@@ -201,6 +247,9 @@ pub fn present(
         (_, ExactOutputRequest::Omit) => ExactOutput::Omitted,
         (RecognizedExact::Rational(rational), ExactOutputRequest::Include { .. }) => {
             ExactOutput::Included(exact_presentation(rational))
+        }
+        (RecognizedExact::Radical(value), ExactOutputRequest::Include { .. }) => {
+            ExactOutput::Included(radical_presentation(value))
         }
         (RecognizedExact::RationalPiMultiple(value), ExactOutputRequest::Include { .. }) => {
             ExactOutput::Included(rational_pi_presentation(value))
@@ -360,6 +409,63 @@ fn exact_presentation(rational: &Rational) -> ExactPresentation {
     }
 }
 
+fn radical_presentation(value: &SimpleRadical) -> ExactPresentation {
+    ExactPresentation {
+        relation: ResultRelation::ExactEqual,
+        representation: ExactRepresentationKind::Radical,
+        presentation: radical_presentation_node(value),
+        plain_text: radical_plain_text(value),
+    }
+}
+
+fn radical_plain_text(value: &SimpleRadical) -> String {
+    let numerator = value.coefficient.numerator.to_string();
+    let denominator = value.coefficient.denominator.inner.to_string();
+    let radicand = value.radicand.inner.to_string();
+    let radical = format!("sqrt({radicand})");
+    if value.coefficient.is_integer() {
+        return match numerator.as_str() {
+            "1" => radical,
+            "-1" => format!("-{radical}"),
+            _ => format!("{numerator}{radical}"),
+        };
+    }
+
+    match numerator.as_str() {
+        "1" => format!("{radical}/{denominator}"),
+        "-1" => format!("-{radical}/{denominator}"),
+        _ => format!("{numerator}{radical}/{denominator}"),
+    }
+}
+
+fn radical_presentation_node(value: &SimpleRadical) -> PresentationNode {
+    let radical = PresentationNode::Radical {
+        index: RadicalIndex::Square,
+        radicand: Box::new(PresentationNode::Text(value.radicand.inner.to_string())),
+    };
+    let numerator = value.coefficient.numerator.to_string();
+    if value.coefficient.is_integer() {
+        return radical_numerator_node(&numerator, radical);
+    }
+    PresentationNode::Fraction {
+        numerator: Box::new(radical_numerator_node(&numerator, radical)),
+        denominator: Box::new(PresentationNode::Text(
+            value.coefficient.denominator.inner.to_string(),
+        )),
+    }
+}
+
+fn radical_numerator_node(numerator: &str, radical: PresentationNode) -> PresentationNode {
+    match numerator {
+        "1" => radical,
+        "-1" => PresentationNode::Row(vec![PresentationNode::Text(String::from("-")), radical]),
+        _ => PresentationNode::Row(vec![
+            PresentationNode::Text(String::from(numerator)),
+            radical,
+        ]),
+    }
+}
+
 fn rational_presentation(rational: &Rational) -> PresentationNode {
     if rational.is_integer() {
         PresentationNode::Text(rational.numerator.to_string())
@@ -439,6 +545,7 @@ fn symbolic_presentation(source: &str) -> ExactPresentation {
 fn exact_representation_kind(value: &RecognizedExact) -> ExactRepresentationKind {
     match value {
         RecognizedExact::Rational(rational) => rational_exact_representation_kind(rational),
+        RecognizedExact::Radical(_) => ExactRepresentationKind::Radical,
         RecognizedExact::RealAlgebraic(_) => ExactRepresentationKind::RealAlgebraic,
         RecognizedExact::RationalPiMultiple(_) => ExactRepresentationKind::RationalPiMultiple,
         RecognizedExact::GeneralSymbolic => ExactRepresentationKind::GeneralSymbolic,
@@ -466,7 +573,7 @@ fn simplification_status(scientific: &ScientificOutput) -> SimplificationStatus 
 
 fn assurance_level(value: &RecognizedExact) -> AssuranceLevel {
     match value {
-        RecognizedExact::Rational(_) => AssuranceLevel::Exact,
+        RecognizedExact::Rational(_) | RecognizedExact::Radical(_) => AssuranceLevel::Exact,
         RecognizedExact::RealAlgebraic(_)
         | RecognizedExact::RationalPiMultiple(_)
         | RecognizedExact::GeneralSymbolic => AssuranceLevel::CertifiedEnclosure,
@@ -1120,6 +1227,51 @@ mod tests {
     }
 
     #[test]
+    fn simple_radicals_are_recognized_exactly() {
+        for (source, expected) in [
+            ("sqrt(2)", "sqrt(2)"),
+            ("sqrt(72)", "6sqrt(2)"),
+            ("sqrt(1/2)", "sqrt(2)/2"),
+            ("2^(1/2)", "sqrt(2)"),
+            ("3*sqrt(8)", "6sqrt(2)"),
+            ("sqrt(2)/2", "sqrt(2)/2"),
+            ("sin(pi/4)", "sqrt(2)/2"),
+            ("cos(pi/6)", "sqrt(3)/2"),
+            ("tan(pi/3)", "sqrt(3)"),
+            ("tan(pi/6)", "sqrt(3)/3"),
+            ("sin(pi/4) + cos(pi/4)", "sqrt(2)"),
+        ] {
+            assert_eq!(exact_plain_text(source), expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn radical_metadata_reports_exact_representation_and_methods() {
+        let mut context = EvaluationContext::default();
+        let outcome = calculate("sin(pi/4)", &exact_only_request(), &mut context).unwrap();
+        let CalculationOutcome::Complete(calculation) = outcome else {
+            panic!("expected complete calculation");
+        };
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("expected exact output");
+        };
+        assert_eq!(exact.representation, ExactRepresentationKind::Radical);
+        assert_eq!(
+            calculation.metadata.exact_representation,
+            ExactRepresentationKind::Radical
+        );
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::RadicalExtraction));
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::SpecialAngle));
+        assert_eq!(calculation.metadata.assurance, AssuranceLevel::Exact);
+    }
+
+    #[test]
     fn irrational_sqrt_returns_partial_with_certified_enclosure() {
         let mut context = EvaluationContext::default();
         let outcome = calculate("sqrt(2)", &CalculationRequest::default(), &mut context).unwrap();
@@ -1141,10 +1293,7 @@ mod tests {
         let ExactOutput::Included(exact) = calculation.exact else {
             panic!("expected retained exact expression");
         };
-        assert_eq!(
-            exact.representation,
-            ExactRepresentationKind::GeneralSymbolic
-        );
+        assert_eq!(exact.representation, ExactRepresentationKind::Radical);
         assert_eq!(exact.plain_text, "sqrt(2)");
         let ScientificOutput::Unavailable(scientific) = calculation.scientific else {
             panic!("expected unavailable scientific output");
@@ -1163,14 +1312,11 @@ mod tests {
             interval::contains_rational(&squared, &Rational::from_integer(Integer::from(2)),)
                 .unwrap()
         );
-        assert_eq!(
-            calculation.metadata.assurance,
-            AssuranceLevel::CertifiedEnclosure
-        );
+        assert_eq!(calculation.metadata.assurance, AssuranceLevel::Exact);
         assert!(calculation
             .metadata
             .methods
-            .contains(&MethodTag::SymbolicRetention));
+            .contains(&MethodTag::RadicalExtraction));
     }
 
     #[test]
@@ -1195,11 +1341,8 @@ mod tests {
         let ExactOutput::Included(exact) = calculation.exact else {
             panic!("expected retained exact expression");
         };
-        assert_eq!(
-            exact.representation,
-            ExactRepresentationKind::GeneralSymbolic
-        );
-        assert_eq!(exact.plain_text, "2^(1/2)");
+        assert_eq!(exact.representation, ExactRepresentationKind::Radical);
+        assert_eq!(exact.plain_text, "sqrt(2)");
         let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
             panic!("expected requested enclosure output");
         };
@@ -1213,14 +1356,11 @@ mod tests {
             interval::contains_rational(&squared, &Rational::from_integer(Integer::from(2)),)
                 .unwrap()
         );
-        assert_eq!(
-            calculation.metadata.assurance,
-            AssuranceLevel::CertifiedEnclosure
-        );
+        assert_eq!(calculation.metadata.assurance, AssuranceLevel::Exact);
         assert!(calculation
             .metadata
             .methods
-            .contains(&MethodTag::SymbolicRetention));
+            .contains(&MethodTag::RadicalExtraction));
         assert!(calculation
             .metadata
             .methods

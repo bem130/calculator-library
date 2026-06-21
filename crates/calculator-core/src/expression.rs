@@ -124,6 +124,47 @@ impl PiCoefficientEvaluation {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RadicalEvaluation {
+    value: SimpleRadical,
+    used_special_angle: bool,
+}
+
+impl RadicalEvaluation {
+    fn direct(value: SimpleRadical) -> Self {
+        Self {
+            value,
+            used_special_angle: false,
+        }
+    }
+
+    fn special_angle(value: SimpleRadical) -> Self {
+        Self {
+            value,
+            used_special_angle: true,
+        }
+    }
+
+    fn with_origin(value: SimpleRadical, used_special_angle: bool) -> Self {
+        Self {
+            value,
+            used_special_angle,
+        }
+    }
+
+    pub(crate) fn value(&self) -> &SimpleRadical {
+        &self.value
+    }
+
+    pub(crate) fn into_value(self) -> SimpleRadical {
+        self.value
+    }
+
+    pub(crate) fn used_special_angle(&self) -> bool {
+        self.used_special_angle
+    }
+}
+
 #[derive(Default)]
 struct DagBuilder {
     nodes: Vec<ExpressionNode>,
@@ -171,6 +212,12 @@ pub(crate) fn evaluate_rational_pi_multiple_dag(
     dag: &ExactExpressionDag,
 ) -> Result<Option<PiCoefficientEvaluation>, EvaluationError> {
     evaluate_pi_coefficient(dag, dag.root())
+}
+
+pub(crate) fn evaluate_radical_dag(
+    dag: &ExactExpressionDag,
+) -> Result<Option<RadicalEvaluation>, EvaluationError> {
+    evaluate_radical_node(dag, dag.root())
 }
 
 fn evaluate_node(
@@ -348,6 +395,194 @@ fn evaluate_pi_coefficient(
         },
         ExpressionNode::Power { .. } => Ok(None),
     }
+}
+
+fn evaluate_radical_node(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+) -> Result<Option<RadicalEvaluation>, EvaluationError> {
+    match dag.node(id) {
+        ExpressionNode::Add(list_id) => evaluate_radical_sum(dag, *list_id),
+        ExpressionNode::Multiply(list_id) => evaluate_radical_product(dag, *list_id),
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => {
+            let Some(numerator) = evaluate_radical_node(dag, *numerator)? else {
+                return Ok(None);
+            };
+            let denominator = match evaluate_node(dag, *denominator) {
+                Ok(value) => value,
+                Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+                Err(error) => return Err(error),
+            };
+            Ok(scale_radical(
+                numerator.value(),
+                &Rational::one()
+                    .divide(denominator.value())
+                    .map_err(arithmetic_error)?,
+                numerator.used_special_angle() || denominator.used_special_angle(),
+            ))
+        }
+        ExpressionNode::Function { function, argument } => match function {
+            Function::Sqrt => {
+                let argument = evaluate_node(dag, *argument)?;
+                if argument.value().is_negative() {
+                    return Err(domain_error(DomainErrorKind::EvenRootOfNegative));
+                }
+                Ok(argument
+                    .value()
+                    .sqrt_as_simple_radical()
+                    .map(RadicalEvaluation::direct))
+            }
+            Function::Sin | Function::Cos | Function::Tan => {
+                evaluate_radical_trigonometric_function(dag, *function, *argument)
+            }
+            Function::Asin | Function::Acos | Function::Atan | Function::Exp | Function::Log => {
+                Ok(None)
+            }
+        },
+        ExpressionNode::Power { base, exponent } => {
+            let exponent = match evaluate_node(dag, *exponent) {
+                Ok(value) => value,
+                Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+                Err(error) => return Err(error),
+            };
+            if exponent.value() != &rational(1, 2) {
+                return Ok(None);
+            }
+            let base = evaluate_node(dag, *base)?;
+            if base.value().is_negative() {
+                return Err(domain_error(DomainErrorKind::NonRealPower));
+            }
+            Ok(base
+                .value()
+                .sqrt_as_simple_radical()
+                .map(RadicalEvaluation::direct))
+        }
+        ExpressionNode::Rational(_) | ExpressionNode::Constant(_) => Ok(None),
+    }
+}
+
+fn evaluate_radical_sum(
+    dag: &ExactExpressionDag,
+    list_id: ExprListId,
+) -> Result<Option<RadicalEvaluation>, EvaluationError> {
+    let mut radicand = None;
+    let mut coefficient = Rational::zero();
+    let mut used_special_angle = false;
+
+    for child in dag.list(list_id) {
+        match evaluate_node(dag, *child) {
+            Ok(value) if value.value().is_zero() => {
+                used_special_angle |= value.used_special_angle();
+            }
+            Ok(_) => return Ok(None),
+            Err(error) if is_unsupported_exact_expression(&error) => {
+                let Some(radical) = evaluate_radical_node(dag, *child)? else {
+                    return Ok(None);
+                };
+                match &radicand {
+                    Some(current) if current != &radical.value().radicand => return Ok(None),
+                    None => radicand = Some(radical.value().radicand.clone()),
+                    _ => {}
+                }
+                used_special_angle |= radical.used_special_angle();
+                coefficient = coefficient.add(&radical.value().coefficient);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    let Some(radicand) = radicand else {
+        return Ok(None);
+    };
+    if coefficient.is_zero() {
+        return Ok(None);
+    }
+    Ok(Some(RadicalEvaluation::with_origin(
+        SimpleRadical {
+            coefficient,
+            radicand,
+        },
+        used_special_angle,
+    )))
+}
+
+fn evaluate_radical_product(
+    dag: &ExactExpressionDag,
+    list_id: ExprListId,
+) -> Result<Option<RadicalEvaluation>, EvaluationError> {
+    let mut scalar = Rational::one();
+    let mut radical = None;
+    let mut used_special_angle = false;
+
+    for child in dag.list(list_id) {
+        match evaluate_node(dag, *child) {
+            Ok(value) => {
+                if value.value().is_zero() {
+                    return Ok(None);
+                }
+                used_special_angle |= value.used_special_angle();
+                scalar = scalar.multiply(value.value());
+            }
+            Err(error) if is_unsupported_exact_expression(&error) => {
+                let Some(value) = evaluate_radical_node(dag, *child)? else {
+                    return Ok(None);
+                };
+                if radical.is_some() {
+                    return Ok(None);
+                }
+                used_special_angle |= value.used_special_angle();
+                radical = Some(value);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    let Some(radical) = radical else {
+        return Ok(None);
+    };
+    Ok(scale_radical(
+        radical.value(),
+        &scalar,
+        used_special_angle || radical.used_special_angle(),
+    ))
+}
+
+fn evaluate_radical_trigonometric_function(
+    dag: &ExactExpressionDag,
+    function: Function,
+    argument: ExprId,
+) -> Result<Option<RadicalEvaluation>, EvaluationError> {
+    let Some(coefficient) = evaluate_pi_coefficient(dag, argument)? else {
+        return Ok(None);
+    };
+    let value = match function {
+        Function::Sin => sine_radical_special_angle(coefficient.coefficient()),
+        Function::Cos => cosine_radical_special_angle(coefficient.coefficient()),
+        Function::Tan => tangent_radical_special_angle(coefficient.coefficient())?,
+        _ => unreachable!("only trigonometric functions are dispatched here"),
+    };
+    Ok(value.map(RadicalEvaluation::special_angle))
+}
+
+fn scale_radical(
+    radical: &SimpleRadical,
+    scalar: &Rational,
+    used_special_angle: bool,
+) -> Option<RadicalEvaluation> {
+    let coefficient = radical.coefficient.multiply(scalar);
+    if coefficient.is_zero() {
+        return None;
+    }
+    Some(RadicalEvaluation::with_origin(
+        SimpleRadical {
+            coefficient,
+            radicand: radical.radicand.clone(),
+        },
+        used_special_angle,
+    ))
 }
 
 fn evaluate_power(
@@ -569,6 +804,55 @@ fn tangent_special_angle(coefficient: &Rational) -> Result<Option<Rational>, Eva
     }
 }
 
+fn sine_radical_special_angle(coefficient: &Rational) -> Option<SimpleRadical> {
+    let phase = coefficient.modulo_integer(2);
+    if phase == rational(1, 4) || phase == rational(3, 4) {
+        Some(simple_radical(rational(1, 2), 2))
+    } else if phase == rational(5, 4) || phase == rational(7, 4) {
+        Some(simple_radical(rational(-1, 2), 2))
+    } else if phase == rational(1, 3) || phase == rational(2, 3) {
+        Some(simple_radical(rational(1, 2), 3))
+    } else if phase == rational(4, 3) || phase == rational(5, 3) {
+        Some(simple_radical(rational(-1, 2), 3))
+    } else {
+        None
+    }
+}
+
+fn cosine_radical_special_angle(coefficient: &Rational) -> Option<SimpleRadical> {
+    let phase = coefficient.modulo_integer(2);
+    if phase == rational(1, 4) || phase == rational(7, 4) {
+        Some(simple_radical(rational(1, 2), 2))
+    } else if phase == rational(3, 4) || phase == rational(5, 4) {
+        Some(simple_radical(rational(-1, 2), 2))
+    } else if phase == rational(1, 6) || phase == rational(11, 6) {
+        Some(simple_radical(rational(1, 2), 3))
+    } else if phase == rational(5, 6) || phase == rational(7, 6) {
+        Some(simple_radical(rational(-1, 2), 3))
+    } else {
+        None
+    }
+}
+
+fn tangent_radical_special_angle(
+    coefficient: &Rational,
+) -> Result<Option<SimpleRadical>, EvaluationError> {
+    let phase = coefficient.modulo_integer(1);
+    if phase == rational(1, 2) {
+        Err(domain_error(DomainErrorKind::TangentPole))
+    } else if phase == rational(1, 3) {
+        Ok(Some(simple_radical(Rational::one(), 3)))
+    } else if phase == rational(2, 3) {
+        Ok(Some(simple_radical(rational_integer(-1), 3)))
+    } else if phase == rational(1, 6) {
+        Ok(Some(simple_radical(rational(1, 3), 3)))
+    } else if phase == rational(5, 6) {
+        Ok(Some(simple_radical(rational(-1, 3), 3)))
+    } else {
+        Ok(None)
+    }
+}
+
 fn evaluate_inverse_trigonometric_function(
     dag: &ExactExpressionDag,
     function: Function,
@@ -675,6 +959,14 @@ fn rational(numerator: i64, denominator: i64) -> Rational {
 
 fn rational_integer(value: i64) -> Rational {
     Rational::from_integer(Integer::from(value))
+}
+
+fn simple_radical(coefficient: Rational, radicand: i64) -> SimpleRadical {
+    SimpleRadical {
+        coefficient,
+        radicand: PositiveInteger::new(Integer::from(radicand))
+            .expect("hard-coded radical radicands are positive"),
+    }
 }
 
 fn unsupported_function_evaluation() -> EvaluationError {
