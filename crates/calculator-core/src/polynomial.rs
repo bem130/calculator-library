@@ -7,9 +7,10 @@ use num_traits::{One, Signed, Zero};
 
 use crate::types::{
     Integer, PrimitivePolynomial, PrimitivePolynomialConstructionError,
-    PrimitivePolynomialDivisionError, PrimitivePolynomialRootCountingError,
-    PrimitivePolynomialRootIsolationError, PrimitivePolynomialSign, PrimitiveSquareFreeFactor,
-    Rational, RationalInterval, SignedPrimitivePolynomial,
+    PrimitivePolynomialDivisionError, PrimitivePolynomialResultantError,
+    PrimitivePolynomialRootCountingError, PrimitivePolynomialRootIsolationError,
+    PrimitivePolynomialSign, PrimitiveSquareFreeFactor, Rational, RationalInterval,
+    SignedPrimitivePolynomial,
 };
 
 impl PrimitivePolynomial {
@@ -340,6 +341,53 @@ impl PrimitivePolynomial {
         isolated.sort_by(|left, right| left.lower.compare(&right.lower));
         Ok(isolated)
     }
+
+    pub fn resultant(&self, rhs: &Self) -> Result<Integer, PrimitivePolynomialResultantError> {
+        let lhs = Self::new(effective_coefficients(&self.coefficients_low_to_high).to_vec())
+            .map_err(resultant_construction_error)?;
+        let rhs = Self::new(effective_coefficients(&rhs.coefficients_low_to_high).to_vec())
+            .map_err(resultant_construction_error)?;
+        let lhs_coefficients = effective_coefficients(&lhs.coefficients_low_to_high);
+        let rhs_coefficients = effective_coefficients(&rhs.coefficients_low_to_high);
+        let lhs_degree = lhs_coefficients.len() - 1;
+        let rhs_degree = rhs_coefficients.len() - 1;
+
+        if lhs_degree == 0 && rhs_degree == 0 {
+            return Ok(Integer::one());
+        }
+        if lhs_degree == 0 {
+            return Ok(Integer::from_bigint(pow_bigint_usize(
+                &lhs_coefficients[0].inner,
+                rhs_degree,
+            )));
+        }
+        if rhs_degree == 0 {
+            return Ok(Integer::from_bigint(pow_bigint_usize(
+                &rhs_coefficients[0].inner,
+                lhs_degree,
+            )));
+        }
+
+        let matrix_size = lhs_degree
+            .checked_add(rhs_degree)
+            .ok_or(PrimitivePolynomialResultantError::DegreeOverflow)?;
+        let mut matrix = vec![vec![BigInt::zero(); matrix_size]; matrix_size];
+        let lhs_high_to_low = reversed_bigint_coefficients(lhs_coefficients);
+        let rhs_high_to_low = reversed_bigint_coefficients(rhs_coefficients);
+        for (row, matrix_row) in matrix.iter_mut().take(rhs_degree).enumerate() {
+            matrix_row[row..row + lhs_high_to_low.len()].clone_from_slice(&lhs_high_to_low);
+        }
+        for (row, matrix_row) in matrix
+            .iter_mut()
+            .skip(rhs_degree)
+            .take(lhs_degree)
+            .enumerate()
+        {
+            matrix_row[row..row + rhs_high_to_low.len()].clone_from_slice(&rhs_high_to_low);
+        }
+
+        Ok(Integer::from_bigint(bareiss_determinant(matrix)))
+    }
 }
 
 fn add_polynomials(
@@ -582,6 +630,65 @@ fn consume_root_isolation_step(
     Ok(())
 }
 
+fn reversed_bigint_coefficients(coefficients: &[Integer]) -> Vec<BigInt> {
+    coefficients
+        .iter()
+        .rev()
+        .map(|coefficient| coefficient.inner.clone())
+        .collect()
+}
+
+fn pow_bigint_usize(base: &BigInt, exponent: usize) -> BigInt {
+    let mut result = BigInt::one();
+    let mut factor = base.clone();
+    let mut remaining = exponent;
+    while remaining > 0 {
+        if remaining % 2 == 1 {
+            result *= &factor;
+        }
+        remaining /= 2;
+        if remaining > 0 {
+            factor = &factor * &factor;
+        }
+    }
+    result
+}
+
+fn bareiss_determinant(mut matrix: Vec<Vec<BigInt>>) -> BigInt {
+    let size = matrix.len();
+    match size {
+        0 => return BigInt::one(),
+        1 => return matrix[0][0].clone(),
+        _ => {}
+    }
+
+    let mut sign = BigInt::one();
+    let mut previous_pivot = BigInt::one();
+    for pivot_index in 0..size - 1 {
+        if matrix[pivot_index][pivot_index].is_zero() {
+            let Some(swap_row) =
+                (pivot_index + 1..size).find(|&row| !matrix[row][pivot_index].is_zero())
+            else {
+                return BigInt::zero();
+            };
+            matrix.swap(pivot_index, swap_row);
+            sign = -sign;
+        }
+
+        let pivot = matrix[pivot_index][pivot_index].clone();
+        for row in pivot_index + 1..size {
+            for column in pivot_index + 1..size {
+                matrix[row][column] = (&matrix[row][column] * &pivot
+                    - &matrix[row][pivot_index] * &matrix[pivot_index][column])
+                    / &previous_pivot;
+            }
+        }
+        previous_pivot = pivot;
+    }
+
+    sign * &matrix[size - 1][size - 1]
+}
+
 fn signed_primitive_polynomial_from_coefficients(
     mut coefficients_low_to_high: Vec<Integer>,
 ) -> Result<Option<SignedPrimitivePolynomial>, PrimitivePolynomialConstructionError> {
@@ -686,6 +793,16 @@ fn root_isolation_counting_error(
         }
         PrimitivePolynomialRootCountingError::CountOverflow => {
             PrimitivePolynomialRootIsolationError::CountOverflow
+        }
+    }
+}
+
+fn resultant_construction_error(
+    error: PrimitivePolynomialConstructionError,
+) -> PrimitivePolynomialResultantError {
+    match error {
+        PrimitivePolynomialConstructionError::ZeroPolynomial => {
+            PrimitivePolynomialResultantError::ZeroPolynomial
         }
     }
 }
@@ -1296,6 +1413,85 @@ mod tests {
         assert_eq!(
             zero.isolate_real_roots(32),
             Err(PrimitivePolynomialRootIsolationError::ZeroPolynomial)
+        );
+    }
+
+    #[test]
+    fn resultant_matches_linear_root_difference() {
+        let x_minus_two =
+            PrimitivePolynomial::new(integers(&[-2, 1])).expect("non-zero polynomial normalizes");
+        let x_minus_three =
+            PrimitivePolynomial::new(integers(&[-3, 1])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            x_minus_two.resultant(&x_minus_three).unwrap(),
+            Integer::from(-1)
+        );
+        assert_eq!(
+            x_minus_three.resultant(&x_minus_two).unwrap(),
+            Integer::from(1)
+        );
+    }
+
+    #[test]
+    fn resultant_handles_non_monic_polynomials() {
+        let two_x_plus_one =
+            PrimitivePolynomial::new(integers(&[1, 2])).expect("non-zero polynomial normalizes");
+        let x_minus_three =
+            PrimitivePolynomial::new(integers(&[-3, 1])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            two_x_plus_one.resultant(&x_minus_three).unwrap(),
+            Integer::from(-7)
+        );
+        assert_eq!(
+            x_minus_three.resultant(&two_x_plus_one).unwrap(),
+            Integer::from(7)
+        );
+    }
+
+    #[test]
+    fn resultant_zero_detects_common_factor() {
+        let parabola = PrimitivePolynomial::new(integers(&[-1, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        let x_minus_one =
+            PrimitivePolynomial::new(integers(&[-1, 1])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(parabola.resultant(&x_minus_one).unwrap(), Integer::zero());
+    }
+
+    #[test]
+    fn resultant_handles_quadratic_linear_and_constants() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-2, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        let x_minus_one =
+            PrimitivePolynomial::new(integers(&[-1, 1])).expect("non-zero polynomial normalizes");
+        let constant =
+            PrimitivePolynomial::new(integers(&[7])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            polynomial.resultant(&x_minus_one).unwrap(),
+            Integer::from(-1)
+        );
+        assert_eq!(constant.resultant(&polynomial).unwrap(), Integer::one());
+        assert_eq!(polynomial.resultant(&constant).unwrap(), Integer::one());
+    }
+
+    #[test]
+    fn resultant_rejects_zero_polynomial() {
+        let polynomial =
+            PrimitivePolynomial::new(integers(&[1, 1])).expect("non-zero polynomial normalizes");
+        let zero = PrimitivePolynomial {
+            coefficients_low_to_high: integers(&[0, 0]),
+        };
+
+        assert_eq!(
+            polynomial.resultant(&zero),
+            Err(PrimitivePolynomialResultantError::ZeroPolynomial)
+        );
+        assert_eq!(
+            zero.resultant(&polynomial),
+            Err(PrimitivePolynomialResultantError::ZeroPolynomial)
         );
     }
 }

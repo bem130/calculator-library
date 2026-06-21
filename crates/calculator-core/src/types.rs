@@ -236,6 +236,12 @@ pub enum PrimitivePolynomialRootIsolationError {
     CountOverflow,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrimitivePolynomialResultantError {
+    ZeroPolynomial,
+    DegreeOverflow,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RealAlgebraic {
     pub minimal_polynomial: PrimitivePolynomial,
