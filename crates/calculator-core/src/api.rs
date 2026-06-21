@@ -858,6 +858,16 @@ mod tests {
     }
 
     #[test]
+    fn guarded_exp_log_identities_are_exact_for_proven_rationals() {
+        assert_eq!(exact_plain_text("exp(log(2))"), "2");
+        assert_eq!(exact_plain_text("exp(log(1/3))"), "1/3");
+        assert_eq!(exact_plain_text("exp(log(0.1 + 0.2))"), "3/10");
+        assert_eq!(exact_plain_text("log(exp(2))"), "2");
+        assert_eq!(exact_plain_text("log(exp(-2))"), "-2");
+        assert_eq!(exact_plain_text("log(exp(1/3))"), "1/3");
+    }
+
+    #[test]
     fn exp_one_returns_partial_euler_enclosure() {
         let mut context = EvaluationContext::default();
         let outcome = calculate("exp(1)", &CalculationRequest::default(), &mut context).unwrap();
@@ -1041,6 +1051,22 @@ mod tests {
     #[test]
     fn log_of_non_positive_is_domain_error() {
         for source in ["log(0)", "log(-1)"] {
+            let mut context = EvaluationContext::default();
+            let error = calculate(source, &exact_only_request(), &mut context).expect_err(source);
+            assert_eq!(
+                error,
+                CalculatorError::Domain(DomainError {
+                    kind: DomainErrorKind::LogarithmOfNonPositive,
+                    span: None,
+                }),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn exp_log_identity_requires_positive_inner_value() {
+        for source in ["exp(log(0))", "exp(log(-1))"] {
             let mut context = EvaluationContext::default();
             let error = calculate(source, &exact_only_request(), &mut context).expect_err(source);
             assert_eq!(
