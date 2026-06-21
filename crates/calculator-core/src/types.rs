@@ -27,6 +27,7 @@ pub enum CertifiedEnclosureState {
 pub enum RecognizedExact {
     Rational(Rational),
     Radical(SimpleRadical),
+    RadicalLinearCombination(RadicalLinearCombination),
     RealAlgebraic(RealAlgebraic),
     RationalPiMultiple(Rational),
     GeneralSymbolic,
@@ -159,6 +160,12 @@ pub struct Rational {
 pub struct SimpleRadical {
     pub coefficient: Rational,
     pub radicand: PositiveInteger,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RadicalLinearCombination {
+    pub rational: Rational,
+    pub radicals: Vec<SimpleRadical>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

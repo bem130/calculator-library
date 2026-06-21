@@ -13,6 +13,7 @@ The implementation is following [doc/design.md](doc/design.md). The current work
 - Rational evaluation carries an internal exact-dyadic certified interval and can produce exact significant-digit scientific notation.
 - Integer powers and rational powers follow the `RealPrincipal` semantics: perfect roots such as `(-8)^(1/3)` and `(-8)^(2/3)` are exact, non-perfect roots such as `2^(1/2)` return certified enclosures with `Partial`, and negative bases with non-rational exponents report `NonRealPower`.
 - `sqrt` preserves perfect-square rational results exactly, recognizes simple radicals such as `sqrt(72) = 6sqrt(2)`, `sqrt(6962) = 59sqrt(2)`, `sqrt(1/2) = sqrt(2)/2`, and `2^(1/2) = sqrt(2)`, and reduces simple-radical products, quotients, and like terms such as `sqrt(2) * sqrt(2) = 2`, `sqrt(2) * sqrt(3) = sqrt(6)`, and `sqrt(8) / sqrt(2) = 2`.
+- Radical exact output supports linear combinations of rational and simple-radical terms, such as `sin(pi/6) + sqrt(2) = 1/2 + sqrt(2)` and `sqrt(3) + sqrt(2) = sqrt(2) + sqrt(3)`.
 - `pi`, `pi/6`, and other rational multiples of `pi` are recognized structurally as exact `RationalPiMultiple` values and return certified enclosures with `Partial` until requested decimal digits are confirmed.
 - The `e` constant returns a certified enclosure with `Partial` until requested decimal digits are confirmed.
 - `exp` / `log` identities are exact when proven over rational values, including `exp(0)`, `log(1)`, `exp(log(x))` for proven positive rational `x`, and `log(exp(x))` for rational `x`; `exp(1)` returns the certified enclosure for `e`.
@@ -90,8 +91,8 @@ The example e2e test covers the public worker API path, MathML rendering,
 clipboard copy, worker cancellation, rational scientific/enclosure output,
 guarded `exp` / `log` identities, exact rational power semantics, and rational
 `pi` multiple output, rational and radical special-angle output, inverse
-trigonometric known values, simple radical output and algebra, and `tan` pole
-errors.
+trigonometric known values, simple radical output and algebra, mixed radical
+linear combinations, and `tan` pole errors.
 
 ## Verification
 
