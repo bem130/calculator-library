@@ -90,6 +90,12 @@
       "expectedExact": "sqrt(2)/2"
     },
     {
+      "id": "twelfth_angle_radical_linear_combination",
+      "source": "tan(pi/12)",
+      "expectedParseTree": "tan(divide(constant(pi),number(12)))",
+      "expectedExact": "2 - sqrt(3)"
+    },
+    {
       "id": "mixed_rational_radical_exact_value",
       "source": "sin(pi/6)+sqrt(2)",
       "expectedParseTree": "add(sin(divide(constant(pi),number(6))),sqrt(number(2)))",
