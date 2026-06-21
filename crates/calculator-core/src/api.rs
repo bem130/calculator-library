@@ -748,6 +748,16 @@ mod tests {
     }
 
     #[test]
+    fn rational_power_real_principal_handles_exact_roots() {
+        assert_eq!(exact_plain_text("(-8)^(1/3)"), "-2");
+        assert_eq!(exact_plain_text("(-8)^(2/3)"), "4");
+        assert_eq!(exact_plain_text("(-27/8)^(2/3)"), "9/4");
+        assert_eq!(exact_plain_text("(16/81)^(3/4)"), "8/27");
+        assert_eq!(exact_plain_text("8^(-1/3)"), "1/2");
+        assert_eq!(exact_plain_text("0^(1/3)"), "0");
+    }
+
+    #[test]
     fn perfect_square_sqrt_is_exact_rational() {
         assert_eq!(exact_plain_text("sqrt(4)"), "2");
         assert_eq!(exact_plain_text("sqrt(9/16)"), "3/4");
@@ -1075,6 +1085,24 @@ mod tests {
                     kind: DomainErrorKind::LogarithmOfNonPositive,
                     span: None,
                 }),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn rational_power_domain_errors_follow_real_principal_semantics() {
+        for (source, kind) in [
+            ("0^0", DomainErrorKind::IndeterminateZeroToZero),
+            ("0^-1", DomainErrorKind::ZeroToNegativePower),
+            ("0^(-1/3)", DomainErrorKind::ZeroToNegativePower),
+            ("(-8)^(1/2)", DomainErrorKind::NonRealPower),
+        ] {
+            let mut context = EvaluationContext::default();
+            let error = calculate(source, &exact_only_request(), &mut context).expect_err(source);
+            assert_eq!(
+                error,
+                CalculatorError::Domain(DomainError { kind, span: None }),
                 "{source}"
             );
         }

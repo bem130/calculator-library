@@ -487,6 +487,32 @@ mod tests {
     }
 
     #[test]
+    fn wasm_dto_calculates_exact_rational_power_expressions() {
+        for (source, expected) in [
+            ("(-8)^(1/3)", "-2"),
+            ("(-8)^(2/3)", "4"),
+            ("(16/81)^(3/4)", "8/27"),
+            ("8^(-1/3)", "1/2"),
+        ] {
+            let result = calculate_dto(source, exact_only_request());
+            let ApiResultDto::Ok {
+                value:
+                    CalculationOutcomeDto::Complete {
+                        calculation:
+                            CalculationDto {
+                                exact: ExactOutputDto::Included { value: exact },
+                                ..
+                            },
+                    },
+            } = result
+            else {
+                panic!("{source}: expected exact successful calculation");
+            };
+            assert_eq!(exact.plain_text, expected, "{source}");
+        }
+    }
+
+    #[test]
     fn wasm_dto_reports_domain_error_code() {
         let result = calculate_dto("1 / 0", exact_only_request());
         assert_eq!(
@@ -498,6 +524,26 @@ mod tests {
                 },
             }
         );
+    }
+
+    #[test]
+    fn wasm_dto_reports_rational_power_domain_error_codes() {
+        for (source, code) in [
+            ("0^0", DomainErrorCodeDto::IndeterminateZeroToZero),
+            ("0^-1", DomainErrorCodeDto::ZeroToNegativePower),
+            ("(-8)^(1/2)", DomainErrorCodeDto::NonRealPower),
+        ] {
+            assert_eq!(
+                calculate_dto(source, exact_only_request()),
+                ApiResultDto::Error {
+                    error: CalculatorErrorDto::Domain {
+                        code,
+                        span: OptionalTextSpanDto::None,
+                    },
+                },
+                "{source}"
+            );
+        }
     }
 
     #[test]
@@ -1110,6 +1156,37 @@ pub mod wasm_tests {
     fn wasm32_calculates_exact_rational_expression() {
         let result = calculate_dto("0.1 + 0.2", exact_only_request());
         assert_eq!(exact_plain_text(result), "3/10");
+    }
+
+    #[wasm_bindgen_test]
+    fn wasm32_calculates_exact_rational_power_expressions() {
+        for (source, expected) in [
+            ("(-8)^(1/3)", "-2"),
+            ("(-8)^(2/3)", "4"),
+            ("(16/81)^(3/4)", "8/27"),
+            ("8^(-1/3)", "1/2"),
+        ] {
+            let result = calculate_dto(source, exact_only_request());
+            assert_eq!(exact_plain_text(result), expected, "{source}");
+        }
+    }
+
+    #[wasm_bindgen_test]
+    fn wasm32_reports_rational_power_domain_error_codes() {
+        for (source, code) in [
+            ("0^0", DomainErrorCodeDto::IndeterminateZeroToZero),
+            ("0^-1", DomainErrorCodeDto::ZeroToNegativePower),
+            ("(-8)^(1/2)", DomainErrorCodeDto::NonRealPower),
+        ] {
+            assert_eq!(
+                calculator_error(source, exact_only_request()),
+                CalculatorErrorDto::Domain {
+                    code,
+                    span: OptionalTextSpanDto::None,
+                },
+                "{source}"
+            );
+        }
     }
 
     #[wasm_bindgen_test]
