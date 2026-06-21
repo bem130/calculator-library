@@ -7,10 +7,11 @@ use num_traits::{One, Signed, Zero};
 
 use crate::types::{
     Integer, PrimitivePolynomial, PrimitivePolynomialConstructionError,
-    PrimitivePolynomialDivisionError, PrimitivePolynomialResultantError,
-    PrimitivePolynomialRootCountingError, PrimitivePolynomialRootIsolationError,
-    PrimitivePolynomialSign, PrimitiveSquareFreeFactor, Rational, RationalInterval,
-    SignedPrimitivePolynomial,
+    PrimitivePolynomialDivisionError, PrimitivePolynomialFactor,
+    PrimitivePolynomialFactorizationIncompleteReason, PrimitivePolynomialRationalRootFactorization,
+    PrimitivePolynomialResultantError, PrimitivePolynomialRootCountingError,
+    PrimitivePolynomialRootIsolationError, PrimitivePolynomialSign, PrimitiveSquareFreeFactor,
+    Rational, RationalInterval, SignedPrimitivePolynomial,
 };
 
 impl PrimitivePolynomial {
@@ -388,6 +389,55 @@ impl PrimitivePolynomial {
 
         Ok(Integer::from_bigint(bareiss_determinant(matrix)))
     }
+
+    pub fn factor_rational_roots(
+        &self,
+        max_work: u32,
+    ) -> Result<PrimitivePolynomialRationalRootFactorization, PrimitivePolynomialConstructionError>
+    {
+        let mut current =
+            Self::new(effective_coefficients(&self.coefficients_low_to_high).to_vec())?;
+        let mut work = 0;
+        let mut factors = Vec::new();
+
+        while is_nonconstant(&current) {
+            let factor = match find_rational_linear_factor(&current, &mut work, max_work) {
+                Ok(Some(factor)) => factor,
+                Ok(None) => break,
+                Err(reason) => {
+                    return Ok(rational_root_factorization(factors, current, Some(reason)));
+                }
+            };
+
+            let mut multiplicity = 0;
+            loop {
+                match current.exact_quotient(&factor) {
+                    Ok(Some(quotient)) => {
+                        multiplicity += 1;
+                        current = quotient;
+                        if !is_nonconstant(&current) {
+                            break;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(PrimitivePolynomialDivisionError::NotDivisible) => break,
+                    Err(PrimitivePolynomialDivisionError::ZeroDivisor) => {
+                        unreachable!("candidate rational-root factor is non-zero")
+                    }
+                }
+                if consume_factorization_work(&mut work, max_work).is_err() {
+                    return Ok(rational_root_factorization(
+                        push_factor(factors, factor, multiplicity),
+                        current,
+                        Some(PrimitivePolynomialFactorizationIncompleteReason::WorkLimitExceeded),
+                    ));
+                }
+            }
+            factors = push_factor(factors, factor, multiplicity);
+        }
+
+        Ok(rational_root_factorization(factors, current, None))
+    }
 }
 
 fn add_polynomials(
@@ -687,6 +737,144 @@ fn bareiss_determinant(mut matrix: Vec<Vec<BigInt>>) -> BigInt {
     }
 
     sign * &matrix[size - 1][size - 1]
+}
+
+fn find_rational_linear_factor(
+    polynomial: &PrimitivePolynomial,
+    work: &mut u32,
+    max_work: u32,
+) -> Result<Option<PrimitivePolynomial>, PrimitivePolynomialFactorizationIncompleteReason> {
+    let coefficients = effective_coefficients(&polynomial.coefficients_low_to_high);
+    let constant = &coefficients[0].inner;
+    if constant.is_zero() {
+        consume_factorization_work(work, max_work)?;
+        return Ok(Some(
+            PrimitivePolynomial::new(vec![Integer::zero(), Integer::one()])
+                .expect("x is a non-zero primitive polynomial"),
+        ));
+    }
+
+    let leading = &coefficients[coefficients.len() - 1].inner;
+    let constant_divisors = positive_divisors_bounded(&constant.abs(), work, max_work)?;
+    let leading_divisors = positive_divisors_bounded(leading, work, max_work)?;
+    for numerator in &constant_divisors {
+        for denominator in &leading_divisors {
+            if numerator.gcd(denominator) != BigInt::one() {
+                continue;
+            }
+            if let Some(factor) =
+                rational_linear_factor_if_root(polynomial, numerator, denominator, work, max_work)?
+            {
+                return Ok(Some(factor));
+            }
+            if let Some(factor) = rational_linear_factor_if_root(
+                polynomial,
+                &-numerator,
+                denominator,
+                work,
+                max_work,
+            )? {
+                return Ok(Some(factor));
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn rational_linear_factor_if_root(
+    polynomial: &PrimitivePolynomial,
+    numerator: &BigInt,
+    denominator: &BigInt,
+    work: &mut u32,
+    max_work: u32,
+) -> Result<Option<PrimitivePolynomial>, PrimitivePolynomialFactorizationIncompleteReason> {
+    consume_factorization_work(work, max_work)?;
+    let candidate = Rational::new(
+        Integer::from_bigint(numerator.clone()),
+        Integer::from_bigint(denominator.clone()),
+    )
+    .expect("rational-root denominator is positive");
+    if polynomial.evaluate_rational_sign(&candidate) != Sign::NoSign {
+        return Ok(None);
+    }
+
+    Ok(Some(
+        PrimitivePolynomial::new(vec![
+            Integer::from_bigint(-numerator),
+            Integer::from_bigint(denominator.clone()),
+        ])
+        .expect("rational-root linear factor is non-zero and primitive"),
+    ))
+}
+
+fn positive_divisors_bounded(
+    value: &BigInt,
+    work: &mut u32,
+    max_work: u32,
+) -> Result<Vec<BigInt>, PrimitivePolynomialFactorizationIncompleteReason> {
+    debug_assert!(value.sign() == Sign::Plus);
+    let mut small_divisors = Vec::new();
+    let mut large_divisors = Vec::new();
+    let mut divisor = BigInt::one();
+    while &divisor * &divisor <= *value {
+        consume_factorization_work(work, max_work)?;
+        let (quotient, remainder) = value.div_rem(&divisor);
+        if remainder.is_zero() {
+            small_divisors.push(divisor.clone());
+            if quotient != divisor {
+                large_divisors.push(quotient);
+            }
+        }
+        divisor += 1_u8;
+    }
+    large_divisors.reverse();
+    small_divisors.extend(large_divisors);
+    Ok(small_divisors)
+}
+
+fn consume_factorization_work(
+    work: &mut u32,
+    max_work: u32,
+) -> Result<(), PrimitivePolynomialFactorizationIncompleteReason> {
+    if *work >= max_work {
+        return Err(PrimitivePolynomialFactorizationIncompleteReason::WorkLimitExceeded);
+    }
+    *work += 1;
+    Ok(())
+}
+
+fn push_factor(
+    mut factors: Vec<PrimitivePolynomialFactor>,
+    factor: PrimitivePolynomial,
+    multiplicity: usize,
+) -> Vec<PrimitivePolynomialFactor> {
+    if multiplicity == 0 {
+        return factors;
+    }
+    if let Some(existing) = factors
+        .iter_mut()
+        .find(|existing| existing.factor == factor)
+    {
+        existing.multiplicity += multiplicity;
+    } else {
+        factors.push(PrimitivePolynomialFactor {
+            factor,
+            multiplicity,
+        });
+    }
+    factors
+}
+
+fn rational_root_factorization(
+    factors: Vec<PrimitivePolynomialFactor>,
+    residual: PrimitivePolynomial,
+    incomplete_reason: Option<PrimitivePolynomialFactorizationIncompleteReason>,
+) -> PrimitivePolynomialRationalRootFactorization {
+    PrimitivePolynomialRationalRootFactorization {
+        factors,
+        residual: is_nonconstant(&residual).then_some(residual),
+        incomplete_reason,
+    }
 }
 
 fn signed_primitive_polynomial_from_coefficients(
@@ -1492,6 +1680,126 @@ mod tests {
         assert_eq!(
             zero.resultant(&polynomial),
             Err(PrimitivePolynomialResultantError::ZeroPolynomial)
+        );
+    }
+
+    #[test]
+    fn factor_rational_roots_extracts_linear_integer_factors() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-1, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            polynomial.factor_rational_roots(64).unwrap(),
+            PrimitivePolynomialRationalRootFactorization {
+                factors: vec![
+                    PrimitivePolynomialFactor {
+                        factor: PrimitivePolynomial::new(integers(&[-1, 1]))
+                            .expect("non-zero factor normalizes"),
+                        multiplicity: 1,
+                    },
+                    PrimitivePolynomialFactor {
+                        factor: PrimitivePolynomial::new(integers(&[1, 1]))
+                            .expect("non-zero factor normalizes"),
+                        multiplicity: 1,
+                    },
+                ],
+                residual: None,
+                incomplete_reason: None,
+            }
+        );
+    }
+
+    #[test]
+    fn factor_rational_roots_extracts_non_monic_and_repeated_factors() {
+        let two_x_plus_one =
+            PrimitivePolynomial::new(integers(&[1, 2])).expect("non-zero factor normalizes");
+        let x_minus_three =
+            PrimitivePolynomial::new(integers(&[-3, 1])).expect("non-zero factor normalizes");
+        let polynomial = two_x_plus_one
+            .multiply(&two_x_plus_one)
+            .unwrap()
+            .multiply(&x_minus_three)
+            .unwrap();
+
+        assert_eq!(
+            polynomial.factor_rational_roots(128).unwrap(),
+            PrimitivePolynomialRationalRootFactorization {
+                factors: vec![
+                    PrimitivePolynomialFactor {
+                        factor: two_x_plus_one,
+                        multiplicity: 2,
+                    },
+                    PrimitivePolynomialFactor {
+                        factor: x_minus_three,
+                        multiplicity: 1,
+                    },
+                ],
+                residual: None,
+                incomplete_reason: None,
+            }
+        );
+    }
+
+    #[test]
+    fn factor_rational_roots_keeps_residual_without_rational_roots() {
+        let polynomial =
+            PrimitivePolynomial::new(integers(&[1, 0, 1])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            polynomial.factor_rational_roots(64).unwrap(),
+            PrimitivePolynomialRationalRootFactorization {
+                factors: vec![],
+                residual: Some(polynomial),
+                incomplete_reason: None,
+            }
+        );
+    }
+
+    #[test]
+    fn factor_rational_roots_extracts_zero_root_and_omits_unit_residual() {
+        let polynomial =
+            PrimitivePolynomial::new(integers(&[0, 0, 1])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            polynomial.factor_rational_roots(64).unwrap(),
+            PrimitivePolynomialRationalRootFactorization {
+                factors: vec![PrimitivePolynomialFactor {
+                    factor: PrimitivePolynomial::new(integers(&[0, 1]))
+                        .expect("non-zero factor normalizes"),
+                    multiplicity: 2,
+                }],
+                residual: None,
+                incomplete_reason: None,
+            }
+        );
+    }
+
+    #[test]
+    fn factor_rational_roots_returns_partial_result_on_work_limit() {
+        let polynomial =
+            PrimitivePolynomial::new(integers(&[1, 0, 1])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            polynomial.factor_rational_roots(0).unwrap(),
+            PrimitivePolynomialRationalRootFactorization {
+                factors: vec![],
+                residual: Some(polynomial),
+                incomplete_reason: Some(
+                    PrimitivePolynomialFactorizationIncompleteReason::WorkLimitExceeded,
+                ),
+            }
+        );
+    }
+
+    #[test]
+    fn factor_rational_roots_rejects_zero_polynomial() {
+        let zero = PrimitivePolynomial {
+            coefficients_low_to_high: integers(&[0, 0]),
+        };
+
+        assert_eq!(
+            zero.factor_rational_roots(64),
+            Err(PrimitivePolynomialConstructionError::ZeroPolynomial)
         );
     }
 }
