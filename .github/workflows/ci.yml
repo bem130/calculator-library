@@ -65,6 +65,9 @@ jobs:
       - name: Test Rust workspace
         run: cargo test --workspace
 
+      - name: Test Rust documentation examples
+        run: cargo test --doc --workspace
+
       - name: Test wasm package in Node
         run: wasm-pack test --node crates/calculator-wasm
 
