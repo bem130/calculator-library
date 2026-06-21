@@ -322,15 +322,19 @@ fn evaluate_interval_node(
             precision_bits,
         ),
         ExpressionNode::Power { base, exponent } => {
-            let exponent = evaluate_node(dag, *exponent)
-                .ok()
-                .and_then(|value| value.as_i64_if_integer())
-                .ok_or(IntervalError::UnsupportedExpression)?;
-            interval::pow_i64(
-                &evaluate_interval_node(dag, *base, precision_bits)?,
-                exponent,
-                precision_bits,
-            )
+            let exponent =
+                evaluate_node(dag, *exponent).map_err(|_| IntervalError::UnsupportedExpression)?;
+            if let Some(exponent) = exponent.as_i64_if_integer() {
+                interval::pow_i64(
+                    &evaluate_interval_node(dag, *base, precision_bits)?,
+                    exponent,
+                    precision_bits,
+                )
+            } else {
+                let base =
+                    evaluate_node(dag, *base).map_err(|_| IntervalError::UnsupportedExpression)?;
+                interval::pow_rational(&base, &exponent, precision_bits)
+            }
         }
         ExpressionNode::Function { function, argument } => match function {
             Function::Sqrt => interval::sqrt(

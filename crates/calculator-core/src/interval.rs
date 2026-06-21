@@ -5,8 +5,9 @@ use num_integer::Integer as _;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use crate::types::{
-    ceil_sqrt_nonnegative, floor_sqrt_nonnegative, CertifiedInterval, Constant, DomainErrorKind,
-    ExactDyadic, Integer, Rational,
+    ceil_nth_root_nonnegative, ceil_sqrt_nonnegative, floor_nth_root_nonnegative,
+    floor_sqrt_nonnegative, CertifiedInterval, Constant, DomainErrorKind, ExactDyadic, Integer,
+    Rational,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -150,6 +151,41 @@ pub(crate) fn pow_i64(
     }
 }
 
+pub(crate) fn pow_rational(
+    base: &Rational,
+    exponent: &Rational,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    if base.is_zero() {
+        return zero_power(exponent, precision_bits);
+    }
+
+    let exponent_numerator = exponent
+        .numerator
+        .inner
+        .to_i64()
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    if exponent.is_integer() {
+        return pow_i64(
+            &from_rational(base, precision_bits),
+            exponent_numerator,
+            precision_bits,
+        );
+    }
+
+    let root_index = exponent
+        .denominator
+        .inner
+        .inner
+        .to_u32()
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    if base.is_negative() && root_index.is_multiple_of(2) {
+        return Err(IntervalError::Domain(DomainErrorKind::NonRealPower));
+    }
+    let root = nth_root_rational(base, root_index, precision_bits)?;
+    pow_i64(&root, exponent_numerator, precision_bits)
+}
+
 pub(crate) fn contains_rational(
     interval: &CertifiedInterval,
     value: &Rational,
@@ -158,6 +194,77 @@ pub(crate) fn contains_rational(
         compare_dyadic_to_rational(&interval.lower, value)? != Ordering::Greater
             && compare_dyadic_to_rational(&interval.upper, value)? != Ordering::Less,
     )
+}
+
+fn zero_power(
+    exponent: &Rational,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    if exponent.is_zero() {
+        Err(IntervalError::Domain(
+            DomainErrorKind::IndeterminateZeroToZero,
+        ))
+    } else if exponent.is_negative() {
+        Err(IntervalError::Domain(DomainErrorKind::ZeroToNegativePower))
+    } else {
+        Ok(from_rational(&Rational::zero(), precision_bits))
+    }
+}
+
+fn nth_root_rational(
+    value: &Rational,
+    index: u32,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    if index == 0 {
+        return Err(IntervalError::ExponentTooLarge);
+    }
+    if value.is_negative() {
+        if index.is_multiple_of(2) {
+            return Err(IntervalError::Domain(DomainErrorKind::NonRealPower));
+        }
+        let positive = nth_root_nonnegative_rational(&value.negate(), index, precision_bits)?;
+        return Ok(CertifiedInterval {
+            lower: negate_dyadic(&positive.upper),
+            upper: negate_dyadic(&positive.lower),
+        });
+    }
+    nth_root_nonnegative_rational(value, index, precision_bits)
+}
+
+fn nth_root_nonnegative_rational(
+    value: &Rational,
+    index: u32,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    debug_assert!(!value.is_negative());
+    if index == 1 {
+        return Ok(from_rational(value, precision_bits));
+    }
+    let scale_bits = precision_bits
+        .checked_mul(index)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let scaled_numerator = &value.numerator.inner << scale_bits;
+    let denominator = &value.denominator.inner.inner;
+    let scaled_lower = scaled_numerator.div_floor(denominator);
+    let scaled_upper = scaled_numerator.div_ceil(denominator);
+    Ok(CertifiedInterval {
+        lower: normalize_dyadic(
+            floor_nth_root_nonnegative(&scaled_lower, index),
+            -BigInt::from(precision_bits),
+        ),
+        upper: normalize_dyadic(
+            ceil_nth_root_nonnegative(&scaled_upper, index),
+            -BigInt::from(precision_bits),
+        ),
+    })
+}
+
+fn negate_dyadic(value: &ExactDyadic) -> ExactDyadic {
+    ExactDyadic {
+        coefficient: Integer::from_bigint(-value.coefficient.inner.clone()),
+        exponent_two: value.exponent_two.clone(),
+    }
 }
 
 fn rational_to_dyadic_lower(
@@ -483,6 +590,17 @@ mod tests {
         let interval = sqrt(&from_rational(&rational(2, 1), 32), 32).unwrap();
         let squared = multiply(&interval, &interval).unwrap();
         assert!(contains_rational(&squared, &rational(2, 1)).unwrap());
+    }
+
+    #[test]
+    fn rational_power_interval_contains_irrational_roots() {
+        let square_root = pow_rational(&rational(2, 1), &rational(1, 2), 32).unwrap();
+        let squared = pow_i64(&square_root, 2, 32).unwrap();
+        assert!(contains_rational(&squared, &rational(2, 1)).unwrap());
+
+        let cube_root = pow_rational(&rational(-2, 1), &rational(1, 3), 32).unwrap();
+        let cubed = pow_i64(&cube_root, 3, 32).unwrap();
+        assert!(contains_rational(&cubed, &rational(-2, 1)).unwrap());
     }
 
     #[test]

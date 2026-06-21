@@ -236,6 +236,7 @@ fn should_fallback_to_symbolic_interval(error: &EvaluationError) -> bool {
         EvaluationError::UnsupportedFeature(UnsupportedFeatureError {
             feature: UnsupportedFeature::FunctionEvaluation
                 | UnsupportedFeature::ConstantEvaluation
+                | UnsupportedFeature::NonIntegerPower
         })
     )
 }
@@ -815,6 +816,60 @@ mod tests {
             .metadata
             .methods
             .contains(&MethodTag::SymbolicRetention));
+    }
+
+    #[test]
+    fn irrational_rational_power_returns_partial_with_certified_enclosure() {
+        let mut context = EvaluationContext::default();
+        let outcome = calculate("2^(1/2)", &CalculationRequest::default(), &mut context).unwrap();
+        let CalculationOutcome::Partial {
+            calculation,
+            reason,
+            certified_enclosure,
+        } = outcome
+        else {
+            panic!("expected partial calculation");
+        };
+        assert_eq!(
+            reason,
+            IncompleteReason::PrecisionLimit {
+                requested_digits: core::num::NonZeroU32::new(50).unwrap(),
+                confirmed_digits: 0,
+            }
+        );
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("expected retained exact expression");
+        };
+        assert_eq!(
+            exact.representation,
+            ExactRepresentationKind::GeneralSymbolic
+        );
+        assert_eq!(exact.plain_text, "2^(1/2)");
+        let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
+            panic!("expected requested enclosure output");
+        };
+        assert_eq!(certified_enclosure, enclosure);
+        let interval = CertifiedInterval {
+            lower: certified_enclosure.lower,
+            upper: certified_enclosure.upper,
+        };
+        let squared = interval::multiply(&interval, &interval).unwrap();
+        assert!(
+            interval::contains_rational(&squared, &Rational::from_integer(Integer::from(2)),)
+                .unwrap()
+        );
+        assert_eq!(
+            calculation.metadata.assurance,
+            AssuranceLevel::CertifiedEnclosure
+        );
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::SymbolicRetention));
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::CertifiedIntervalEvaluation));
     }
 
     #[test]

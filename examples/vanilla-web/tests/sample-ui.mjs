@@ -190,6 +190,22 @@ async function assertRationalPowers(page) {
     await page.fill("#expression", "(-8)^(2/3)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 4");
+
+    await page.fill("#expression", "2^(1/2)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 2^(1/2)");
+    await waitForText(page, "#scientific-state", "PRECISION LIMIT");
+    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+
+    const interval = parseExactDyadicInterval(await textContent(page, "#enclosure-output"));
+    assert(
+        dyadicSquareCompareWithRational(interval.lower, 2n, 1n) <= 0,
+        "2^(1/2) lower bound squared is above 2",
+    );
+    assert(
+        dyadicSquareCompareWithRational(interval.upper, 2n, 1n) >= 0,
+        "2^(1/2) upper bound squared is below 2",
+    );
 }
 
 async function assertPiPartial(page) {
