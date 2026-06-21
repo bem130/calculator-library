@@ -4,7 +4,10 @@ use num_bigint::{BigInt, Sign};
 use num_integer::Integer as _;
 use num_traits::{Signed, Zero};
 
-use crate::types::{Integer, PrimitivePolynomial, PrimitivePolynomialConstructionError};
+use crate::types::{
+    Integer, PrimitivePolynomial, PrimitivePolynomialConstructionError,
+    PrimitivePolynomialDivisionError,
+};
 
 impl PrimitivePolynomial {
     pub fn new(
@@ -96,6 +99,47 @@ impl PrimitivePolynomial {
             .collect();
         Self::new(coefficients_low_to_high)
     }
+
+    pub fn primitive_pseudo_remainder(
+        &self,
+        divisor: &Self,
+    ) -> Result<Option<Self>, PrimitivePolynomialDivisionError> {
+        let remainder = pseudo_remainder_coefficients(
+            effective_coefficients(&self.coefficients_low_to_high),
+            effective_coefficients(&divisor.coefficients_low_to_high),
+        )?;
+        if remainder.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(
+                Self::new(remainder).expect("non-zero pseudo-remainder normalizes"),
+            ))
+        }
+    }
+
+    pub fn gcd(&self, rhs: &Self) -> Result<Self, PrimitivePolynomialConstructionError> {
+        let lhs = effective_coefficients(&self.coefficients_low_to_high);
+        let rhs = effective_coefficients(&rhs.coefficients_low_to_high);
+        match (lhs.is_empty(), rhs.is_empty()) {
+            (true, true) => return Err(PrimitivePolynomialConstructionError::ZeroPolynomial),
+            (true, false) => return Self::new(rhs.to_vec()),
+            (false, true) => return Self::new(lhs.to_vec()),
+            (false, false) => {}
+        }
+
+        let mut previous = Self::new(lhs.to_vec())?;
+        let mut current = Self::new(rhs.to_vec())?;
+        loop {
+            let Some(remainder) = previous
+                .primitive_pseudo_remainder(&current)
+                .expect("gcd divisor is kept non-zero")
+            else {
+                return Ok(current);
+            };
+            previous = current;
+            current = remainder;
+        }
+    }
 }
 
 fn add_polynomials(
@@ -136,6 +180,38 @@ fn subtract_polynomials(
         coefficients_low_to_high.push(Integer::from_bigint(coefficient));
     }
     PrimitivePolynomial::new(coefficients_low_to_high)
+}
+
+fn pseudo_remainder_coefficients(
+    dividend: &[Integer],
+    divisor: &[Integer],
+) -> Result<Vec<Integer>, PrimitivePolynomialDivisionError> {
+    if divisor.is_empty() {
+        return Err(PrimitivePolynomialDivisionError::ZeroDivisor);
+    }
+
+    let divisor_degree = divisor.len() - 1;
+    let divisor_leading = &divisor[divisor_degree].inner;
+    let mut remainder = dividend.to_vec();
+    trim_trailing_zeroes(&mut remainder);
+    while remainder.len() > divisor_degree {
+        let degree_delta = remainder.len() - divisor.len();
+        let remainder_leading = remainder
+            .last()
+            .expect("remainder degree is at least divisor degree")
+            .inner
+            .clone();
+
+        for coefficient in &mut remainder {
+            coefficient.inner *= divisor_leading;
+        }
+        for (index, divisor_coefficient) in divisor.iter().enumerate() {
+            remainder[index + degree_delta].inner -=
+                &remainder_leading * &divisor_coefficient.inner;
+        }
+        trim_trailing_zeroes(&mut remainder);
+    }
+    Ok(remainder)
 }
 
 fn primitive_coefficients(
@@ -302,6 +378,112 @@ mod tests {
         assert_eq!(
             polynomial.negate().unwrap().coefficients_low_to_high,
             integers(&[-1, 2])
+        );
+    }
+
+    #[test]
+    fn primitive_pseudo_remainder_rejects_zero_divisor() {
+        let dividend =
+            PrimitivePolynomial::new(integers(&[1, 0, 1])).expect("non-zero polynomial normalizes");
+        let zero_divisor = PrimitivePolynomial {
+            coefficients_low_to_high: integers(&[0, 0]),
+        };
+
+        assert_eq!(
+            dividend.primitive_pseudo_remainder(&zero_divisor),
+            Err(PrimitivePolynomialDivisionError::ZeroDivisor)
+        );
+    }
+
+    #[test]
+    fn primitive_pseudo_remainder_returns_none_for_exact_division() {
+        let dividend = PrimitivePolynomial::new(integers(&[-1, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        let divisor =
+            PrimitivePolynomial::new(integers(&[-1, 1])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(dividend.primitive_pseudo_remainder(&divisor), Ok(None));
+    }
+
+    #[test]
+    fn primitive_pseudo_remainder_normalizes_nonzero_remainder() {
+        let dividend =
+            PrimitivePolynomial::new(integers(&[1, 0, 1])).expect("non-zero polynomial normalizes");
+        let divisor =
+            PrimitivePolynomial::new(integers(&[1, 1])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            dividend
+                .primitive_pseudo_remainder(&divisor)
+                .unwrap()
+                .unwrap()
+                .coefficients_low_to_high,
+            integers(&[1])
+        );
+    }
+
+    #[test]
+    fn primitive_polynomial_gcd_finds_common_factor() {
+        let left = PrimitivePolynomial::new(integers(&[-1, -1, 1, 1]))
+            .expect("non-zero polynomial normalizes");
+        let right = PrimitivePolynomial::new(integers(&[-1, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            left.gcd(&right).unwrap().coefficients_low_to_high,
+            integers(&[-1, 0, 1])
+        );
+        assert_eq!(
+            right.gcd(&left).unwrap().coefficients_low_to_high,
+            integers(&[-1, 0, 1])
+        );
+    }
+
+    #[test]
+    fn primitive_polynomial_gcd_handles_non_monic_common_factor() {
+        let left =
+            PrimitivePolynomial::new(integers(&[1, 3, 2])).expect("non-zero polynomial normalizes");
+        let right = PrimitivePolynomial::new(integers(&[-1, -1, 2]))
+            .expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            left.gcd(&right).unwrap().coefficients_low_to_high,
+            integers(&[1, 2])
+        );
+    }
+
+    #[test]
+    fn primitive_polynomial_gcd_returns_one_for_coprime_polynomials() {
+        let left =
+            PrimitivePolynomial::new(integers(&[1, 0, 1])).expect("non-zero polynomial normalizes");
+        let right =
+            PrimitivePolynomial::new(integers(&[1, 1])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            left.gcd(&right).unwrap().coefficients_low_to_high,
+            integers(&[1])
+        );
+    }
+
+    #[test]
+    fn primitive_polynomial_gcd_handles_zero_inputs() {
+        let polynomial =
+            PrimitivePolynomial::new(integers(&[2, 4])).expect("non-zero polynomial normalizes");
+        let zero = PrimitivePolynomial {
+            coefficients_low_to_high: integers(&[0, 0]),
+        };
+
+        assert_eq!(
+            polynomial.gcd(&zero).unwrap().coefficients_low_to_high,
+            integers(&[1, 2])
+        );
+        assert_eq!(
+            zero.gcd(&polynomial).unwrap().coefficients_low_to_high,
+            integers(&[1, 2])
+        );
+        assert_eq!(
+            zero.gcd(&zero),
+            Err(PrimitivePolynomialConstructionError::ZeroPolynomial)
         );
     }
 }
