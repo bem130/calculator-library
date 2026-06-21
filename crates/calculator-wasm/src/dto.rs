@@ -397,6 +397,136 @@ pub enum AssuranceLevelDto {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
+pub enum InputActionDto {
+    #[serde(rename = "digit")]
+    Digit { value: u32 },
+    #[serde(rename = "decimalPoint")]
+    DecimalPoint,
+    #[serde(rename = "constant")]
+    Constant { value: ConstantDto },
+    #[serde(rename = "function")]
+    Function { value: FunctionDto },
+    #[serde(rename = "binaryOperator")]
+    BinaryOperator { value: BinaryOperatorDto },
+    #[serde(rename = "percent")]
+    Percent,
+    #[serde(rename = "openParenthesis")]
+    OpenParenthesis,
+    #[serde(rename = "closeParenthesis")]
+    CloseParenthesis,
+    #[serde(rename = "deleteBackward")]
+    DeleteBackward,
+    #[serde(rename = "clearEntry")]
+    ClearEntry,
+    #[serde(rename = "clearAll")]
+    ClearAll,
+    #[serde(rename = "memoryClear")]
+    MemoryClear,
+    #[serde(rename = "memoryRecall")]
+    MemoryRecall,
+    #[serde(rename = "memoryAdd")]
+    MemoryAdd,
+    #[serde(rename = "memorySubtract")]
+    MemorySubtract,
+    #[serde(rename = "evaluate")]
+    Evaluate,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ConstantDto {
+    Pi,
+    E,
+    Ans,
+    Memory,
+}
+
+pub type FunctionDto = FunctionNameDto;
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BinaryOperatorDto {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Power,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InputPolicyDto {
+    pub calculation_request: CalculationRequestDto,
+    pub percent_policy: PercentPolicyDto,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PercentPolicyDto {
+    ExpressionPercent,
+    CalculatorPercent,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionStateDto {
+    pub source: String,
+    pub cursor_utf16: u32,
+    pub selection_utf16: OptionalTextSpanDto,
+    pub has_ans: bool,
+    pub has_memory: bool,
+    pub display: SessionDisplayDto,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
+pub enum SessionDisplayDto {
+    #[serde(rename = "editing")]
+    Editing,
+    #[serde(rename = "result")]
+    Result { calculation: Box<CalculationDto> },
+    #[serde(rename = "error")]
+    Error { error: CalculatorErrorDto },
+    #[serde(rename = "calculating")]
+    Calculating,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
+pub enum SessionDispatchResultDto {
+    #[serde(rename = "state")]
+    State { state: SessionStateDto },
+    #[serde(rename = "calculate")]
+    Calculate {
+        state: SessionStateDto,
+        source: String,
+        request: CalculationRequestDto,
+    },
+    #[serde(rename = "inputError")]
+    InputError {
+        state: SessionStateDto,
+        error: InputErrorDto,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InputErrorDto {
+    pub code: InputErrorCodeDto,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InputErrorCodeDto {
+    InvalidDigit,
+    InvalidCursor,
+    SelectionOutOfBounds,
+    ActionNotAllowedAfterError,
+    MemoryEmpty,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
 pub enum CalculatorErrorDto {
     #[serde(rename = "parse")]
     Parse {

@@ -9,22 +9,35 @@ export type {
     EnclosureOutputRequest,
     ExactFormatPreference,
     ExactOutputRequest,
+    InputActionDto,
+    InputErrorDto,
+    InputPolicyDto,
     ParseSettings,
     PresentationNodeDto,
     ProtocolVersion,
     ScientificOutputRequest,
     SemanticSettings,
+    SessionDispatchResult,
+    SessionDisplayDto,
+    SessionStateDto,
 } from "./generated/dto";
 export type {
     Calculator,
+    CalculatorSession,
+    CalculatorSessionWasmModule,
+    CalculatorWasmBundle,
     CalculatorWasmModule,
     CreateCalculatorOptions,
+    CreateSessionOptions,
 } from "./direct";
 
 export {
     createCalculator,
     createCalculatorFromWasmModule,
+    createSession,
+    createSessionFromWasmModule,
     defaultCalculationRequest,
+    defaultInputPolicy,
     exactOnlyCalculationRequest,
 } from "./direct";
 export { renderMathMl, renderPlainText } from "./presentation";

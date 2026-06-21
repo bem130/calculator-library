@@ -2,6 +2,10 @@ import type {
     ApiResult,
     CalculationOutcome,
     CalculationRequest,
+    InputActionDto,
+    InputPolicyDto,
+    SessionDispatchResult,
+    SessionStateDto,
 } from "./generated/dto";
 
 export type CalculatorWasmModule = {
@@ -11,8 +15,31 @@ export type CalculatorWasmModule = {
     ) => ApiResult<CalculationOutcome>;
 };
 
+export type CalculatorSessionWasmModule = {
+    readonly CalculatorSession: new (policy: InputPolicyDto) => WasmCalculatorSession;
+};
+
+export type CalculatorWasmBundle = CalculatorWasmModule & CalculatorSessionWasmModule;
+
+export type WasmCalculatorSession = {
+    dispatch(action: InputActionDto): SessionDispatchResult;
+    applyResult(result: ApiResult<CalculationOutcome>): SessionStateDto;
+    getState(): SessionStateDto;
+};
+
 export type CreateCalculatorOptions = {
     readonly module?: CalculatorWasmModule;
+    readonly wasmGlueUrl?: string | URL;
+    readonly wasmModuleUrl?: string | URL;
+};
+
+export type CreateSessionOptions = {
+    readonly module?: CalculatorSessionWasmModule;
+    readonly wasmGlueUrl?: string | URL;
+    readonly wasmModuleUrl?: string | URL;
+};
+
+type WasmLoadOptions = {
     readonly wasmGlueUrl?: string | URL;
     readonly wasmModuleUrl?: string | URL;
 };
@@ -22,6 +49,12 @@ export interface Calculator {
         source: string,
         request: CalculationRequest,
     ): ApiResult<CalculationOutcome>;
+}
+
+export interface CalculatorSession {
+    dispatch(action: InputActionDto): SessionDispatchResult;
+    applyResult(result: ApiResult<CalculationOutcome>): SessionStateDto;
+    getState(): SessionStateDto;
 }
 
 export function createCalculatorFromWasmModule(
@@ -34,6 +67,24 @@ export function createCalculatorFromWasmModule(
     };
 }
 
+export function createSessionFromWasmModule(
+    module: CalculatorSessionWasmModule,
+    policy: InputPolicyDto,
+): CalculatorSession {
+    const session = new module.CalculatorSession(policy);
+    return {
+        dispatch(action) {
+            return session.dispatch(action);
+        },
+        applyResult(result) {
+            return session.applyResult(result);
+        },
+        getState() {
+            return session.getState();
+        },
+    };
+}
+
 export async function createCalculator(
     options: CreateCalculatorOptions = {},
 ): Promise<Calculator> {
@@ -42,6 +93,17 @@ export async function createCalculator(
     }
 
     return createCalculatorFromWasmModule(await loadDefaultWasmModule(options));
+}
+
+export async function createSession(
+    policy: InputPolicyDto,
+    options: CreateSessionOptions = {},
+): Promise<CalculatorSession> {
+    if (options.module !== undefined) {
+        return createSessionFromWasmModule(options.module, policy);
+    }
+
+    return createSessionFromWasmModule(await loadDefaultWasmModule(options), policy);
 }
 
 export const exactOnlyCalculationRequest: CalculationRequest = {
@@ -84,7 +146,13 @@ export const defaultCalculationRequest: CalculationRequest = {
     },
 };
 
+export const defaultInputPolicy: InputPolicyDto = {
+    calculationRequest: defaultCalculationRequest,
+    percentPolicy: "expressionPercent",
+};
+
 type GeneratedWasmModule = CalculatorWasmModule & {
+    readonly CalculatorSession: new (policy: InputPolicyDto) => WasmCalculatorSession;
     readonly default: (input?: WasmInitInput) => Promise<unknown>;
 };
 
@@ -93,8 +161,8 @@ type WasmInitInput = {
 };
 
 async function loadDefaultWasmModule(
-    options: CreateCalculatorOptions,
-): Promise<CalculatorWasmModule> {
+    options: WasmLoadOptions,
+): Promise<CalculatorWasmBundle> {
     const moduleUrl = options.wasmGlueUrl ?? packageAssetUrl("calculator_wasm.js");
     const wasmUrl = options.wasmModuleUrl ?? packageAssetUrl("calculator_wasm_bg.wasm");
     const module = await import(

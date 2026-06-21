@@ -23,6 +23,7 @@ pub fn reduce_input(
         }),
         InputAction::DecimalPoint => edit_source(state, "."),
         InputAction::Constant(constant) => edit_source(state, constant_source(constant)),
+        InputAction::Ans => edit_source(state, "Ans"),
         InputAction::Function(function) => edit_source(state, function_source(function)),
         InputAction::BinaryOperator(operator) => {
             edit_source(state, binary_operator_source(operator))
@@ -98,6 +99,30 @@ impl InputState {
             has_memory: false,
             display: SessionDisplay::Editing,
         }
+    }
+
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
+    pub fn cursor_utf8(&self) -> u32 {
+        self.cursor_utf8
+    }
+
+    pub fn selection_utf8(&self) -> &OptionalTextSpan {
+        &self.selection_utf8
+    }
+
+    pub fn has_ans(&self) -> bool {
+        self.has_ans
+    }
+
+    pub fn has_memory(&self) -> bool {
+        self.has_memory
+    }
+
+    pub fn display(&self) -> &SessionDisplay {
+        &self.display
     }
 }
 

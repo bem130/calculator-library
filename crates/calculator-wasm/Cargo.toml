@@ -11,6 +11,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 calculator-core = { path = "../calculator-core" }
+num-bigint = { version = "0.4.6", default-features = false }
 serde = { version = "1.0.228", features = ["derive"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

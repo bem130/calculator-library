@@ -1,6 +1,7 @@
 use std::{num::NonZeroU32, str::FromStr};
 
 use calculator_core as core;
+use num_bigint::BigInt;
 
 use crate::dto::*;
 
@@ -713,6 +714,791 @@ impl From<core::ProtocolVersion> for ProtocolVersionDto {
     }
 }
 
+impl From<core::CalculationRequest> for CalculationRequestDto {
+    fn from(value: core::CalculationRequest) -> Self {
+        Self {
+            parse: value.parse.into(),
+            semantics: value.semantics.into(),
+            exact_output: value.exact_output.into(),
+            scientific_output: value.scientific_output.into(),
+            enclosure_output: value.enclosure_output.into(),
+            limits: value.limits.into(),
+        }
+    }
+}
+
+impl From<core::ParseSettings> for ParseSettingsDto {
+    fn from(value: core::ParseSettings) -> Self {
+        Self {
+            grammar: value.grammar.into(),
+            implicit_multiplication: value.implicit_multiplication.into(),
+            unicode_aliases: value.unicode_aliases.into(),
+            percent: value.percent.into(),
+        }
+    }
+}
+
+impl From<core::GrammarProfile> for GrammarProfileDto {
+    fn from(value: core::GrammarProfile) -> Self {
+        match value {
+            core::GrammarProfile::Default => Self::Default,
+        }
+    }
+}
+
+impl From<core::ImplicitMultiplicationPolicy> for ImplicitMultiplicationPolicyDto {
+    fn from(value: core::ImplicitMultiplicationPolicy) -> Self {
+        match value {
+            core::ImplicitMultiplicationPolicy::Enabled => Self::Enabled,
+            core::ImplicitMultiplicationPolicy::Disabled => Self::Disabled,
+        }
+    }
+}
+
+impl From<core::UnicodeAliasPolicy> for UnicodeAliasPolicyDto {
+    fn from(value: core::UnicodeAliasPolicy) -> Self {
+        match value {
+            core::UnicodeAliasPolicy::MathematicalAliases => Self::MathematicalAliases,
+            core::UnicodeAliasPolicy::AsciiOnly => Self::AsciiOnly,
+        }
+    }
+}
+
+impl From<core::PercentParsePolicy> for PercentParsePolicyDto {
+    fn from(value: core::PercentParsePolicy) -> Self {
+        match value {
+            core::PercentParsePolicy::PostfixPercent => Self::PostfixPercent,
+            core::PercentParsePolicy::RejectPercent => Self::RejectPercent,
+        }
+    }
+}
+
+impl From<core::ExactOutputRequest> for ExactOutputRequestDto {
+    fn from(value: core::ExactOutputRequest) -> Self {
+        match value {
+            core::ExactOutputRequest::Omit => Self::Omit,
+            core::ExactOutputRequest::Include { format } => Self::Include {
+                format: format.into(),
+            },
+        }
+    }
+}
+
+impl From<core::ExactFormatPreference> for ExactFormatPreferenceDto {
+    fn from(value: core::ExactFormatPreference) -> Self {
+        match value {
+            core::ExactFormatPreference::Auto => Self::Auto,
+            core::ExactFormatPreference::Rational => Self::Rational,
+            core::ExactFormatPreference::FiniteDecimal => Self::FiniteDecimal,
+            core::ExactFormatPreference::MixedFraction => Self::MixedFraction,
+            core::ExactFormatPreference::Symbolic => Self::Symbolic,
+        }
+    }
+}
+
+impl From<core::ScientificOutputRequest> for ScientificOutputRequestDto {
+    fn from(value: core::ScientificOutputRequest) -> Self {
+        match value {
+            core::ScientificOutputRequest::Omit => Self::Omit,
+            core::ScientificOutputRequest::Include {
+                significant_digits,
+                rounding_mode,
+            } => Self::Include {
+                significant_digits: significant_digits.get(),
+                rounding_mode: rounding_mode.into(),
+            },
+        }
+    }
+}
+
+impl From<core::EnclosureOutputRequest> for EnclosureOutputRequestDto {
+    fn from(value: core::EnclosureOutputRequest) -> Self {
+        match value {
+            core::EnclosureOutputRequest::Omit => Self::Omit,
+            core::EnclosureOutputRequest::Include { format } => Self::Include {
+                format: format.into(),
+            },
+        }
+    }
+}
+
+impl From<core::ResourceLimitRequest> for ResourceLimitRequestDto {
+    fn from(value: core::ResourceLimitRequest) -> Self {
+        match value {
+            core::ResourceLimitRequest::Default => Self::Default,
+            core::ResourceLimitRequest::Custom(value) => Self::Custom {
+                value: ResourceLimitsDto {
+                    max_logical_work_units: value.max_logical_work_units.to_string(),
+                },
+            },
+        }
+    }
+}
+
+impl TryFrom<CalculationOutcomeDto> for core::CalculationOutcome {
+    type Error = CalculatorErrorDto;
+
+    fn try_from(value: CalculationOutcomeDto) -> Result<Self, Self::Error> {
+        match value {
+            CalculationOutcomeDto::Complete { calculation } => {
+                Ok(Self::Complete(calculation.try_into()?))
+            }
+            CalculationOutcomeDto::Partial {
+                calculation,
+                reason,
+                certified_enclosure,
+            } => Ok(Self::Partial {
+                calculation: calculation.try_into()?,
+                reason: reason.try_into()?,
+                certified_enclosure: certified_enclosure.try_into()?,
+            }),
+        }
+    }
+}
+
+impl TryFrom<CalculationDto> for core::Calculation {
+    type Error = CalculatorErrorDto;
+
+    fn try_from(value: CalculationDto) -> Result<Self, Self::Error> {
+        Ok(Self {
+            exact: value.exact.try_into()?,
+            scientific: value.scientific.try_into()?,
+            enclosure: value.enclosure.try_into()?,
+            metadata: value.metadata.try_into()?,
+        })
+    }
+}
+
+impl TryFrom<ExactOutputDto> for core::ExactOutput {
+    type Error = CalculatorErrorDto;
+
+    fn try_from(value: ExactOutputDto) -> Result<Self, Self::Error> {
+        match value {
+            ExactOutputDto::Omitted => Ok(Self::Omitted),
+            ExactOutputDto::Included { value } => Ok(Self::Included(value.try_into()?)),
+        }
+    }
+}
+
+impl TryFrom<ExactPresentationDto> for core::ExactPresentation {
+    type Error = CalculatorErrorDto;
+
+    fn try_from(value: ExactPresentationDto) -> Result<Self, Self::Error> {
+        Ok(Self {
+            relation: value.relation.into(),
+            representation: value.representation.into(),
+            presentation: value.presentation.try_into()?,
+            plain_text: value.plain_text,
+        })
+    }
+}
+
+impl TryFrom<ScientificOutputDto> for core::ScientificOutput {
+    type Error = CalculatorErrorDto;
+
+    fn try_from(value: ScientificOutputDto) -> Result<Self, Self::Error> {
+        match value {
+            ScientificOutputDto::Omitted => Ok(Self::Omitted),
+            ScientificOutputDto::Included { value } => Ok(Self::Included(value.try_into()?)),
+            ScientificOutputDto::Unavailable { value } => Ok(Self::Unavailable(value.try_into()?)),
+        }
+    }
+}
+
+impl TryFrom<ScientificPresentationDto> for core::ScientificPresentation {
+    type Error = CalculatorErrorDto;
+
+    fn try_from(value: ScientificPresentationDto) -> Result<Self, Self::Error> {
+        let Some(requested_significant_digits) =
+            NonZeroU32::new(value.requested_significant_digits)
+        else {
+            return Err(input_limit_error(
+                InputLimitErrorCodeDto::InvalidSignificantDigits,
+            ));
+        };
+        Ok(Self {
+            relation: value.relation.into(),
+            significand: value.significand,
+            exponent_ten: value.exponent_ten,
+            requested_significant_digits,
+            confirmed_significant_digits: value.confirmed_significant_digits,
+            rounding_mode: value.rounding_mode.into(),
+            presentation: value.presentation.try_into()?,
+        })
+    }
+}
+
+impl TryFrom<UnavailableScientificOutputDto> for core::UnavailableScientificOutput {
+    type Error = CalculatorErrorDto;
+
+    fn try_from(value: UnavailableScientificOutputDto) -> Result<Self, Self::Error> {
+        let Some(requested_significant_digits) =
+            NonZeroU32::new(value.requested_significant_digits)
+        else {
+            return Err(input_limit_error(
+                InputLimitErrorCodeDto::InvalidSignificantDigits,
+            ));
+        };
+        Ok(Self {
+            requested_significant_digits,
+            confirmed_significant_digits: value.confirmed_significant_digits,
+            rounding_mode: value.rounding_mode.into(),
+            reason: value.reason.try_into()?,
+        })
+    }
+}
+
+impl TryFrom<EnclosureOutputDto> for core::EnclosureOutput {
+    type Error = CalculatorErrorDto;
+
+    fn try_from(value: EnclosureOutputDto) -> Result<Self, Self::Error> {
+        match value {
+            EnclosureOutputDto::Omitted => Ok(Self::Omitted),
+            EnclosureOutputDto::Included { value } => Ok(Self::Included(value.try_into()?)),
+        }
+    }
+}
+
+impl TryFrom<CertifiedIntervalPresentationDto> for core::CertifiedIntervalPresentation {
+    type Error = CalculatorErrorDto;
+
+    fn try_from(value: CertifiedIntervalPresentationDto) -> Result<Self, Self::Error> {
+        Ok(Self {
+            relation: value.relation.into(),
+            lower: value.lower.try_into()?,
+            upper: value.upper.try_into()?,
+            format: value.format.into(),
+            presentation: value.presentation.try_into()?,
+        })
+    }
+}
+
+impl TryFrom<ExactDyadicDto> for core::ExactDyadic {
+    type Error = CalculatorErrorDto;
+
+    fn try_from(value: ExactDyadicDto) -> Result<Self, Self::Error> {
+        Ok(Self {
+            coefficient: parse_integer(&value.coefficient)?,
+            exponent_two: parse_integer(&value.exponent_two)?,
+        })
+    }
+}
+
+impl TryFrom<CalculationMetadataDto> for core::CalculationMetadata {
+    type Error = CalculatorErrorDto;
+
+    fn try_from(value: CalculationMetadataDto) -> Result<Self, Self::Error> {
+        Ok(Self {
+            exact_representation: value.exact_representation.into(),
+            simplification_status: value.simplification_status.try_into()?,
+            semantic_settings: value.semantic_settings.into(),
+            methods: value.methods.into_iter().map(Into::into).collect(),
+            internal_precision_bits: value.internal_precision_bits,
+            refinement_rounds: value.refinement_rounds,
+            confirmed_significant_digits: value.confirmed_significant_digits,
+            assurance: value.assurance.into(),
+            protocol_version: value.protocol_version.into(),
+        })
+    }
+}
+
+impl From<ProtocolVersionDto> for core::ProtocolVersion {
+    fn from(value: ProtocolVersionDto) -> Self {
+        Self {
+            major: value.major,
+            minor: value.minor,
+        }
+    }
+}
+
+impl TryFrom<IncompleteReasonDto> for core::IncompleteReason {
+    type Error = CalculatorErrorDto;
+
+    fn try_from(value: IncompleteReasonDto) -> Result<Self, Self::Error> {
+        match value {
+            IncompleteReasonDto::PrecisionLimit {
+                requested_digits,
+                confirmed_digits,
+            } => {
+                let Some(requested_digits) = NonZeroU32::new(requested_digits) else {
+                    return Err(input_limit_error(
+                        InputLimitErrorCodeDto::InvalidSignificantDigits,
+                    ));
+                };
+                Ok(Self::PrecisionLimit {
+                    requested_digits,
+                    confirmed_digits,
+                })
+            }
+            IncompleteReasonDto::ComputationLimit { kind } => {
+                Ok(Self::ComputationLimit { kind: kind.into() })
+            }
+        }
+    }
+}
+
+impl TryFrom<SimplificationStatusDto> for core::SimplificationStatus {
+    type Error = CalculatorErrorDto;
+
+    fn try_from(value: SimplificationStatusDto) -> Result<Self, Self::Error> {
+        match value {
+            SimplificationStatusDto::FullySimplifiedWithinLimits => {
+                Ok(Self::FullySimplifiedWithinLimits)
+            }
+            SimplificationStatusDto::PartiallySimplified { reason } => {
+                Ok(Self::PartiallySimplified {
+                    reason: reason.try_into()?,
+                })
+            }
+        }
+    }
+}
+
+impl TryFrom<PresentationNodeDto> for core::PresentationNode {
+    type Error = CalculatorErrorDto;
+
+    fn try_from(value: PresentationNodeDto) -> Result<Self, Self::Error> {
+        match value {
+            PresentationNodeDto::Text { text } => Ok(Self::Text(text)),
+            PresentationNodeDto::Row { children } => Ok(Self::Row(
+                children
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()?,
+            )),
+            PresentationNodeDto::Fraction {
+                numerator,
+                denominator,
+            } => Ok(Self::Fraction {
+                numerator: Box::new((*numerator).try_into()?),
+                denominator: Box::new((*denominator).try_into()?),
+            }),
+            PresentationNodeDto::Superscript { base, exponent } => Ok(Self::Superscript {
+                base: Box::new((*base).try_into()?),
+                exponent: Box::new((*exponent).try_into()?),
+            }),
+            PresentationNodeDto::Radical { index, radicand } => Ok(Self::Radical {
+                index: index.try_into()?,
+                radicand: Box::new((*radicand).try_into()?),
+            }),
+            PresentationNodeDto::Function { name, argument } => Ok(Self::Function {
+                name: name.into(),
+                argument: Box::new((*argument).try_into()?),
+            }),
+            PresentationNodeDto::Parenthesized { value } => {
+                Ok(Self::Parenthesized(Box::new((*value).try_into()?)))
+            }
+        }
+    }
+}
+
+impl TryFrom<RadicalIndexDto> for core::RadicalIndex {
+    type Error = CalculatorErrorDto;
+
+    fn try_from(value: RadicalIndexDto) -> Result<Self, Self::Error> {
+        match value {
+            RadicalIndexDto::Square => Ok(Self::Square),
+            RadicalIndexDto::Nth { value } => {
+                let integer = parse_integer(&value)?;
+                let Some(value) = core::PositiveInteger::new(integer) else {
+                    return Err(input_limit_error(
+                        InputLimitErrorCodeDto::InvalidResourceLimit,
+                    ));
+                };
+                Ok(Self::Nth(value))
+            }
+        }
+    }
+}
+
+impl From<ResultRelationDto> for core::ResultRelation {
+    fn from(value: ResultRelationDto) -> Self {
+        match value {
+            ResultRelationDto::ExactEqual => Self::ExactEqual,
+            ResultRelationDto::ApproximatelyEqual => Self::ApproximatelyEqual,
+            ResultRelationDto::ElementOf => Self::ElementOf,
+        }
+    }
+}
+
+impl From<ExactRepresentationKindDto> for core::ExactRepresentationKind {
+    fn from(value: ExactRepresentationKindDto) -> Self {
+        match value {
+            ExactRepresentationKindDto::Integer => Self::Integer,
+            ExactRepresentationKindDto::Rational => Self::Rational,
+            ExactRepresentationKindDto::FiniteDecimal => Self::FiniteDecimal,
+            ExactRepresentationKindDto::RationalPiMultiple => Self::RationalPiMultiple,
+            ExactRepresentationKindDto::Radical => Self::Radical,
+            ExactRepresentationKindDto::RealAlgebraic => Self::RealAlgebraic,
+            ExactRepresentationKindDto::GeneralSymbolic => Self::GeneralSymbolic,
+        }
+    }
+}
+
+impl From<FunctionNameDto> for core::FunctionName {
+    fn from(value: FunctionNameDto) -> Self {
+        match value {
+            FunctionNameDto::Sin => Self::Sin,
+            FunctionNameDto::Cos => Self::Cos,
+            FunctionNameDto::Tan => Self::Tan,
+            FunctionNameDto::Asin => Self::Asin,
+            FunctionNameDto::Acos => Self::Acos,
+            FunctionNameDto::Atan => Self::Atan,
+            FunctionNameDto::Sqrt => Self::Sqrt,
+            FunctionNameDto::Exp => Self::Exp,
+            FunctionNameDto::Log => Self::Log,
+        }
+    }
+}
+
+impl From<MethodTagDto> for core::MethodTag {
+    fn from(value: MethodTagDto) -> Self {
+        match value {
+            MethodTagDto::RationalReduction => Self::RationalReduction,
+            MethodTagDto::RadicalExtraction => Self::RadicalExtraction,
+            MethodTagDto::SpecialAngle => Self::SpecialAngle,
+            MethodTagDto::CyclotomicReduction => Self::CyclotomicReduction,
+            MethodTagDto::AlgebraicMinimalPolynomial => Self::AlgebraicMinimalPolynomial,
+            MethodTagDto::AlgebraicRootIsolation => Self::AlgebraicRootIsolation,
+            MethodTagDto::SymbolicRetention => Self::SymbolicRetention,
+            MethodTagDto::CertifiedIntervalEvaluation => Self::CertifiedIntervalEvaluation,
+            MethodTagDto::AdaptivePrecisionRefinement => Self::AdaptivePrecisionRefinement,
+        }
+    }
+}
+
+impl From<AssuranceLevelDto> for core::AssuranceLevel {
+    fn from(value: AssuranceLevelDto) -> Self {
+        match value {
+            AssuranceLevelDto::Exact => Self::Exact,
+            AssuranceLevelDto::CertifiedEnclosure => Self::CertifiedEnclosure,
+        }
+    }
+}
+
+impl From<ComputationLimitCodeDto> for core::ComputationLimitKind {
+    fn from(value: ComputationLimitCodeDto) -> Self {
+        match value {
+            ComputationLimitCodeDto::AlgebraicDegree => Self::AlgebraicDegree,
+            ComputationLimitCodeDto::PolynomialCoefficientBits => Self::PolynomialCoefficientBits,
+            ComputationLimitCodeDto::ResultantDegree => Self::ResultantDegree,
+            ComputationLimitCodeDto::FactorizationWork => Self::FactorizationWork,
+            ComputationLimitCodeDto::RootIsolationSteps => Self::RootIsolationSteps,
+            ComputationLimitCodeDto::RewriteSteps => Self::RewriteSteps,
+            ComputationLimitCodeDto::PrecisionBits => Self::PrecisionBits,
+            ComputationLimitCodeDto::RefinementRounds => Self::RefinementRounds,
+            ComputationLimitCodeDto::LogicalWorkUnits => Self::LogicalWorkUnits,
+            ComputationLimitCodeDto::PresentationNodes => Self::PresentationNodes,
+        }
+    }
+}
+
+impl TryFrom<InputPolicyDto> for core::InputPolicy {
+    type Error = CalculatorErrorDto;
+
+    fn try_from(value: InputPolicyDto) -> Result<Self, Self::Error> {
+        Ok(Self {
+            calculation_request: value.calculation_request.try_into()?,
+            percent_policy: value.percent_policy.into(),
+        })
+    }
+}
+
+impl From<PercentPolicyDto> for core::PercentPolicy {
+    fn from(value: PercentPolicyDto) -> Self {
+        match value {
+            PercentPolicyDto::ExpressionPercent => Self::ExpressionPercent,
+            PercentPolicyDto::CalculatorPercent => Self::CalculatorPercent,
+        }
+    }
+}
+
+impl From<core::InputState> for SessionStateDto {
+    fn from(value: core::InputState) -> Self {
+        SessionStateDto::from(&value)
+    }
+}
+
+impl From<&core::InputState> for SessionStateDto {
+    fn from(value: &core::InputState) -> Self {
+        Self {
+            source: value.source().to_owned(),
+            cursor_utf16: utf8_to_utf16_units(value.source(), value.cursor_utf8()),
+            selection_utf16: optional_span_to_utf16(value.source(), value.selection_utf8()),
+            has_ans: value.has_ans(),
+            has_memory: value.has_memory(),
+            display: value.display().clone().into(),
+        }
+    }
+}
+
+impl From<core::SessionDisplay> for SessionDisplayDto {
+    fn from(value: core::SessionDisplay) -> Self {
+        match value {
+            core::SessionDisplay::Editing => Self::Editing,
+            core::SessionDisplay::Result { calculation } => Self::Result {
+                calculation: Box::new((*calculation).into()),
+            },
+            core::SessionDisplay::Error { error } => Self::Error {
+                error: error.into(),
+            },
+            core::SessionDisplay::Calculating => Self::Calculating,
+        }
+    }
+}
+
+impl From<core::SessionReduction> for SessionDispatchResultDto {
+    fn from(value: core::SessionReduction) -> Self {
+        let state = SessionStateDto::from(&value.state);
+        match value.command {
+            core::SessionCommand::None => Self::State { state },
+            core::SessionCommand::Calculate { source, request } => Self::Calculate {
+                state,
+                source,
+                request: request.into(),
+            },
+        }
+    }
+}
+
+impl From<core::InputError> for InputErrorDto {
+    fn from(value: core::InputError) -> Self {
+        Self {
+            code: value.kind.into(),
+        }
+    }
+}
+
+impl From<core::InputErrorKind> for InputErrorCodeDto {
+    fn from(value: core::InputErrorKind) -> Self {
+        match value {
+            core::InputErrorKind::InvalidDigit => Self::InvalidDigit,
+            core::InputErrorKind::InvalidCursor => Self::InvalidCursor,
+            core::InputErrorKind::SelectionOutOfBounds => Self::SelectionOutOfBounds,
+            core::InputErrorKind::ActionNotAllowedAfterError => Self::ActionNotAllowedAfterError,
+            core::InputErrorKind::MemoryEmpty => Self::MemoryEmpty,
+        }
+    }
+}
+
+impl TryFrom<CalculatorErrorDto> for core::CalculatorError {
+    type Error = CalculatorErrorDto;
+
+    fn try_from(value: CalculatorErrorDto) -> Result<Self, Self::Error> {
+        match value {
+            CalculatorErrorDto::Parse {
+                code,
+                span,
+                expected,
+            } => Ok(Self::Parse(core::ParseError {
+                kind: code.into(),
+                span: span.into(),
+                expected: expected.into_iter().map(Into::into).collect(),
+            })),
+            CalculatorErrorDto::Domain { code, span } => Ok(Self::Domain(core::DomainError {
+                kind: code.into(),
+                span: span.into(),
+            })),
+            CalculatorErrorDto::InputLimit { code } => {
+                Ok(Self::InputLimit(core::InputLimitError {
+                    kind: code.into(),
+                }))
+            }
+            CalculatorErrorDto::ComputationLimit { code } => {
+                Ok(Self::ComputationLimit(core::ComputationLimitError {
+                    kind: code.into(),
+                }))
+            }
+            CalculatorErrorDto::UnsupportedFeature { code } => {
+                Ok(Self::UnsupportedFeature(core::UnsupportedFeatureError {
+                    feature: code.into(),
+                }))
+            }
+            CalculatorErrorDto::InternalInvariant { code } => {
+                Ok(Self::InternalInvariant(core::InternalInvariantError {
+                    code: code.into(),
+                }))
+            }
+            CalculatorErrorDto::UnsupportedProtocol { .. } => Err(value),
+        }
+    }
+}
+
+impl From<TextSpanDto> for core::ByteSpan {
+    fn from(value: TextSpanDto) -> Self {
+        Self {
+            start: value.start,
+            end: value.end,
+        }
+    }
+}
+
+impl From<OptionalTextSpanDto> for Option<core::ByteSpan> {
+    fn from(value: OptionalTextSpanDto) -> Self {
+        match value {
+            OptionalTextSpanDto::None => None,
+            OptionalTextSpanDto::Some { value } => Some(value.into()),
+        }
+    }
+}
+
+impl From<ExpectedTokenDto> for core::ExpectedToken {
+    fn from(value: ExpectedTokenDto) -> Self {
+        Self {
+            kind: value.kind.into(),
+        }
+    }
+}
+
+impl From<ExpectedTokenKindDto> for core::ExpectedTokenKind {
+    fn from(value: ExpectedTokenKindDto) -> Self {
+        match value {
+            ExpectedTokenKindDto::Number => Self::Number,
+            ExpectedTokenKindDto::Identifier => Self::Identifier,
+            ExpectedTokenKindDto::Operator => Self::Operator,
+            ExpectedTokenKindDto::OpenParenthesis => Self::OpenParenthesis,
+            ExpectedTokenKindDto::CloseParenthesis => Self::CloseParenthesis,
+            ExpectedTokenKindDto::EndOfInput => Self::EndOfInput,
+        }
+    }
+}
+
+impl From<ParseErrorCodeDto> for core::ParseErrorKind {
+    fn from(value: ParseErrorCodeDto) -> Self {
+        match value {
+            ParseErrorCodeDto::UnexpectedToken => Self::UnexpectedToken,
+            ParseErrorCodeDto::UnexpectedEnd => Self::UnexpectedEnd,
+            ParseErrorCodeDto::UnknownIdentifier => Self::UnknownIdentifier,
+            ParseErrorCodeDto::InvalidNumberLiteral => Self::InvalidNumberLiteral,
+            ParseErrorCodeDto::MissingFunctionParenthesis => Self::MissingFunctionParenthesis,
+            ParseErrorCodeDto::ImplicitMultiplicationDisabled => {
+                Self::ImplicitMultiplicationDisabled
+            }
+            ParseErrorCodeDto::PercentRejected => Self::PercentRejected,
+        }
+    }
+}
+
+impl From<DomainErrorCodeDto> for core::DomainErrorKind {
+    fn from(value: DomainErrorCodeDto) -> Self {
+        match value {
+            DomainErrorCodeDto::DivisionByZero => Self::DivisionByZero,
+            DomainErrorCodeDto::LogarithmOfNonPositive => Self::LogarithmOfNonPositive,
+            DomainErrorCodeDto::EvenRootOfNegative => Self::EvenRootOfNegative,
+            DomainErrorCodeDto::InverseTrigonometricOutOfRange => {
+                Self::InverseTrigonometricOutOfRange
+            }
+            DomainErrorCodeDto::TangentPole => Self::TangentPole,
+            DomainErrorCodeDto::ZeroToNegativePower => Self::ZeroToNegativePower,
+            DomainErrorCodeDto::IndeterminateZeroToZero => Self::IndeterminateZeroToZero,
+            DomainErrorCodeDto::NonRealPower => Self::NonRealPower,
+        }
+    }
+}
+
+impl From<InputLimitErrorCodeDto> for core::InputLimitErrorKind {
+    fn from(value: InputLimitErrorCodeDto) -> Self {
+        match value {
+            InputLimitErrorCodeDto::InputTooLong => Self::InputTooLong,
+            InputLimitErrorCodeDto::SourceAstTooDeep => Self::SourceAstTooDeep,
+            InputLimitErrorCodeDto::SourceAstTooLarge => Self::SourceAstTooLarge,
+            InputLimitErrorCodeDto::ExpressionTooLarge => Self::ExpressionTooLarge,
+            InputLimitErrorCodeDto::IntegerTooLarge => Self::IntegerTooLarge,
+            InputLimitErrorCodeDto::OutputTooLarge => Self::OutputTooLarge,
+            InputLimitErrorCodeDto::InvalidSignificantDigits => Self::InvalidSignificantDigits,
+            InputLimitErrorCodeDto::InvalidResourceLimit => Self::InvalidResourceLimit,
+        }
+    }
+}
+
+impl From<UnsupportedFeatureCodeDto> for core::UnsupportedFeature {
+    fn from(value: UnsupportedFeatureCodeDto) -> Self {
+        match value {
+            UnsupportedFeatureCodeDto::ComplexDomain => Self::ComplexDomain,
+            UnsupportedFeatureCodeDto::PortableProofCertificate => Self::PortableProofCertificate,
+            UnsupportedFeatureCodeDto::EvaluationEngine => Self::EvaluationEngine,
+            UnsupportedFeatureCodeDto::ConstantEvaluation => Self::ConstantEvaluation,
+            UnsupportedFeatureCodeDto::FunctionEvaluation => Self::FunctionEvaluation,
+            UnsupportedFeatureCodeDto::NonIntegerPower => Self::NonIntegerPower,
+        }
+    }
+}
+
+impl From<InternalInvariantCodeDto> for core::InternalInvariantCode {
+    fn from(value: InternalInvariantCodeDto) -> Self {
+        match value {
+            InternalInvariantCodeDto::NonCanonicalRational => Self::NonCanonicalRational,
+            InternalInvariantCodeDto::InvalidAlgebraicIsolation => Self::InvalidAlgebraicIsolation,
+            InternalInvariantCodeDto::InvalidCertifiedInterval => Self::InvalidCertifiedInterval,
+            InternalInvariantCodeDto::NonDeterministicCacheAccounting => {
+                Self::NonDeterministicCacheAccounting
+            }
+            InternalInvariantCodeDto::PresentationWithoutEvaluation => {
+                Self::PresentationWithoutEvaluation
+            }
+            InternalInvariantCodeDto::InvalidParsedNumberLiteral => {
+                Self::InvalidParsedNumberLiteral
+            }
+        }
+    }
+}
+
+impl From<InputActionDto> for core::InputAction {
+    fn from(value: InputActionDto) -> Self {
+        match value {
+            InputActionDto::Digit { value } => Self::Digit(u8::try_from(value).unwrap_or(u8::MAX)),
+            InputActionDto::DecimalPoint => Self::DecimalPoint,
+            InputActionDto::Constant { value } => match value {
+                ConstantDto::Pi => Self::Constant(core::Constant::Pi),
+                ConstantDto::E => Self::Constant(core::Constant::Euler),
+                ConstantDto::Ans => Self::Ans,
+                ConstantDto::Memory => Self::MemoryRecall,
+            },
+            InputActionDto::Function { value } => Self::Function(value.into()),
+            InputActionDto::BinaryOperator { value } => Self::BinaryOperator(value.into()),
+            InputActionDto::Percent => Self::Percent,
+            InputActionDto::OpenParenthesis => Self::OpenParenthesis,
+            InputActionDto::CloseParenthesis => Self::CloseParenthesis,
+            InputActionDto::DeleteBackward => Self::DeleteBackward,
+            InputActionDto::ClearEntry => Self::ClearEntry,
+            InputActionDto::ClearAll => Self::ClearAll,
+            InputActionDto::MemoryClear => Self::MemoryClear,
+            InputActionDto::MemoryRecall => Self::MemoryRecall,
+            InputActionDto::MemoryAdd => Self::MemoryAdd,
+            InputActionDto::MemorySubtract => Self::MemorySubtract,
+            InputActionDto::Evaluate => Self::Evaluate,
+        }
+    }
+}
+
+impl From<FunctionDto> for core::Function {
+    fn from(value: FunctionDto) -> Self {
+        match value {
+            FunctionDto::Sin => Self::Sin,
+            FunctionDto::Cos => Self::Cos,
+            FunctionDto::Tan => Self::Tan,
+            FunctionDto::Asin => Self::Asin,
+            FunctionDto::Acos => Self::Acos,
+            FunctionDto::Atan => Self::Atan,
+            FunctionDto::Sqrt => Self::Sqrt,
+            FunctionDto::Exp => Self::Exp,
+            FunctionDto::Log => Self::Log,
+        }
+    }
+}
+
+impl From<BinaryOperatorDto> for core::BinaryOperator {
+    fn from(value: BinaryOperatorDto) -> Self {
+        match value {
+            BinaryOperatorDto::Add => Self::Add,
+            BinaryOperatorDto::Subtract => Self::Subtract,
+            BinaryOperatorDto::Multiply => Self::Multiply,
+            BinaryOperatorDto::Divide => Self::Divide,
+            BinaryOperatorDto::Power => Self::Power,
+        }
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 pub fn unsupported_protocol_error(code: UnsupportedProtocolCodeDto) -> CalculatorErrorDto {
     CalculatorErrorDto::UnsupportedProtocol { code }
@@ -730,4 +1516,30 @@ fn parse_u64(value: &str) -> Result<u64, CalculatorErrorDto> {
     }
     u64::from_str(value)
         .map_err(|_| input_limit_error(InputLimitErrorCodeDto::InvalidResourceLimit))
+}
+
+fn parse_integer(value: &str) -> Result<core::Integer, CalculatorErrorDto> {
+    let Some(integer) = BigInt::parse_bytes(value.as_bytes(), 10) else {
+        return Err(input_limit_error(
+            InputLimitErrorCodeDto::InvalidResourceLimit,
+        ));
+    };
+    Ok(core::Integer::from_bigint(integer))
+}
+
+fn utf8_to_utf16_units(source: &str, utf8_offset: u32) -> u32 {
+    let utf8_offset = utf8_offset as usize;
+    source[..utf8_offset].encode_utf16().count() as u32
+}
+
+fn optional_span_to_utf16(source: &str, span: &core::OptionalTextSpan) -> OptionalTextSpanDto {
+    match span {
+        core::OptionalTextSpan::None => OptionalTextSpanDto::None,
+        core::OptionalTextSpan::Some(span) => OptionalTextSpanDto::Some {
+            value: TextSpanDto {
+                start: utf8_to_utf16_units(source, span.start),
+                end: utf8_to_utf16_units(source, span.end),
+            },
+        },
+    }
 }

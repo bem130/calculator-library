@@ -712,6 +712,7 @@ pub enum InputAction {
     Digit(u8),
     DecimalPoint,
     Constant(Constant),
+    Ans,
     Function(Function),
     BinaryOperator(BinaryOperator),
     Percent,

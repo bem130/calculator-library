@@ -292,6 +292,137 @@ export type MethodTag =
 
 export type AssuranceLevel = "exact" | "certifiedEnclosure";
 
+export type InputActionDto =
+    | {
+        readonly tag: "digit";
+        readonly value: number;
+    }
+    | {
+        readonly tag: "decimalPoint";
+    }
+    | {
+        readonly tag: "constant";
+        readonly value: ConstantDto;
+    }
+    | {
+        readonly tag: "function";
+        readonly value: FunctionDto;
+    }
+    | {
+        readonly tag: "binaryOperator";
+        readonly value: BinaryOperatorDto;
+    }
+    | {
+        readonly tag: "percent";
+    }
+    | {
+        readonly tag: "openParenthesis";
+    }
+    | {
+        readonly tag: "closeParenthesis";
+    }
+    | {
+        readonly tag: "deleteBackward";
+    }
+    | {
+        readonly tag: "clearEntry";
+    }
+    | {
+        readonly tag: "clearAll";
+    }
+    | {
+        readonly tag: "memoryClear";
+    }
+    | {
+        readonly tag: "memoryRecall";
+    }
+    | {
+        readonly tag: "memoryAdd";
+    }
+    | {
+        readonly tag: "memorySubtract";
+    }
+    | {
+        readonly tag: "evaluate";
+    };
+
+export type InputPolicyDto = {
+    readonly calculationRequest: CalculationRequest;
+    readonly percentPolicy: PercentPolicyDto;
+};
+
+export type PercentPolicyDto =
+    | "expressionPercent"
+    | "calculatorPercent";
+
+export type SessionDispatchResult =
+    | {
+        readonly tag: "state";
+        readonly state: SessionStateDto;
+    }
+    | {
+        readonly tag: "calculate";
+        readonly state: SessionStateDto;
+        readonly source: string;
+        readonly request: CalculationRequest;
+    }
+    | {
+        readonly tag: "inputError";
+        readonly state: SessionStateDto;
+        readonly error: InputErrorDto;
+    };
+
+export type SessionStateDto = {
+    readonly source: string;
+    readonly cursorUtf16: number;
+    readonly selectionUtf16: OptionalTextSpanDto;
+    readonly hasAns: boolean;
+    readonly hasMemory: boolean;
+    readonly display: SessionDisplayDto;
+};
+
+export type SessionDisplayDto =
+    | {
+        readonly tag: "editing";
+    }
+    | {
+        readonly tag: "result";
+        readonly calculation: Calculation;
+    }
+    | {
+        readonly tag: "error";
+        readonly error: CalculatorErrorDto;
+    }
+    | {
+        readonly tag: "calculating";
+    };
+
+export type InputErrorDto = {
+    readonly code: InputErrorCodeDto;
+};
+
+export type InputErrorCodeDto =
+    | "invalidDigit"
+    | "invalidCursor"
+    | "selectionOutOfBounds"
+    | "actionNotAllowedAfterError"
+    | "memoryEmpty";
+
+export type ConstantDto =
+    | "pi"
+    | "e"
+    | "ans"
+    | "memory";
+
+export type FunctionDto = FunctionNameDto;
+
+export type BinaryOperatorDto =
+    | "add"
+    | "subtract"
+    | "multiply"
+    | "divide"
+    | "power";
+
 export type CalculatorErrorDto =
     | {
         readonly tag: "parse";

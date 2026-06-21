@@ -12,7 +12,7 @@ The implementation is following [doc/design.md](doc/design.md). The current work
 - `calculator-core` parses and evaluates rational expressions without `f32` / `f64`.
 - `calculator-cli` evaluates exact expressions such as `0.1 + 0.2`.
 - `calculator-wasm` exposes DTO-based calculation through `wasm-bindgen`.
-- `packages/calculator` provides a TypeScript facade over the Wasm module.
+- `packages/calculator` provides TypeScript facades for calculation and headless session dispatch over the Wasm module.
 - `examples/vanilla-web` is a browser example using the public npm facade.
 
 Later phases in the design document, including certified arbitrary-precision approximation, symbolic simplification, special angles, and algebraic numbers, are still in progress.
@@ -52,6 +52,8 @@ Build the Wasm package used by the facade:
 ```sh
 corepack pnpm --dir packages/calculator run build:wasm
 ```
+
+The TypeScript facade exposes `createCalculator()` for direct expression calculation and `createSession()` for button/input workflows. Session dispatch is headless: `Evaluate` returns a calculate command, and the caller passes the result back through `applyResult()`.
 
 ## Vanilla Web Example
 

@@ -42,6 +42,7 @@ name = "calculator-wasm"
 version = "0.1.0"
 dependencies = [
  "calculator-core",
+ "num-bigint",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",

@@ -9,6 +9,7 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use dto::UnsupportedProtocolCodeDto;
 use dto::{ApiResultDto, CalculationOutcomeDto, CalculationRequestDto};
+use dto::{InputActionDto, InputPolicyDto, SessionDispatchResultDto, SessionStateDto};
 
 pub fn protocol_version() -> (u16, u16) {
     let version = calculator_core::ProtocolVersion::CURRENT;
@@ -31,6 +32,100 @@ pub fn calculate_dto(
         Err(error) => ApiResultDto::Error {
             error: error.into(),
         },
+    }
+}
+
+pub struct SessionCore {
+    state: calculator_core::InputState,
+    policy: calculator_core::InputPolicy,
+}
+
+impl SessionCore {
+    pub fn new(policy: InputPolicyDto) -> Result<Self, dto::CalculatorErrorDto> {
+        Ok(Self {
+            state: calculator_core::InputState::empty(),
+            policy: policy.try_into()?,
+        })
+    }
+
+    pub fn dispatch_dto(&mut self, action: InputActionDto) -> SessionDispatchResultDto {
+        match calculator_core::reduce_input(&self.state, action.into(), &self.policy) {
+            Ok(reduction) => {
+                self.state = reduction.state.clone();
+                reduction.into()
+            }
+            Err(error) => SessionDispatchResultDto::InputError {
+                state: (&self.state).into(),
+                error: error.into(),
+            },
+        }
+    }
+
+    pub fn apply_result_dto(
+        &mut self,
+        result: ApiResultDto<CalculationOutcomeDto>,
+    ) -> SessionStateDto {
+        let result = match result {
+            ApiResultDto::Ok { value } => {
+                match calculator_core::CalculationOutcome::try_from(value) {
+                    Ok(value) => Ok(value),
+                    Err(_) => return self.get_state_dto(),
+                }
+            }
+            ApiResultDto::Error { error } => {
+                match calculator_core::CalculatorError::try_from(error) {
+                    Ok(error) => Err(error),
+                    Err(_) => return self.get_state_dto(),
+                }
+            }
+        };
+        self.state = calculator_core::apply_calculation_result(&self.state, result);
+        self.get_state_dto()
+    }
+
+    pub fn get_state_dto(&self) -> SessionStateDto {
+        (&self.state).into()
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = CalculatorSession)]
+pub struct WasmCalculatorSession {
+    inner: SessionCore,
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_class = CalculatorSession)]
+impl WasmCalculatorSession {
+    #[wasm_bindgen(constructor)]
+    pub fn new(policy: JsValue) -> Result<Self, JsValue> {
+        let policy = serde_wasm_bindgen::from_value::<InputPolicyDto>(policy)
+            .map_err(|_| JsValue::from_str("unsupportedProtocol.unknownTag"))?;
+        Ok(Self {
+            inner: SessionCore::new(policy)
+                .map_err(|_| JsValue::from_str("unsupportedProtocol.unknownCode"))?,
+        })
+    }
+
+    pub fn dispatch(&mut self, action: JsValue) -> Result<JsValue, JsValue> {
+        let action = serde_wasm_bindgen::from_value::<InputActionDto>(action)
+            .map_err(|_| JsValue::from_str("unsupportedProtocol.unknownTag"))?;
+        serde_wasm_bindgen::to_value(&self.inner.dispatch_dto(action))
+            .map_err(|_| JsValue::from_str("internalInvariant.dtoSerialization"))
+    }
+
+    #[wasm_bindgen(js_name = applyResult)]
+    pub fn apply_result(&mut self, result: JsValue) -> Result<JsValue, JsValue> {
+        let result = serde_wasm_bindgen::from_value::<ApiResultDto<CalculationOutcomeDto>>(result)
+            .map_err(|_| JsValue::from_str("unsupportedProtocol.unknownTag"))?;
+        serde_wasm_bindgen::to_value(&self.inner.apply_result_dto(result))
+            .map_err(|_| JsValue::from_str("internalInvariant.dtoSerialization"))
+    }
+
+    #[wasm_bindgen(js_name = getState)]
+    pub fn get_state(&self) -> Result<JsValue, JsValue> {
+        serde_wasm_bindgen::to_value(&self.inner.get_state_dto())
+            .map_err(|_| JsValue::from_str("internalInvariant.dtoSerialization"))
     }
 }
 
@@ -78,6 +173,13 @@ mod tests {
             scientific_output: ScientificOutputRequestDto::Omit,
             enclosure_output: EnclosureOutputRequestDto::Omit,
             limits: ResourceLimitRequestDto::Default,
+        }
+    }
+
+    fn input_policy() -> InputPolicyDto {
+        InputPolicyDto {
+            calculation_request: exact_only_request(),
+            percent_policy: PercentPolicyDto::ExpressionPercent,
         }
     }
 
@@ -215,5 +317,50 @@ mod tests {
                 },
             }
         );
+    }
+
+    #[test]
+    fn session_dispatch_returns_calculate_command_and_applies_result() {
+        let mut session = SessionCore::new(input_policy()).unwrap();
+        session.dispatch_dto(InputActionDto::Digit { value: 1 });
+        session.dispatch_dto(InputActionDto::BinaryOperator {
+            value: BinaryOperatorDto::Add,
+        });
+        session.dispatch_dto(InputActionDto::Digit { value: 2 });
+
+        let SessionDispatchResultDto::Calculate {
+            source, request, ..
+        } = session.dispatch_dto(InputActionDto::Evaluate)
+        else {
+            panic!("expected calculate command");
+        };
+        assert_eq!(source, "1+2");
+
+        let result = calculate_dto(&source, request);
+        let state = session.apply_result_dto(result);
+        let SessionDisplayDto::Result { calculation } = state.display else {
+            panic!("expected result display");
+        };
+        let ExactOutputDto::Included { value } = calculation.exact else {
+            panic!("expected exact output");
+        };
+        assert_eq!(value.plain_text, "3");
+        assert!(state.has_ans);
+    }
+
+    #[test]
+    fn session_dispatch_reports_input_error_without_mutating_state() {
+        let mut session = SessionCore::new(input_policy()).unwrap();
+        let result = session.dispatch_dto(InputActionDto::MemoryRecall);
+        assert_eq!(
+            result,
+            SessionDispatchResultDto::InputError {
+                state: session.get_state_dto(),
+                error: InputErrorDto {
+                    code: InputErrorCodeDto::MemoryEmpty,
+                },
+            }
+        );
+        assert_eq!(session.get_state_dto().source, "");
     }
 }
