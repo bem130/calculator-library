@@ -608,6 +608,61 @@ mod tests {
     }
 
     #[test]
+    fn wasm_dto_serializes_partial_rational_power_with_certified_enclosure() {
+        let mut request = exact_only_request();
+        request.scientific_output = ScientificOutputRequestDto::Include {
+            significant_digits: 50,
+            rounding_mode: DecimalRoundingModeDto::NearestTiesToEven,
+        };
+        request.enclosure_output = EnclosureOutputRequestDto::Include {
+            format: EnclosureFormatDto::ExactDyadic,
+        };
+        let result = calculate_dto("2^(1/2)", request);
+        let ApiResultDto::Ok {
+            value:
+                CalculationOutcomeDto::Partial {
+                    calculation,
+                    reason,
+                    certified_enclosure,
+                },
+        } = result
+        else {
+            panic!("expected partial rational power calculation");
+        };
+        assert_eq!(
+            reason,
+            IncompleteReasonDto::PrecisionLimit {
+                requested_digits: 50,
+                confirmed_digits: 0,
+            }
+        );
+        let ExactOutputDto::Included { value: exact } = calculation.exact else {
+            panic!("expected exact symbolic output");
+        };
+        assert_eq!(
+            exact.representation,
+            ExactRepresentationKindDto::GeneralSymbolic
+        );
+        assert_eq!(exact.plain_text, "2^(1/2)");
+        let EnclosureOutputDto::Included { value: enclosure } = calculation.enclosure else {
+            panic!("expected enclosure output");
+        };
+        assert_eq!(certified_enclosure, enclosure);
+        assert_eq!(
+            calculation.metadata.assurance,
+            AssuranceLevelDto::CertifiedEnclosure
+        );
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTagDto::SymbolicRetention));
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTagDto::CertifiedIntervalEvaluation));
+    }
+
+    #[test]
     fn wasm_dto_serializes_partial_constants_with_certified_enclosures() {
         for source in ["e", "pi"] {
             let mut request = exact_only_request();
@@ -1098,6 +1153,25 @@ pub mod wasm_tests {
         value.plain_text
     }
 
+    fn partial_exact_plain_text(result: ApiResultDto<CalculationOutcomeDto>) -> String {
+        let ApiResultDto::Ok {
+            value:
+                CalculationOutcomeDto::Partial {
+                    calculation:
+                        CalculationDto {
+                            exact: ExactOutputDto::Included { value },
+                            enclosure: EnclosureOutputDto::Included { .. },
+                            ..
+                        },
+                    ..
+                },
+        } = result
+        else {
+            panic!("expected partial calculation with exact and enclosure output");
+        };
+        value.plain_text
+    }
+
     fn calculator_error(source: &str, request: CalculationRequestDto) -> CalculatorErrorDto {
         let ApiResultDto::Error { error } = calculate_dto(source, request) else {
             panic!("expected calculator error");
@@ -1171,6 +1245,22 @@ pub mod wasm_tests {
             let result = calculate_dto(source, exact_only_request());
             assert_eq!(exact_plain_text(result), expected, "{source}");
         }
+    }
+
+    #[wasm_bindgen_test]
+    fn wasm32_serializes_partial_rational_power_with_certified_enclosure() {
+        let mut request = exact_only_request();
+        request.scientific_output = ScientificOutputRequestDto::Include {
+            significant_digits: 50,
+            rounding_mode: DecimalRoundingModeDto::NearestTiesToEven,
+        };
+        request.enclosure_output = EnclosureOutputRequestDto::Include {
+            format: EnclosureFormatDto::ExactDyadic,
+        };
+        assert_eq!(
+            partial_exact_plain_text(calculate_dto("2^(1/2)", request)),
+            "2^(1/2)"
+        );
     }
 
     #[wasm_bindgen_test]

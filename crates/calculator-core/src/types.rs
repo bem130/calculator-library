@@ -1181,6 +1181,15 @@ pub(crate) fn floor_nth_root_nonnegative(value: &BigInt, index: u32) -> BigInt {
     low
 }
 
+pub(crate) fn ceil_nth_root_nonnegative(value: &BigInt, index: u32) -> BigInt {
+    let floor = floor_nth_root_nonnegative(value, index);
+    if floor.pow(index) == *value {
+        floor
+    } else {
+        floor + 1_u8
+    }
+}
+
 pub(crate) fn ceil_sqrt_nonnegative(value: &BigInt) -> BigInt {
     let floor = floor_sqrt_nonnegative(value);
     if &floor * &floor == *value {
