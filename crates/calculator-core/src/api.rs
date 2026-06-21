@@ -4,7 +4,7 @@ use alloc::{
     vec,
 };
 
-use crate::syntax::{SourceExpr, UnaryOperator};
+use crate::expression::{evaluate_rational_dag, lower_source_expression};
 use crate::types::*;
 
 pub fn calculate(
@@ -58,7 +58,8 @@ pub fn evaluate(
     request: &EvaluationRequest,
     _context: &mut EvaluationContext,
 ) -> Result<EvaluationOutcome, EvaluationError> {
-    let rational = evaluate_rational(&expression.root)?;
+    let dag = lower_source_expression(&expression.root)?;
+    let rational = evaluate_rational_dag(&dag)?;
     Ok(EvaluationOutcome {
         value: EvaluatedValue {
             exact_expression: ExactExpression {
@@ -127,77 +128,6 @@ pub fn present(
             protocol_version: ProtocolVersion::CURRENT,
         },
     })
-}
-
-fn evaluate_rational(expr: &SourceExpr) -> Result<Rational, EvaluationError> {
-    match expr {
-        SourceExpr::Number { literal, .. } => {
-            Rational::from_decimal_literal(literal).map_err(|_| {
-                EvaluationError::InternalInvariant(InternalInvariantError {
-                    code: InternalInvariantCode::InvalidParsedNumberLiteral,
-                })
-            })
-        }
-        SourceExpr::Constant { .. } => Err(EvaluationError::UnsupportedFeature(
-            UnsupportedFeatureError {
-                feature: UnsupportedFeature::ConstantEvaluation,
-            },
-        )),
-        SourceExpr::Function { .. } => Err(EvaluationError::UnsupportedFeature(
-            UnsupportedFeatureError {
-                feature: UnsupportedFeature::FunctionEvaluation,
-            },
-        )),
-        SourceExpr::Unary { op, expr, .. } => {
-            let value = evaluate_rational(expr)?;
-            Ok(match op {
-                UnaryOperator::Plus => value,
-                UnaryOperator::Negate => value.negate(),
-            })
-        }
-        SourceExpr::Binary {
-            op, left, right, ..
-        } => {
-            let left = evaluate_rational(left)?;
-            let right = evaluate_rational(right)?;
-            match op {
-                BinaryOperator::Add => Ok(left.add(&right)),
-                BinaryOperator::Subtract => Ok(left.subtract(&right)),
-                BinaryOperator::Multiply => Ok(left.multiply(&right)),
-                BinaryOperator::Divide => left.divide(&right).map_err(arithmetic_error),
-                BinaryOperator::Power => {
-                    let exponent =
-                        right
-                            .as_i64_if_integer()
-                            .ok_or(EvaluationError::UnsupportedFeature(
-                                UnsupportedFeatureError {
-                                    feature: UnsupportedFeature::NonIntegerPower,
-                                },
-                            ))?;
-                    left.pow_i64(exponent).map_err(arithmetic_error)
-                }
-            }
-        }
-        SourceExpr::Percent { expr, .. } => Ok(evaluate_rational(expr)?.percent()),
-    }
-}
-
-fn arithmetic_error(error: RationalArithmeticError) -> EvaluationError {
-    match error {
-        RationalArithmeticError::DivisionByZero => EvaluationError::Domain(DomainError {
-            kind: DomainErrorKind::DivisionByZero,
-            span: None,
-        }),
-        RationalArithmeticError::ZeroToNegativePower => EvaluationError::Domain(DomainError {
-            kind: DomainErrorKind::ZeroToNegativePower,
-            span: None,
-        }),
-        RationalArithmeticError::ExponentTooLarge => {
-            EvaluationError::ComputationLimit(ComputationLimitError {
-                kind: ComputationLimitKind::LogicalWorkUnits,
-            })
-        }
-    }
 }
 
 fn exact_presentation(rational: &Rational) -> ExactPresentation {
