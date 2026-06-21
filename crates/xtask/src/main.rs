@@ -6,6 +6,8 @@ use std::{
     process,
 };
 
+use calculator_core::ProtocolVersion;
+
 fn main() {
     if let Err(error) = run() {
         eprintln!("{error}");
@@ -18,10 +20,11 @@ fn run() -> Result<(), String> {
     match args.next().as_deref() {
         Some("generate-types") => generate_types(),
         Some("check-generated") => check_generated(),
+        Some("check-protocol-compatibility") => check_protocol_compatibility(),
         Some("check-no-floats") => check_no_floats(),
         Some(command) => Err(format!("unknown xtask command: {command}")),
         None => Err(String::from(
-            "usage: cargo xtask <generate-types|check-generated|check-no-floats>",
+            "usage: cargo xtask <generate-types|check-generated|check-protocol-compatibility|check-no-floats>",
         )),
     }
 }
@@ -43,6 +46,21 @@ fn check_generated() -> Result<(), String> {
     if actual != expected {
         return Err(format!(
             "{} is stale; run `cargo xtask generate-types`",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
+fn check_protocol_compatibility() -> Result<(), String> {
+    let version = ProtocolVersion::CURRENT;
+    let path = protocol_snapshot_path(version);
+    let expected = fs::read_to_string(&path)
+        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+    let actual = generated_dto_contents();
+    if actual != expected {
+        return Err(format!(
+            "protocol DTO surface no longer matches {}; update ProtocolVersion and add the matching snapshot when the public DTO contract changes",
             path.display()
         ));
     }
@@ -95,6 +113,16 @@ fn generated_dto_path() -> PathBuf {
         .join("src")
         .join("generated")
         .join("dto.ts")
+}
+
+fn protocol_snapshot_path(version: ProtocolVersion) -> PathBuf {
+    Path::new("crates")
+        .join("xtask")
+        .join("snapshots")
+        .join(format!(
+            "protocol-{}.{}.dto.ts",
+            version.major, version.minor
+        ))
 }
 
 fn generated_dto_contents() -> &'static str {
