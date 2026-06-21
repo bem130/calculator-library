@@ -6,7 +6,7 @@ use num_traits::{Signed, Zero};
 
 use crate::types::{
     Integer, PrimitivePolynomial, PrimitivePolynomialConstructionError,
-    PrimitivePolynomialDivisionError,
+    PrimitivePolynomialDivisionError, PrimitiveSquareFreeFactor,
 };
 
 impl PrimitivePolynomial {
@@ -117,6 +117,23 @@ impl PrimitivePolynomial {
         }
     }
 
+    pub fn exact_quotient(
+        &self,
+        divisor: &Self,
+    ) -> Result<Option<Self>, PrimitivePolynomialDivisionError> {
+        let quotient = exact_quotient_coefficients(
+            effective_coefficients(&self.coefficients_low_to_high),
+            effective_coefficients(&divisor.coefficients_low_to_high),
+        )?;
+        if quotient.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(
+                Self::new(quotient).expect("non-zero exact quotient normalizes"),
+            ))
+        }
+    }
+
     pub fn gcd(&self, rhs: &Self) -> Result<Self, PrimitivePolynomialConstructionError> {
         let lhs = effective_coefficients(&self.coefficients_low_to_high);
         let rhs = effective_coefficients(&rhs.coefficients_low_to_high);
@@ -139,6 +156,60 @@ impl PrimitivePolynomial {
             previous = current;
             current = remainder;
         }
+    }
+
+    pub fn square_free_part(&self) -> Result<Self, PrimitivePolynomialConstructionError> {
+        let Ok(derivative) = self.derivative() else {
+            return Self::new(effective_coefficients(&self.coefficients_low_to_high).to_vec());
+        };
+        let repeated_factor = self.gcd(&derivative)?;
+        self.exact_quotient(&repeated_factor)
+            .expect("gcd divides the original polynomial")
+            .ok_or(PrimitivePolynomialConstructionError::ZeroPolynomial)
+    }
+
+    pub fn square_free_decomposition(
+        &self,
+    ) -> Result<Vec<PrimitiveSquareFreeFactor>, PrimitivePolynomialConstructionError> {
+        let polynomial =
+            Self::new(effective_coefficients(&self.coefficients_low_to_high).to_vec())?;
+        if !is_nonconstant(&polynomial) {
+            return Ok(Vec::new());
+        }
+
+        let derivative = polynomial
+            .derivative()
+            .expect("non-constant polynomial has a non-zero derivative in characteristic zero");
+        let mut repeated_factor = polynomial.gcd(&derivative)?;
+        let mut remaining_square_free = polynomial
+            .exact_quotient(&repeated_factor)
+            .expect("gcd divides the original polynomial")
+            .ok_or(PrimitivePolynomialConstructionError::ZeroPolynomial)?;
+        let mut multiplicity = 1;
+        let mut factors = Vec::new();
+
+        while is_nonconstant(&remaining_square_free) {
+            let common = remaining_square_free.gcd(&repeated_factor)?;
+            let factor = remaining_square_free
+                .exact_quotient(&common)
+                .expect("common factor divides the current square-free layer")
+                .ok_or(PrimitivePolynomialConstructionError::ZeroPolynomial)?;
+            if is_nonconstant(&factor) {
+                factors.push(PrimitiveSquareFreeFactor {
+                    factor,
+                    multiplicity,
+                });
+            }
+
+            remaining_square_free = common;
+            repeated_factor = repeated_factor
+                .exact_quotient(&remaining_square_free)
+                .expect("next square-free layer divides the repeated factor")
+                .ok_or(PrimitivePolynomialConstructionError::ZeroPolynomial)?;
+            multiplicity += 1;
+        }
+
+        Ok(factors)
     }
 }
 
@@ -214,6 +285,51 @@ fn pseudo_remainder_coefficients(
     Ok(remainder)
 }
 
+fn exact_quotient_coefficients(
+    dividend: &[Integer],
+    divisor: &[Integer],
+) -> Result<Vec<Integer>, PrimitivePolynomialDivisionError> {
+    if divisor.is_empty() {
+        return Err(PrimitivePolynomialDivisionError::ZeroDivisor);
+    }
+    if dividend.is_empty() {
+        return Ok(Vec::new());
+    }
+    if dividend.len() < divisor.len() {
+        return Err(PrimitivePolynomialDivisionError::NotDivisible);
+    }
+
+    let divisor_degree = divisor.len() - 1;
+    let divisor_leading = &divisor[divisor_degree].inner;
+    let mut remainder = dividend.to_vec();
+    let mut quotient = vec![Integer::zero(); dividend.len() - divisor.len() + 1];
+    while remainder.len() >= divisor.len() {
+        let degree_delta = remainder.len() - divisor.len();
+        let leading = remainder
+            .last()
+            .expect("remainder degree is at least divisor degree")
+            .inner
+            .clone();
+        let (term, remainder_after_division) = leading.div_rem(divisor_leading);
+        if !remainder_after_division.is_zero() {
+            return Err(PrimitivePolynomialDivisionError::NotDivisible);
+        }
+
+        quotient[degree_delta] = Integer::from_bigint(term.clone());
+        for (index, divisor_coefficient) in divisor.iter().enumerate() {
+            remainder[index + degree_delta].inner -= &term * &divisor_coefficient.inner;
+        }
+        trim_trailing_zeroes(&mut remainder);
+    }
+
+    if remainder.is_empty() {
+        trim_trailing_zeroes(&mut quotient);
+        Ok(quotient)
+    } else {
+        Err(PrimitivePolynomialDivisionError::NotDivisible)
+    }
+}
+
 fn primitive_coefficients(
     mut coefficients_low_to_high: Vec<Integer>,
 ) -> Result<Vec<Integer>, PrimitivePolynomialConstructionError> {
@@ -260,6 +376,10 @@ fn trim_trailing_zeroes(coefficients_low_to_high: &mut Vec<Integer>) {
     {
         coefficients_low_to_high.pop();
     }
+}
+
+fn is_nonconstant(polynomial: &PrimitivePolynomial) -> bool {
+    polynomial.degree().is_some_and(|degree| degree > 0)
 }
 
 #[cfg(test)]
@@ -485,5 +605,151 @@ mod tests {
             zero.gcd(&zero),
             Err(PrimitivePolynomialConstructionError::ZeroPolynomial)
         );
+    }
+
+    #[test]
+    fn exact_quotient_divides_primitive_polynomials() {
+        let dividend =
+            PrimitivePolynomial::new(integers(&[1, 3, 2])).expect("non-zero polynomial normalizes");
+        let divisor =
+            PrimitivePolynomial::new(integers(&[1, 2])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            dividend
+                .exact_quotient(&divisor)
+                .unwrap()
+                .unwrap()
+                .coefficients_low_to_high,
+            integers(&[1, 1])
+        );
+    }
+
+    #[test]
+    fn exact_quotient_reports_non_divisibility() {
+        let dividend =
+            PrimitivePolynomial::new(integers(&[1, 0, 1])).expect("non-zero polynomial normalizes");
+        let divisor =
+            PrimitivePolynomial::new(integers(&[1, 1])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            dividend.exact_quotient(&divisor),
+            Err(PrimitivePolynomialDivisionError::NotDivisible)
+        );
+    }
+
+    #[test]
+    fn exact_quotient_handles_zero_and_zero_divisor() {
+        let zero = PrimitivePolynomial {
+            coefficients_low_to_high: integers(&[0, 0]),
+        };
+        let polynomial =
+            PrimitivePolynomial::new(integers(&[1, 1])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(zero.exact_quotient(&polynomial), Ok(None));
+        assert_eq!(
+            polynomial.exact_quotient(&zero),
+            Err(PrimitivePolynomialDivisionError::ZeroDivisor)
+        );
+    }
+
+    #[test]
+    fn square_free_part_removes_repeated_factors() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-1, 3, -3, 1]))
+            .expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            polynomial
+                .square_free_part()
+                .unwrap()
+                .coefficients_low_to_high,
+            integers(&[-1, 1])
+        );
+    }
+
+    #[test]
+    fn square_free_part_removes_distinct_repeated_factors() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-4, 8, -1, -5, 1, 1]))
+            .expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            polynomial
+                .square_free_part()
+                .unwrap()
+                .coefficients_low_to_high,
+            integers(&[-2, 1, 1])
+        );
+    }
+
+    #[test]
+    fn square_free_part_keeps_square_free_polynomial() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-1, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            polynomial
+                .square_free_part()
+                .unwrap()
+                .coefficients_low_to_high,
+            integers(&[-1, 0, 1])
+        );
+    }
+
+    #[test]
+    fn square_free_part_keeps_constant_polynomial() {
+        let polynomial =
+            PrimitivePolynomial::new(integers(&[7])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            polynomial
+                .square_free_part()
+                .unwrap()
+                .coefficients_low_to_high,
+            integers(&[1])
+        );
+    }
+
+    #[test]
+    fn square_free_decomposition_groups_factors_by_multiplicity() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-4, 8, -1, -5, 1, 1]))
+            .expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            polynomial.square_free_decomposition().unwrap(),
+            vec![
+                PrimitiveSquareFreeFactor {
+                    factor: PrimitivePolynomial::new(integers(&[2, 1]))
+                        .expect("non-zero factor normalizes"),
+                    multiplicity: 2,
+                },
+                PrimitiveSquareFreeFactor {
+                    factor: PrimitivePolynomial::new(integers(&[-1, 1]))
+                        .expect("non-zero factor normalizes"),
+                    multiplicity: 3,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn square_free_decomposition_reports_square_free_polynomial_at_multiplicity_one() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-1, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            polynomial.square_free_decomposition().unwrap(),
+            vec![PrimitiveSquareFreeFactor {
+                factor: PrimitivePolynomial::new(integers(&[-1, 0, 1]))
+                    .expect("non-zero factor normalizes"),
+                multiplicity: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn square_free_decomposition_omits_constant_polynomial() {
+        let polynomial =
+            PrimitivePolynomial::new(integers(&[7])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(polynomial.square_free_decomposition().unwrap(), vec![]);
     }
 }
