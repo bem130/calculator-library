@@ -1933,6 +1933,69 @@ mod tests {
     }
 
     #[test]
+    fn affine_prime_root_expressions_are_real_algebraic() {
+        let mut context = EvaluationContext::default();
+        let cases = [
+            (
+                "1-2^(1/3)",
+                vec![
+                    Integer::one(),
+                    Integer::from(3),
+                    Integer::from(-3),
+                    Integer::one(),
+                ],
+            ),
+            (
+                "2*2^(1/3)+1",
+                vec![
+                    Integer::from(-17),
+                    Integer::from(3),
+                    Integer::from(-3),
+                    Integer::one(),
+                ],
+            ),
+        ];
+
+        for (source, coefficients) in cases {
+            let parsed = parse(source, &ParseSettings::default()).unwrap();
+            let evaluation = evaluate(
+                &parsed,
+                &EvaluationRequest {
+                    semantics: SemanticSettings::default(),
+                    limits: ResourceLimitRequest::Default,
+                },
+                &mut context,
+            )
+            .unwrap();
+            let RecognizedExact::RealAlgebraic(algebraic) = &evaluation.value.recognized_exact
+            else {
+                panic!("{source}: expected affine real algebraic recognition");
+            };
+            assert_eq!(
+                algebraic.minimal_polynomial,
+                PrimitivePolynomial::new(coefficients).unwrap()
+            );
+            assert_eq!(
+                algebraic
+                    .minimal_polynomial
+                    .distinct_real_root_count_in_interval(&algebraic.isolating_interval)
+                    .unwrap(),
+                1
+            );
+
+            let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+            let CalculationOutcome::Partial { calculation, .. } = outcome else {
+                panic!("{source}: expected partial calculation");
+            };
+            let ExactOutput::Included(exact) = calculation.exact else {
+                panic!("{source}: expected exact algebraic output");
+            };
+            assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
+            assert_eq!(exact.plain_text, source);
+        }
+    }
+
+    #[test]
     fn algebraic_root_limits_fall_back_to_symbolic_without_error() {
         assert_symbolic_fallback_with_limits(ResourceLimits {
             max_algebraic_degree: 2,

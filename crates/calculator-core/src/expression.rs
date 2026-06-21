@@ -525,9 +525,9 @@ fn evaluate_real_algebraic_node(
             evaluate_real_algebraic_power(dag, *base, *exponent, limits)
         }
         ExpressionNode::Add(list_id) => evaluate_real_algebraic_sum(dag, *list_id, limits),
+        ExpressionNode::Multiply(list_id) => evaluate_real_algebraic_product(dag, *list_id, limits),
         ExpressionNode::Rational(_)
         | ExpressionNode::Constant(_)
-        | ExpressionNode::Multiply(_)
         | ExpressionNode::Divide { .. }
         | ExpressionNode::Function { .. } => Ok(None),
     }
@@ -586,6 +586,52 @@ fn evaluate_real_algebraic_sum(
         return Ok(Some(algebraic));
     }
     match algebraic.add_rational_bounded(
+        &rational,
+        limits.max_polynomial_coefficient_bits,
+        limits.max_root_isolation_steps,
+    ) {
+        Ok(value) => Ok(value),
+        Err(RealAlgebraicConstructionError::RootIsolation(
+            PrimitivePolynomialRootIsolationError::StepLimitExceeded,
+        )) => Ok(None),
+        Err(error) => Err(real_algebraic_construction_error(error)),
+    }
+}
+
+fn evaluate_real_algebraic_product(
+    dag: &ExactExpressionDag,
+    list_id: ExprListId,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraic>, EvaluationError> {
+    let mut rational = Rational::one();
+    let mut algebraic = None;
+    for child in dag.list(list_id) {
+        match evaluate_node(dag, *child) {
+            Ok(value) => {
+                rational = rational.multiply(value.value());
+            }
+            Err(error) if is_unsupported_exact_expression(&error) => {
+                let Some(value) = evaluate_real_algebraic_node(dag, *child, limits)? else {
+                    return Ok(None);
+                };
+                if algebraic.replace(value).is_some() {
+                    return Ok(None);
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    let Some(algebraic) = algebraic else {
+        return Ok(None);
+    };
+    if rational.is_zero() {
+        return Ok(None);
+    }
+    if rational == Rational::one() {
+        return Ok(Some(algebraic));
+    }
+    match algebraic.scale_rational_bounded(
         &rational,
         limits.max_polynomial_coefficient_bits,
         limits.max_root_isolation_steps,

@@ -217,6 +217,11 @@ async function assertRationalPowers(page) {
     await waitForText(page, "#exact-kind", "REAL ALGEBRAIC");
     await waitForText(page, "#scientific-state", "PRECISION LIMIT");
     await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+
+    await page.fill("#expression", "1-2^(1/3)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 1-2^(1/3)");
+    await waitForText(page, "#exact-kind", "REAL ALGEBRAIC");
 }
 
 async function assertPiPartial(page) {
