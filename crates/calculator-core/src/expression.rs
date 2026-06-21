@@ -505,12 +505,28 @@ fn evaluate_radical_node(
                 Err(error) => return Err(error),
             };
             if exponent.value() != &rational(1, 2) {
-                return Ok(None);
+                if !exponent.value().is_integer() {
+                    return Ok(None);
+                }
+                let Some(exponent_value) = exponent.value().as_i64_if_integer() else {
+                    return Err(exponent_too_large_error());
+                };
+                let Some(base) = evaluate_radical_reduction(dag, *base)? else {
+                    return Ok(None);
+                };
+                return reduce_radical_integer_power(
+                    &base,
+                    exponent_value,
+                    base.used_special_angle() || exponent.used_special_angle(),
+                );
             }
             let Some(base) = evaluate_radical_reduction(dag, *base)? else {
                 return Ok(None);
             };
-            reduce_square_root(&base, DomainErrorKind::NonRealPower)
+            let used_special_angle = base.used_special_angle() || exponent.used_special_angle();
+            reduce_square_root(&base, DomainErrorKind::NonRealPower).map(|value| {
+                value.map(|value| radical_reduction_with_origin(value, used_special_angle))
+            })
         }
         ExpressionNode::Rational(_) | ExpressionNode::Constant(_) => Ok(None),
     }
@@ -520,9 +536,18 @@ fn evaluate_radical_reduction(
     dag: &ExactExpressionDag,
     id: ExprId,
 ) -> Result<Option<RadicalReduction>, EvaluationError> {
+    Ok(evaluate_radical_reduction_with_origin(dag, id)?.map(|(value, _)| value))
+}
+
+fn evaluate_radical_reduction_with_origin(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+) -> Result<Option<(RadicalReduction, bool)>, EvaluationError> {
     match evaluate_node(dag, id) {
-        Ok(value) => Ok(Some(RadicalReduction::Rational(value))),
-        Err(error) if is_unsupported_exact_expression(&error) => evaluate_radical_node(dag, id),
+        Ok(value) => Ok(Some((RadicalReduction::Rational(value), true))),
+        Err(error) if is_unsupported_exact_expression(&error) => {
+            Ok(evaluate_radical_node(dag, id)?.map(|value| (value, false)))
+        }
         Err(error) => Err(error),
     }
 }
@@ -558,20 +583,27 @@ fn evaluate_real_algebraic_power(
     exponent: ExprId,
     limits: &ResourceLimits,
 ) -> Result<Option<RealAlgebraic>, EvaluationError> {
-    let base = match evaluate_node(dag, base) {
-        Ok(value) => value,
-        Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
-        Err(error) => return Err(error),
-    };
     let exponent = match evaluate_node(dag, exponent) {
         Ok(value) => value,
-        Err(error) if base.value().is_negative() && is_unsupported_exact_expression(&error) => {
-            return Err(domain_error(DomainErrorKind::NonRealPower));
-        }
         Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
         Err(error) => return Err(error),
     };
-    rational_prime_root_algebraic(base.value(), exponent.value(), limits)
+    match evaluate_node(dag, base) {
+        Ok(base) => rational_prime_root_algebraic(base.value(), exponent.value(), limits),
+        Err(error) if is_unsupported_exact_expression(&error) => {
+            if !exponent.value().is_integer() {
+                return Ok(None);
+            }
+            let Some(exponent) = exponent.value().as_i64_if_integer() else {
+                return Err(exponent_too_large_error());
+            };
+            let Some(base) = evaluate_real_algebraic_node(dag, base, limits)? else {
+                return Ok(None);
+            };
+            real_algebraic_integer_power(base, exponent, limits)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn evaluate_real_algebraic_sum(
@@ -776,6 +808,93 @@ fn reciprocal_real_algebraic(
         limits.max_root_isolation_steps,
     ) {
         Ok(value) => Ok(value),
+        Err(RealAlgebraicConstructionError::RootIsolation(
+            PrimitivePolynomialRootIsolationError::StepLimitExceeded,
+        )) => Ok(None),
+        Err(error) => Err(real_algebraic_construction_error(error)),
+    }
+}
+
+fn real_algebraic_integer_power(
+    base: RealAlgebraic,
+    exponent: i64,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraic>, EvaluationError> {
+    if exponent == 0 {
+        return rational_as_real_algebraic(Rational::one(), limits);
+    }
+    let magnitude = exponent
+        .checked_abs()
+        .ok_or_else(exponent_too_large_error)?;
+    let magnitude = u32::try_from(magnitude).map_err(|_| exponent_too_large_error())?;
+    let base = if exponent < 0 {
+        let Some(reciprocal) = reciprocal_real_algebraic(base, limits)? else {
+            return Ok(None);
+        };
+        reciprocal
+    } else {
+        base
+    };
+    real_algebraic_positive_integer_power(base, magnitude, limits)
+}
+
+fn real_algebraic_positive_integer_power(
+    base: RealAlgebraic,
+    mut exponent: u32,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraic>, EvaluationError> {
+    debug_assert!(exponent > 0);
+    let mut result = None;
+    let mut factor = base;
+    while exponent > 0 {
+        if exponent & 1 == 1 {
+            result = Some(match result {
+                Some(current) => {
+                    let Some(product) = multiply_real_algebraics(current, factor.clone(), limits)?
+                    else {
+                        return Ok(None);
+                    };
+                    product
+                }
+                None => factor.clone(),
+            });
+        }
+        exponent >>= 1;
+        if exponent > 0 {
+            let Some(product) = multiply_real_algebraics(factor.clone(), factor, limits)? else {
+                return Ok(None);
+            };
+            factor = product;
+        }
+    }
+    Ok(result)
+}
+
+fn rational_as_real_algebraic(
+    value: Rational,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraic>, EvaluationError> {
+    if limits.max_algebraic_degree < 1 {
+        return Ok(None);
+    }
+    let polynomial = PrimitivePolynomial::new(vec![
+        Integer::from_bigint(-value.numerator.inner.clone()),
+        value.denominator.inner.clone(),
+    ])
+    .map_err(|_| invalid_algebraic_isolation_error())?;
+    if polynomial.max_coefficient_bits() > u64::from(limits.max_polynomial_coefficient_bits) {
+        return Ok(None);
+    }
+    let isolating_interval = RationalInterval {
+        lower: value.subtract(&Rational::one()),
+        upper: value.add(&Rational::one()),
+    };
+    match RealAlgebraic::from_irreducible_polynomial(
+        polynomial,
+        isolating_interval,
+        limits.max_root_isolation_steps,
+    ) {
+        Ok(value) => Ok(Some(value)),
         Err(RealAlgebraicConstructionError::RootIsolation(
             PrimitivePolynomialRootIsolationError::StepLimitExceeded,
         )) => Ok(None),
@@ -1022,21 +1141,21 @@ fn evaluate_radical_sum(
     let mut saw_radical = false;
 
     for child in dag.list(list_id) {
-        let Some(value) = evaluate_radical_reduction(dag, *child)? else {
+        let Some((value, direct_rational)) = evaluate_radical_reduction_with_origin(dag, *child)?
+        else {
             return Ok(None);
         };
+        saw_radical |= !direct_rational;
         match value {
             RadicalReduction::Rational(value) => {
                 used_special_angle |= value.used_special_angle();
                 rational = rational.add(value.value());
             }
             RadicalReduction::Radical(radical) => {
-                saw_radical = true;
                 used_special_angle |= radical.used_special_angle();
                 add_radical_term(&mut radicals, radical.value());
             }
             RadicalReduction::LinearCombination(value) => {
-                saw_radical = true;
                 used_special_angle |= value.used_special_angle();
                 rational = rational.add(&value.value().rational);
                 for radical in &value.value().radicals {
@@ -1060,52 +1179,27 @@ fn evaluate_radical_product(
     dag: &ExactExpressionDag,
     list_id: ExprListId,
 ) -> Result<Option<RadicalReduction>, EvaluationError> {
-    let mut coefficient = Rational::one();
-    let mut radicand = Rational::one();
-    let mut linear_combination = None;
-    let mut saw_radical = false;
-    let mut used_special_angle = false;
+    let mut product = RadicalReduction::rational(Rational::one(), false);
+    let mut saw_non_rational = false;
 
     for child in dag.list(list_id) {
-        let Some(value) = evaluate_radical_reduction(dag, *child)? else {
+        let Some((value, direct_rational)) = evaluate_radical_reduction_with_origin(dag, *child)?
+        else {
             return Ok(None);
         };
-        match value {
-            RadicalReduction::Rational(value) => {
-                used_special_angle |= value.used_special_angle();
-                coefficient = coefficient.multiply(value.value());
-            }
-            RadicalReduction::Radical(value) => {
-                saw_radical = true;
-                used_special_angle |= value.used_special_angle();
-                coefficient = coefficient.multiply(&value.value().coefficient);
-                radicand =
-                    radicand.multiply(&rational_from_positive_integer(&value.value().radicand));
-            }
-            RadicalReduction::LinearCombination(value) => {
-                if linear_combination.is_some() {
-                    return Ok(None);
-                }
-                used_special_angle |= value.used_special_angle();
-                linear_combination = Some(value);
-            }
-        }
+        saw_non_rational |= !direct_rational;
+        let used_special_angle = product.used_special_angle() || value.used_special_angle();
+        let Some(next_product) = multiply_radical_reductions(&product, &value, used_special_angle)?
+        else {
+            return Ok(None);
+        };
+        product = next_product;
     }
 
-    if let Some(linear_combination) = linear_combination {
-        if saw_radical {
-            return Ok(None);
-        }
-        return Ok(Some(scale_radical_linear_combination(
-            linear_combination.value(),
-            &coefficient,
-            used_special_angle,
-        )));
-    }
-    if !saw_radical {
+    if !saw_non_rational {
         return Ok(None);
     }
-    reduce_radical_product(coefficient, radicand, used_special_angle)
+    Ok(Some(product))
 }
 
 fn evaluate_radical_trigonometric_function(
@@ -1153,6 +1247,177 @@ fn reduce_square_root(
             Ok(None)
         }
         RadicalReduction::LinearCombination(_) => Ok(None),
+    }
+}
+
+fn reduce_radical_integer_power(
+    base: &RadicalReduction,
+    exponent: i64,
+    used_special_angle: bool,
+) -> Result<Option<RadicalReduction>, EvaluationError> {
+    if exponent == 0 {
+        return Ok(Some(RadicalReduction::rational(
+            Rational::one(),
+            used_special_angle,
+        )));
+    }
+    let magnitude = exponent
+        .checked_abs()
+        .ok_or_else(exponent_too_large_error)?;
+    let magnitude = u32::try_from(magnitude).map_err(|_| exponent_too_large_error())?;
+    if exponent < 0 {
+        let Some(denominator) =
+            reduce_radical_positive_integer_power(base, magnitude, used_special_angle)?
+        else {
+            return Ok(None);
+        };
+        let numerator = RadicalReduction::rational(Rational::one(), used_special_angle);
+        return reduce_radical_quotient(
+            &numerator,
+            &denominator,
+            used_special_angle || denominator.used_special_angle(),
+        );
+    }
+    reduce_radical_positive_integer_power(base, magnitude, used_special_angle)
+}
+
+fn reduce_radical_positive_integer_power(
+    base: &RadicalReduction,
+    mut exponent: u32,
+    used_special_angle: bool,
+) -> Result<Option<RadicalReduction>, EvaluationError> {
+    debug_assert!(exponent > 0);
+    let mut result = None;
+    let mut factor = radical_reduction_with_origin(base.clone(), used_special_angle);
+    while exponent > 0 {
+        if exponent & 1 == 1 {
+            result = Some(match result {
+                Some(current) => {
+                    let Some(product) =
+                        multiply_radical_reductions(&current, &factor, used_special_angle)?
+                    else {
+                        return Ok(None);
+                    };
+                    product
+                }
+                None => factor.clone(),
+            });
+        }
+        exponent >>= 1;
+        if exponent > 0 {
+            let Some(product) = multiply_radical_reductions(&factor, &factor, used_special_angle)?
+            else {
+                return Ok(None);
+            };
+            factor = product;
+        }
+    }
+    Ok(result)
+}
+
+fn multiply_radical_reductions(
+    lhs: &RadicalReduction,
+    rhs: &RadicalReduction,
+    used_special_angle: bool,
+) -> Result<Option<RadicalReduction>, EvaluationError> {
+    let used_special_angle =
+        used_special_angle || lhs.used_special_angle() || rhs.used_special_angle();
+    let lhs = radical_reduction_as_linear_combination(lhs);
+    let rhs = radical_reduction_as_linear_combination(rhs);
+    let mut rational = lhs.rational.multiply(&rhs.rational);
+    let mut radicals = Vec::new();
+
+    for radical in &lhs.radicals {
+        add_scaled_radical_term(&mut radicals, radical, &rhs.rational);
+    }
+    for radical in &rhs.radicals {
+        add_scaled_radical_term(&mut radicals, radical, &lhs.rational);
+    }
+    for lhs_radical in &lhs.radicals {
+        for rhs_radical in &rhs.radicals {
+            let coefficient = lhs_radical.coefficient.multiply(&rhs_radical.coefficient);
+            let radicand = rational_from_positive_integer(&lhs_radical.radicand)
+                .multiply(&rational_from_positive_integer(&rhs_radical.radicand));
+            let Some(product) = reduce_radical_product(coefficient, radicand, used_special_angle)?
+            else {
+                return Ok(None);
+            };
+            add_radical_reduction_terms(&mut rational, &mut radicals, &product);
+        }
+    }
+
+    Ok(Some(radical_linear_combination_reduction(
+        rational,
+        radicals,
+        used_special_angle,
+    )))
+}
+
+fn radical_reduction_as_linear_combination(value: &RadicalReduction) -> RadicalLinearCombination {
+    match value {
+        RadicalReduction::Rational(value) => RadicalLinearCombination {
+            rational: value.value().clone(),
+            radicals: Vec::new(),
+        },
+        RadicalReduction::Radical(value) => RadicalLinearCombination {
+            rational: Rational::zero(),
+            radicals: vec![value.value().clone()],
+        },
+        RadicalReduction::LinearCombination(value) => value.value().clone(),
+    }
+}
+
+fn radical_reduction_with_origin(
+    value: RadicalReduction,
+    used_special_angle: bool,
+) -> RadicalReduction {
+    let used_special_angle = used_special_angle || value.used_special_angle();
+    match value {
+        RadicalReduction::Rational(value) => {
+            RadicalReduction::rational(value.into_value(), used_special_angle)
+        }
+        RadicalReduction::Radical(value) => {
+            RadicalReduction::radical(value.into_value(), used_special_angle)
+        }
+        RadicalReduction::LinearCombination(value) => {
+            RadicalReduction::linear_combination(value.into_value(), used_special_angle)
+        }
+    }
+}
+
+fn add_scaled_radical_term(
+    radicals: &mut Vec<SimpleRadical>,
+    radical: &SimpleRadical,
+    scalar: &Rational,
+) {
+    if scalar.is_zero() {
+        return;
+    }
+    add_radical_term(
+        radicals,
+        &SimpleRadical {
+            coefficient: radical.coefficient.multiply(scalar),
+            radicand: radical.radicand.clone(),
+        },
+    );
+}
+
+fn add_radical_reduction_terms(
+    rational: &mut Rational,
+    radicals: &mut Vec<SimpleRadical>,
+    value: &RadicalReduction,
+) {
+    match value {
+        RadicalReduction::Rational(value) => {
+            *rational = rational.add(value.value());
+        }
+        RadicalReduction::Radical(value) => add_radical_term(radicals, value.value()),
+        RadicalReduction::LinearCombination(value) => {
+            *rational = rational.add(&value.value().rational);
+            for radical in &value.value().radicals {
+                add_radical_term(radicals, radical);
+            }
+        }
     }
 }
 

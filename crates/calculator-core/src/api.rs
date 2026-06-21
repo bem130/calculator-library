@@ -1733,6 +1733,13 @@ mod tests {
             ("sqrt(8) / sqrt(2)", "2"),
             ("sqrt(2) / sqrt(8)", "1/2"),
             ("1 / sqrt(2)", "sqrt(2)/2"),
+            ("(sqrt(2))^2", "2"),
+            ("(sqrt(2))^3", "2sqrt(2)"),
+            ("(sqrt(2))^-1", "sqrt(2)/2"),
+            ("(1 + sqrt(2))^2", "3 + 2sqrt(2)"),
+            ("(sqrt(2) + 1) * (sqrt(2) - 1)", "1"),
+            ("sqrt(2)/sqrt(2) + 1", "2"),
+            ("(sqrt(2)/sqrt(2)) * 2", "2"),
             ("sqrt(8) + sqrt(2)", "3sqrt(2)"),
             ("sqrt(8) - 2 * sqrt(2)", "0"),
             ("sin(pi/4) * cos(pi/4)", "1/2"),
@@ -2295,6 +2302,79 @@ mod tests {
     }
 
     #[test]
+    fn algebraic_integer_powers_are_real_algebraic() {
+        let mut context = EvaluationContext::default();
+        for (source, coefficients, cube) in [
+            (
+                "(2^(1/3))^2",
+                vec![
+                    Integer::from(-4),
+                    Integer::zero(),
+                    Integer::zero(),
+                    Integer::one(),
+                ],
+                Rational::from_integer(Integer::from(4)),
+            ),
+            (
+                "(2^(1/3))^-1",
+                vec![
+                    Integer::from(-1),
+                    Integer::zero(),
+                    Integer::zero(),
+                    Integer::from(2),
+                ],
+                Rational::new(Integer::one(), Integer::from(2)).unwrap(),
+            ),
+        ] {
+            let parsed = parse(source, &ParseSettings::default()).unwrap();
+            let evaluation = evaluate(
+                &parsed,
+                &EvaluationRequest {
+                    semantics: SemanticSettings::default(),
+                    limits: ResourceLimitRequest::Default,
+                },
+                &mut context,
+            )
+            .unwrap();
+            let RecognizedExact::RealAlgebraic(algebraic) = &evaluation.value.recognized_exact
+            else {
+                panic!("{source}: expected integer power real algebraic recognition");
+            };
+            assert_eq!(
+                algebraic.minimal_polynomial,
+                PrimitivePolynomial::new(coefficients).unwrap()
+            );
+            assert_eq!(
+                algebraic
+                    .minimal_polynomial
+                    .distinct_real_root_count_in_interval(&algebraic.isolating_interval)
+                    .unwrap(),
+                1
+            );
+            let CertifiedEnclosureState::Available(enclosure) =
+                &evaluation.value.certified_enclosure
+            else {
+                panic!("{source}: real algebraic recognition should include an enclosure");
+            };
+            let cubed = interval::pow_i64(enclosure, 3, 128).unwrap();
+            assert!(
+                interval::contains_rational(&cubed, &cube).unwrap(),
+                "{source}: cubed enclosure should contain {cube}"
+            );
+
+            let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+            let CalculationOutcome::Partial { calculation, .. } = outcome else {
+                panic!("{source}: expected partial calculation for algebraic integer power");
+            };
+            let ExactOutput::Included(exact) = calculation.exact else {
+                panic!("{source}: expected exact algebraic output");
+            };
+            assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
+            assert_eq!(exact.plain_text, source);
+        }
+    }
+
+    #[test]
     fn prime_root_quotient_is_real_algebraic() {
         let source = "2^(1/3)/4^(1/3)";
         let parsed = parse(source, &ParseSettings::default()).unwrap();
@@ -2362,6 +2442,25 @@ mod tests {
     #[test]
     fn algebraic_product_limits_fall_back_to_symbolic_without_error() {
         let source = "2^(1/3)*2^(1/3)";
+        assert_source_symbolic_fallback_with_limits(
+            source,
+            ResourceLimits {
+                max_resultant_degree: 2,
+                ..ResourceLimits::default()
+            },
+        );
+        assert_source_symbolic_fallback_with_limits(
+            source,
+            ResourceLimits {
+                max_factorization_work: 0,
+                ..ResourceLimits::default()
+            },
+        );
+    }
+
+    #[test]
+    fn algebraic_power_limits_fall_back_to_symbolic_without_error() {
+        let source = "(2^(1/3))^2";
         assert_source_symbolic_fallback_with_limits(
             source,
             ResourceLimits {
