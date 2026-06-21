@@ -99,6 +99,9 @@ export type ResourceLimits = {
     readonly maxIntegerBits: number;
     readonly maxAlgebraicDegree: number;
     readonly maxPolynomialCoefficientBits: number;
+    readonly maxResultantDegree: number;
+    readonly maxFactorizationWork: number;
+    readonly maxRootIsolationSteps: number;
     readonly maxRewriteSteps: number;
     readonly maxPrecisionBits: number;
     readonly maxRefinementRounds: number;

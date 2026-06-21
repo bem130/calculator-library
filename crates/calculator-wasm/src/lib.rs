@@ -301,6 +301,9 @@ const RESOURCE_LIMIT_U32_FIELDS: &[&str] = &[
     "maxIntegerBits",
     "maxAlgebraicDegree",
     "maxPolynomialCoefficientBits",
+    "maxResultantDegree",
+    "maxFactorizationWork",
+    "maxRootIsolationSteps",
     "maxRewriteSteps",
     "maxPrecisionBits",
     "maxRefinementRounds",
@@ -458,12 +461,15 @@ mod tests {
             max_integer_bits: 1_005,
             max_algebraic_degree: 1_006,
             max_polynomial_coefficient_bits: 1_007,
-            max_rewrite_steps: 1_008,
-            max_precision_bits: 1_009,
-            max_refinement_rounds: 1_010,
-            max_logical_work_units: String::from("1011"),
-            max_presentation_nodes: 1_012,
-            max_output_bytes: 1_013,
+            max_resultant_degree: 1_008,
+            max_factorization_work: 1_009,
+            max_root_isolation_steps: 1_010,
+            max_rewrite_steps: 1_011,
+            max_precision_bits: 1_012,
+            max_refinement_rounds: 1_013,
+            max_logical_work_units: String::from("1014"),
+            max_presentation_nodes: 1_015,
+            max_output_bytes: 1_016,
         }
     }
 
@@ -1177,6 +1183,15 @@ mod tests {
             converted.max_polynomial_coefficient_bits,
             limits.max_polynomial_coefficient_bits
         );
+        assert_eq!(converted.max_resultant_degree, limits.max_resultant_degree);
+        assert_eq!(
+            converted.max_factorization_work,
+            limits.max_factorization_work
+        );
+        assert_eq!(
+            converted.max_root_isolation_steps,
+            limits.max_root_isolation_steps
+        );
         assert_eq!(converted.max_rewrite_steps, limits.max_rewrite_steps);
         assert_eq!(converted.max_precision_bits, limits.max_precision_bits);
         assert_eq!(
@@ -1526,12 +1541,15 @@ pub mod wasm_tests {
             max_integer_bits: 1_005,
             max_algebraic_degree: 1_006,
             max_polynomial_coefficient_bits: 1_007,
-            max_rewrite_steps: 1_008,
-            max_precision_bits: 1_009,
-            max_refinement_rounds: 1_010,
-            max_logical_work_units: String::from("1011"),
-            max_presentation_nodes: 1_012,
-            max_output_bytes: 1_013,
+            max_resultant_degree: 1_008,
+            max_factorization_work: 1_009,
+            max_root_isolation_steps: 1_010,
+            max_rewrite_steps: 1_011,
+            max_precision_bits: 1_012,
+            max_refinement_rounds: 1_013,
+            max_logical_work_units: String::from("1014"),
+            max_presentation_nodes: 1_015,
+            max_output_bytes: 1_016,
         }
     }
 
