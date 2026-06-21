@@ -235,6 +235,7 @@ fn should_fallback_to_symbolic_interval(error: &EvaluationError) -> bool {
         error,
         EvaluationError::UnsupportedFeature(UnsupportedFeatureError {
             feature: UnsupportedFeature::FunctionEvaluation
+                | UnsupportedFeature::ConstantEvaluation
         })
     )
 }
@@ -804,6 +805,50 @@ mod tests {
             .metadata
             .methods
             .contains(&MethodTag::SymbolicRetention));
+    }
+
+    #[test]
+    fn constants_return_partial_with_certified_enclosures() {
+        for source in ["e", "pi"] {
+            let mut context = EvaluationContext::default();
+            let outcome = calculate(source, &CalculationRequest::default(), &mut context)
+                .unwrap_or_else(|error| panic!("{source}: {error:?}"));
+            let CalculationOutcome::Partial {
+                calculation,
+                reason,
+                certified_enclosure,
+            } = outcome
+            else {
+                panic!("{source}: expected partial calculation");
+            };
+            assert_eq!(
+                reason,
+                IncompleteReason::PrecisionLimit {
+                    requested_digits: core::num::NonZeroU32::new(50).unwrap(),
+                    confirmed_digits: 0,
+                }
+            );
+            let ExactOutput::Included(exact) = calculation.exact else {
+                panic!("{source}: expected retained exact expression");
+            };
+            assert_eq!(
+                exact.representation,
+                ExactRepresentationKind::GeneralSymbolic
+            );
+            assert_eq!(exact.plain_text, source);
+            let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
+                panic!("{source}: expected requested enclosure output");
+            };
+            assert_eq!(certified_enclosure, enclosure);
+            assert_eq!(
+                calculation.metadata.assurance,
+                AssuranceLevel::CertifiedEnclosure
+            );
+            assert!(calculation
+                .metadata
+                .methods
+                .contains(&MethodTag::CertifiedIntervalEvaluation));
+        }
     }
 
     #[test]

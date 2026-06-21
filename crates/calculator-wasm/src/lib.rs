@@ -560,6 +560,55 @@ mod tests {
     }
 
     #[test]
+    fn wasm_dto_serializes_partial_constants_with_certified_enclosures() {
+        for source in ["e", "pi"] {
+            let mut request = exact_only_request();
+            request.scientific_output = ScientificOutputRequestDto::Include {
+                significant_digits: 50,
+                rounding_mode: DecimalRoundingModeDto::NearestTiesToEven,
+            };
+            request.enclosure_output = EnclosureOutputRequestDto::Include {
+                format: EnclosureFormatDto::ExactDyadic,
+            };
+            let result = calculate_dto(source, request);
+            let ApiResultDto::Ok {
+                value:
+                    CalculationOutcomeDto::Partial {
+                        calculation,
+                        reason,
+                        certified_enclosure,
+                    },
+            } = result
+            else {
+                panic!("{source}: expected partial constant calculation");
+            };
+            assert_eq!(
+                reason,
+                IncompleteReasonDto::PrecisionLimit {
+                    requested_digits: 50,
+                    confirmed_digits: 0,
+                }
+            );
+            let ExactOutputDto::Included { value: exact } = calculation.exact else {
+                panic!("{source}: expected exact symbolic output");
+            };
+            assert_eq!(
+                exact.representation,
+                ExactRepresentationKindDto::GeneralSymbolic
+            );
+            assert_eq!(exact.plain_text, source);
+            let EnclosureOutputDto::Included { value: enclosure } = calculation.enclosure else {
+                panic!("{source}: expected enclosure output");
+            };
+            assert_eq!(certified_enclosure, enclosure);
+            assert_eq!(
+                calculation.metadata.assurance,
+                AssuranceLevelDto::CertifiedEnclosure
+            );
+        }
+    }
+
+    #[test]
     fn wasm_dto_rejects_zero_significant_digits_before_core() {
         let mut request = exact_only_request();
         request.scientific_output = ScientificOutputRequestDto::Include {

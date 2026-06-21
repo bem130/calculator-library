@@ -144,7 +144,7 @@ fn evaluate_interval_node(
         ExpressionNode::Rational(id) => {
             Ok(interval::from_rational(dag.rational(*id), precision_bits))
         }
-        ExpressionNode::Constant(_) => Err(IntervalError::UnsupportedExpression),
+        ExpressionNode::Constant(value) => interval::constant(*value, precision_bits),
         ExpressionNode::Add(list_id) => {
             let mut total = interval::from_rational(&Rational::zero(), precision_bits);
             for child in dag.list(*list_id) {
