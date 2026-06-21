@@ -210,6 +210,25 @@ pub struct PrimitiveSquareFreeFactor {
     pub multiplicity: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrimitivePolynomialSign {
+    Positive,
+    Negative,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignedPrimitivePolynomial {
+    pub sign: PrimitivePolynomialSign,
+    pub polynomial: PrimitivePolynomial,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrimitivePolynomialRootCountingError {
+    ZeroPolynomial,
+    InvalidInterval,
+    CountOverflow,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RealAlgebraic {
     pub minimal_polynomial: PrimitivePolynomial,
