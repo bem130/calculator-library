@@ -5,8 +5,8 @@ use num_integer::Integer as _;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use crate::types::{
-    ceil_sqrt_nonnegative, floor_sqrt_nonnegative, CertifiedInterval, DomainErrorKind, ExactDyadic,
-    Integer, Rational,
+    ceil_sqrt_nonnegative, floor_sqrt_nonnegative, CertifiedInterval, Constant, DomainErrorKind,
+    ExactDyadic, Integer, Rational,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,6 +38,17 @@ pub(crate) fn from_rational_bounds(
         lower: rational_to_dyadic_lower(lower, precision_bits, -BigInt::from(precision_bits)),
         upper: rational_to_dyadic_upper(upper, precision_bits, -BigInt::from(precision_bits)),
     })
+}
+
+pub(crate) fn constant(
+    value: Constant,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    let (lower, upper) = match value {
+        Constant::Euler => e_bounds(precision_bits)?,
+        Constant::Pi => pi_bounds(precision_bits)?,
+    };
+    from_rational_bounds(&lower, &upper, precision_bits)
 }
 
 pub(crate) fn add(
@@ -238,6 +249,92 @@ fn sqrt_rational_upper(
     ))
 }
 
+fn e_bounds(precision_bits: u32) -> Result<(Rational, Rational), IntervalError> {
+    let term_count = series_terms(precision_bits)?;
+    let mut sum = Rational::zero();
+    let mut factorial = BigInt::one();
+    for n in 0..=term_count {
+        if n > 0 {
+            factorial *= n;
+        }
+        sum = sum.add(&rational_from_parts(BigInt::one(), factorial.clone())?);
+    }
+
+    let next_factorial = factorial * BigInt::from(term_count + 1_u32);
+    let tail_bound = rational_from_parts(BigInt::from(2_u8), next_factorial)?;
+    let upper = sum.add(&tail_bound);
+    Ok((sum, upper))
+}
+
+fn pi_bounds(precision_bits: u32) -> Result<(Rational, Rational), IntervalError> {
+    let term_count = series_terms(precision_bits)?;
+    let (atan_1_5_lower, atan_1_5_upper) = arctan_reciprocal_bounds(5, term_count)?;
+    let (atan_1_239_lower, atan_1_239_upper) = arctan_reciprocal_bounds(239, term_count)?;
+
+    let lower = scale_rational(&atan_1_5_lower, 16).subtract(&scale_rational(&atan_1_239_upper, 4));
+    let upper = scale_rational(&atan_1_5_upper, 16).subtract(&scale_rational(&atan_1_239_lower, 4));
+    Ok((lower, upper))
+}
+
+fn arctan_reciprocal_bounds(
+    reciprocal_denominator: u32,
+    term_count: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    let denominator_base = BigInt::from(reciprocal_denominator);
+    let mut sum = Rational::zero();
+    for k in 0..=term_count {
+        let term = arctan_reciprocal_term(&denominator_base, k)?;
+        if k % 2 == 0 {
+            sum = sum.add(&term);
+        } else {
+            sum = sum.subtract(&term);
+        }
+    }
+
+    let next = arctan_reciprocal_term(&denominator_base, term_count + 1)?;
+    let adjacent = if (term_count + 1).is_multiple_of(2) {
+        sum.add(&next)
+    } else {
+        sum.subtract(&next)
+    };
+    if compare_rationals(&sum, &adjacent) == Ordering::Less {
+        Ok((sum, adjacent))
+    } else {
+        Ok((adjacent, sum))
+    }
+}
+
+fn arctan_reciprocal_term(
+    denominator_base: &BigInt,
+    term_index: u32,
+) -> Result<Rational, IntervalError> {
+    let power = term_index
+        .checked_mul(2)
+        .and_then(|value| value.checked_add(1))
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let denominator = denominator_base.pow(power) * BigInt::from(power);
+    rational_from_parts(BigInt::one(), denominator)
+}
+
+fn series_terms(precision_bits: u32) -> Result<u32, IntervalError> {
+    precision_bits
+        .checked_div(3)
+        .and_then(|value| value.checked_add(16))
+        .ok_or(IntervalError::ExponentTooLarge)
+}
+
+fn scale_rational(value: &Rational, factor: i64) -> Rational {
+    value.multiply(&Rational::from_integer(Integer::from(factor)))
+}
+
+fn rational_from_parts(numerator: BigInt, denominator: BigInt) -> Result<Rational, IntervalError> {
+    Rational::new(
+        Integer::from_bigint(numerator),
+        Integer::from_bigint(denominator),
+    )
+    .map_err(|_| IntervalError::DivisionByIntervalContainingZero)
+}
+
 fn contains_zero(interval: &CertifiedInterval) -> bool {
     interval.lower.coefficient.inner.sign() != Sign::Plus
         && interval.upper.coefficient.inner.sign() != Sign::Minus
@@ -393,6 +490,32 @@ mod tests {
         assert_eq!(
             sqrt(&from_rational(&rational(-1, 1), 16), 16),
             Err(IntervalError::Domain(DomainErrorKind::EvenRootOfNegative))
+        );
+    }
+
+    #[test]
+    fn e_interval_is_inside_coarse_known_bounds() {
+        let interval = constant(Constant::Euler, 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&interval.lower, &rational(2, 1)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&interval.upper, &rational(3, 1)).unwrap(),
+            Ordering::Less
+        );
+    }
+
+    #[test]
+    fn pi_interval_is_inside_coarse_known_bounds() {
+        let interval = constant(Constant::Pi, 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&interval.lower, &rational(3, 1)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&interval.upper, &rational(22, 7)).unwrap(),
+            Ordering::Less
         );
     }
 
