@@ -1,5 +1,8 @@
 use alloc::{boxed::Box, string::String, vec::Vec};
-use core::num::NonZeroU32;
+use core::{fmt, num::NonZeroU32};
+use num_bigint::{BigInt, Sign};
+use num_integer::Integer as _;
+use num_traits::{One, Signed, Zero};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EvaluatedValue {
@@ -132,12 +135,12 @@ pub enum BinaryOperator {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Integer {
-    pub(crate) digits: String,
+    pub(crate) inner: BigInt,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BigIntBackend {
-    pub(crate) digits: String,
+    pub(crate) inner: BigInt,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -149,6 +152,19 @@ pub struct PositiveInteger {
 pub struct Rational {
     pub numerator: Integer,
     pub denominator: PositiveInteger,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RationalConstructionError {
+    ZeroDenominator,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DecimalLiteralError {
+    Empty,
+    InvalidDigit,
+    InvalidExponent,
+    ExponentTooLarge,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -764,6 +780,226 @@ pub enum SessionDisplay {
     Calculating,
 }
 
+impl Integer {
+    pub fn zero() -> Self {
+        Self {
+            inner: BigInt::zero(),
+        }
+    }
+
+    pub fn one() -> Self {
+        Self {
+            inner: BigInt::one(),
+        }
+    }
+
+    pub fn from_bigint(inner: BigInt) -> Self {
+        Self { inner }
+    }
+
+    pub fn is_zero(&self) -> bool {
+        self.inner.is_zero()
+    }
+
+    pub fn abs(&self) -> Self {
+        Self {
+            inner: self.inner.abs(),
+        }
+    }
+
+    pub fn sign(&self) -> Sign {
+        self.inner.sign()
+    }
+}
+
+impl From<i64> for Integer {
+    fn from(value: i64) -> Self {
+        Self {
+            inner: BigInt::from(value),
+        }
+    }
+}
+
+impl fmt::Display for Integer {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}", self.inner)
+    }
+}
+
+impl PositiveInteger {
+    pub fn new(value: Integer) -> Option<Self> {
+        if value.inner.sign() == Sign::Plus {
+            Some(Self { inner: value })
+        } else {
+            None
+        }
+    }
+
+    pub fn one() -> Self {
+        Self {
+            inner: Integer::one(),
+        }
+    }
+}
+
+impl Rational {
+    pub fn new(
+        numerator: Integer,
+        denominator: Integer,
+    ) -> Result<Self, RationalConstructionError> {
+        if denominator.is_zero() {
+            return Err(RationalConstructionError::ZeroDenominator);
+        }
+
+        let mut numerator = numerator.inner;
+        let mut denominator = denominator.inner;
+        if denominator.sign() == Sign::Minus {
+            numerator = -numerator;
+            denominator = -denominator;
+        }
+
+        if numerator.is_zero() {
+            return Ok(Self {
+                numerator: Integer::zero(),
+                denominator: PositiveInteger::one(),
+            });
+        }
+
+        let divisor = numerator.gcd(&denominator);
+        numerator /= &divisor;
+        denominator /= divisor;
+
+        Ok(Self {
+            numerator: Integer::from_bigint(numerator),
+            denominator: PositiveInteger {
+                inner: Integer::from_bigint(denominator),
+            },
+        })
+    }
+
+    pub fn from_integer(value: Integer) -> Self {
+        Self {
+            numerator: value,
+            denominator: PositiveInteger::one(),
+        }
+    }
+
+    pub fn zero() -> Self {
+        Self::from_integer(Integer::zero())
+    }
+
+    pub fn one() -> Self {
+        Self::from_integer(Integer::one())
+    }
+
+    pub fn from_decimal_literal(literal: &str) -> Result<Self, DecimalLiteralError> {
+        if literal.is_empty() {
+            return Err(DecimalLiteralError::Empty);
+        }
+
+        let (sign, unsigned) = match literal.as_bytes()[0] {
+            b'-' => (Sign::Minus, &literal[1..]),
+            b'+' => (Sign::Plus, &literal[1..]),
+            _ => (Sign::Plus, literal),
+        };
+        if unsigned.is_empty() {
+            return Err(DecimalLiteralError::Empty);
+        }
+
+        let (mantissa, exponent) = split_exponent(unsigned)?;
+        let mut digits = String::new();
+        let mut fractional_digits = 0_i64;
+        let mut saw_digit = false;
+        let mut saw_dot = false;
+
+        for ch in mantissa.chars() {
+            if ch == '.' {
+                if saw_dot {
+                    return Err(DecimalLiteralError::InvalidDigit);
+                }
+                saw_dot = true;
+                continue;
+            }
+            if !ch.is_ascii_digit() {
+                return Err(DecimalLiteralError::InvalidDigit);
+            }
+            saw_digit = true;
+            digits.push(ch);
+            if saw_dot {
+                fractional_digits = fractional_digits
+                    .checked_add(1)
+                    .ok_or(DecimalLiteralError::ExponentTooLarge)?;
+            }
+        }
+
+        if !saw_digit {
+            return Err(DecimalLiteralError::Empty);
+        }
+
+        let scale = fractional_digits
+            .checked_sub(exponent)
+            .ok_or(DecimalLiteralError::ExponentTooLarge)?;
+        let mut numerator = parse_bigint_decimal(&digits)?;
+        if sign == Sign::Minus {
+            numerator = -numerator;
+        }
+
+        if scale >= 0 {
+            let denominator = pow10(scale)?;
+            Rational::new(
+                Integer::from_bigint(numerator),
+                Integer::from_bigint(denominator),
+            )
+            .map_err(|_| DecimalLiteralError::InvalidDigit)
+        } else {
+            let multiplier = pow10(
+                scale
+                    .checked_neg()
+                    .ok_or(DecimalLiteralError::ExponentTooLarge)?,
+            )?;
+            Rational::new(Integer::from_bigint(numerator * multiplier), Integer::one())
+                .map_err(|_| DecimalLiteralError::InvalidDigit)
+        }
+    }
+}
+
+impl fmt::Display for Rational {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.denominator.inner.inner == BigInt::one() {
+            write!(formatter, "{}", self.numerator)
+        } else {
+            write!(formatter, "{}/{}", self.numerator, self.denominator.inner)
+        }
+    }
+}
+
+fn split_exponent(literal: &str) -> Result<(&str, i64), DecimalLiteralError> {
+    let Some(index) = literal.find(['e', 'E']) else {
+        return Ok((literal, 0));
+    };
+    let mantissa = &literal[..index];
+    let exponent_text = &literal[index + 1..];
+    if exponent_text.is_empty() {
+        return Err(DecimalLiteralError::InvalidExponent);
+    }
+    let exponent = exponent_text
+        .parse::<i64>()
+        .map_err(|_| DecimalLiteralError::InvalidExponent)?;
+    Ok((mantissa, exponent))
+}
+
+fn parse_bigint_decimal(digits: &str) -> Result<BigInt, DecimalLiteralError> {
+    if digits.bytes().any(|byte| !byte.is_ascii_digit()) {
+        return Err(DecimalLiteralError::InvalidDigit);
+    }
+    BigInt::parse_bytes(digits.as_bytes(), 10).ok_or(DecimalLiteralError::InvalidDigit)
+}
+
+fn pow10(exponent: i64) -> Result<BigInt, DecimalLiteralError> {
+    let exponent = u32::try_from(exponent).map_err(|_| DecimalLiteralError::ExponentTooLarge)?;
+    Ok(BigInt::from(10_u8).pow(exponent))
+}
+
 impl Default for ParseSettings {
     fn default() -> Self {
         Self {
@@ -847,6 +1083,8 @@ const fn nonzero_u32(value: u32) -> NonZeroU32 {
 
 #[cfg(test)]
 mod tests {
+    use alloc::string::ToString;
+
     use super::*;
 
     #[test]
@@ -868,5 +1106,38 @@ mod tests {
             ProtocolVersion::CURRENT,
             ProtocolVersion { major: 1, minor: 0 }
         );
+    }
+
+    #[test]
+    fn rational_is_reduced_and_denominator_is_positive() {
+        let rational = Rational::new(Integer::from(6), Integer::from(-8)).unwrap();
+        assert_eq!(rational.numerator.to_string(), "-3");
+        assert_eq!(rational.denominator.inner.to_string(), "4");
+    }
+
+    #[test]
+    fn rational_zero_has_unique_denominator() {
+        let rational = Rational::new(Integer::zero(), Integer::from(-99)).unwrap();
+        assert_eq!(rational.numerator.to_string(), "0");
+        assert_eq!(rational.denominator.inner.to_string(), "1");
+    }
+
+    #[test]
+    fn rational_rejects_zero_denominator() {
+        assert_eq!(
+            Rational::new(Integer::one(), Integer::zero()),
+            Err(RationalConstructionError::ZeroDenominator)
+        );
+    }
+
+    #[test]
+    fn decimal_literal_is_exact_rational() {
+        let rational = Rational::from_decimal_literal("12.3400e-3").unwrap();
+        assert_eq!(rational.numerator.to_string(), "617");
+        assert_eq!(rational.denominator.inner.to_string(), "50000");
+
+        let rational = Rational::from_decimal_literal("1.2e-3").unwrap();
+        assert_eq!(rational.numerator.to_string(), "3");
+        assert_eq!(rational.denominator.inner.to_string(), "2500");
     }
 }
