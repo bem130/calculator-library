@@ -1,5 +1,4 @@
 import {
-    createCalculator,
     createSession,
     defaultCalculationRequest,
     defaultInputPolicy,
@@ -18,6 +17,7 @@ import {
     type InputPolicyDto,
     type SessionDispatchResult,
 } from "@bem130/exact-calculator";
+import { createWorkerCalculator } from "@bem130/exact-calculator/worker";
 import "./styles.css";
 
 type AngleUnit = CalculationRequest["semantics"]["angleUnit"];
@@ -35,6 +35,7 @@ type CalculatorState = {
     result: ApiResult<CalculationOutcome>;
     copied: boolean;
     sessionSynced: boolean;
+    statusMessage: string;
 };
 
 const state: CalculatorState = {
@@ -56,6 +57,7 @@ const state: CalculatorState = {
     },
     copied: false,
     sessionSynced: false,
+    statusMessage: "",
 };
 
 const assetBaseUrl = new URL(import.meta.env.BASE_URL, window.location.href);
@@ -63,11 +65,17 @@ const wasmOptions = {
     wasmGlueUrl: new URL("wasm/calculator_wasm.js", assetBaseUrl),
     wasmModuleUrl: new URL("wasm/calculator_wasm_bg.wasm", assetBaseUrl),
 };
-const calculator = createCalculator(wasmOptions);
+const workerCalculator = createWorkerCalculator(wasmOptions);
 let activeSession: CalculatorSession | null = null;
+let activeCalculation: ActiveCalculation | null = null;
 let operationVersion = 0;
 let keypadQueue = Promise.resolve();
 const app = document.querySelector<HTMLDivElement>("#app");
+
+type ActiveCalculation = {
+    readonly operation: number;
+    readonly abortController: AbortController;
+};
 
 if (app === null) {
     throw new Error("missing #app");
@@ -95,6 +103,10 @@ app.innerHTML = `
         <button class="primary" id="calculate" type="button">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
           Calculate
+        </button>
+        <button id="cancel" type="button" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h8v8H8z"/></svg>
+          Cancel
         </button>
         <button id="copy" type="button">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h10v12H8z"/><path d="M6 16H4V4h12v2"/></svg>
@@ -192,6 +204,7 @@ app.innerHTML = `
 
 const expressionInput = required<HTMLTextAreaElement>("#expression");
 const calculateButton = required<HTMLButtonElement>("#calculate");
+const cancelButton = required<HTMLButtonElement>("#cancel");
 const copyButton = required<HTMLButtonElement>("#copy");
 const statusOutput = required<HTMLElement>("#status");
 const exactKind = required<HTMLElement>("#exact-kind");
@@ -245,6 +258,7 @@ expressionInput.addEventListener("input", () => {
     invalidateSession();
 });
 calculateButton.addEventListener("click", () => void calculateFromSession());
+cancelButton.addEventListener("click", cancelFromUi);
 copyButton.addEventListener("click", () => void copyPlainText());
 includeExact.addEventListener("change", () => {
     state.includeExact = includeExact.checked;
@@ -287,7 +301,7 @@ window.addEventListener("keydown", (event) => {
         void calculateFromSession();
     }
 });
-window.addEventListener("pagehide", disposeActiveSession);
+window.addEventListener("pagehide", shutdown);
 
 syncControls();
 void calculateFromSession();
@@ -313,13 +327,9 @@ async function calculateDirectly(operation: number): Promise<void> {
     }
     state.busy = true;
     state.copied = false;
-    renderStatus();
-    const calculatorInstance = await calculator;
-    if (!isCurrentOperation(operation)) {
-        return;
-    }
-    const result = calculatorInstance.calculate(state.expression, buildRequest());
-    if (!isCurrentOperation(operation)) {
+    state.statusMessage = "";
+    const result = await calculateWithWorker(state.expression, buildRequest(), operation);
+    if (result === null) {
         return;
     }
     state.result = result;
@@ -360,13 +370,9 @@ async function handleDispatchResult(result: SessionDispatchResult, operation: nu
     if (result.tag === "calculate") {
         state.busy = true;
         state.copied = false;
-        renderStatus();
-        const calculatorInstance = await calculator;
-        if (!isCurrentOperation(operation)) {
-            return;
-        }
-        const calculation = calculatorInstance.calculate(result.source, result.request);
-        if (!isCurrentOperation(operation)) {
+        state.statusMessage = "";
+        const calculation = await calculateWithWorker(result.source, result.request, operation);
+        if (calculation === null) {
             return;
         }
         state.result = calculation;
@@ -395,7 +401,9 @@ function enqueueKeyDispatch(key: string): void {
 }
 
 function beginOperation(): number {
+    cancelActiveCalculation();
     operationVersion += 1;
+    state.statusMessage = "";
     return operationVersion;
 }
 
@@ -410,6 +418,72 @@ function invalidateSession(): void {
 function disposeActiveSession(): void {
     activeSession?.dispose?.();
     activeSession = null;
+}
+
+function cancelFromUi(): void {
+    if (activeCalculation === null) {
+        return;
+    }
+    cancelActiveCalculation();
+    operationVersion += 1;
+    state.busy = false;
+    state.statusMessage = "Canceled";
+    renderStatus();
+}
+
+function cancelActiveCalculation(): void {
+    activeCalculation?.abortController.abort();
+    activeCalculation = null;
+}
+
+function shutdown(): void {
+    cancelActiveCalculation();
+    disposeActiveSession();
+    void workerCalculator.then((calculator) => calculator.terminate()).catch(() => undefined);
+}
+
+async function calculateWithWorker(
+    source: string,
+    request: CalculationRequest,
+    operation: number,
+): Promise<ApiResult<CalculationOutcome> | null> {
+    if (!isCurrentOperation(operation)) {
+        return null;
+    }
+
+    const abortController = new AbortController();
+    activeCalculation = {
+        operation,
+        abortController,
+    };
+    state.busy = true;
+    state.copied = false;
+    state.statusMessage = "";
+    renderStatus();
+
+    const calculator = await workerCalculator;
+    if (!isCurrentOperation(operation)) {
+        clearActiveCalculation(operation);
+        return null;
+    }
+
+    const result = await calculator.calculate(source, request, {
+        signal: {
+            tag: "abortSignal",
+            signal: abortController.signal,
+        },
+    });
+    clearActiveCalculation(operation);
+    if (!isCurrentOperation(operation)) {
+        return null;
+    }
+    return result;
+}
+
+function clearActiveCalculation(operation: number): void {
+    if (activeCalculation?.operation === operation) {
+        activeCalculation = null;
+    }
 }
 
 function isCurrentOperation(operation: number): boolean {
@@ -631,9 +705,14 @@ function renderStatus(): void {
         statusOutput.textContent = "Calculating";
     } else if (state.copied) {
         statusOutput.textContent = "Copied";
+    } else if (state.statusMessage.length > 0) {
+        statusOutput.textContent = state.statusMessage;
     } else {
         statusOutput.textContent = "";
     }
+    calculateButton.disabled = state.busy;
+    cancelButton.disabled = activeCalculation === null;
+    copyButton.disabled = state.busy;
 }
 
 function syncControls(): void {

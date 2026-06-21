@@ -74,5 +74,8 @@ jobs:
       - name: Build vanilla web example
         run: corepack pnpm --dir examples/vanilla-web run build
 
+      - name: Test vanilla web example
+        run: corepack pnpm --dir examples/vanilla-web run test:e2e
+
       - name: Build Rust documentation
         run: cargo doc --workspace --no-deps
