@@ -91,6 +91,9 @@ jobs:
       - name: Build vanilla web example
         run: corepack pnpm --dir examples/vanilla-web run build
 
+      - name: Check package size budgets
+        run: cargo xtask check-package-size
+
       - name: Install Playwright browsers
         run: corepack pnpm --dir examples/vanilla-web exec playwright install --with-deps chromium
 

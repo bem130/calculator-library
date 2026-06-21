@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prepare:wasm": "corepack pnpm --dir ../../packages/calculator run build:wasm && node scripts/copy-wasm.mjs",
+    "prepare:wasm": "corepack pnpm --dir ../../packages/calculator run build:wasm",
     "dev": "corepack pnpm run prepare:wasm && vite --host 127.0.0.1",
     "build": "corepack pnpm run prepare:wasm && tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",

@@ -59,8 +59,9 @@ async function runBrowserChecks(url, origin) {
     await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
 
     let delayNextWorkerWasm = false;
-    await context.route("**/wasm/calculator_wasm.js", async (route) => {
-        if (delayNextWorkerWasm) {
+    await context.route("**/*", async (route) => {
+        const url = new URL(route.request().url());
+        if (delayNextWorkerWasm && /^\/.*calculator_wasm(?:-[^/]+)?\.js$/u.test(url.pathname)) {
             delayNextWorkerWasm = false;
             await sleep(1200);
         }
