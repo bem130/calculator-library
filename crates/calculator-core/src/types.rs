@@ -1,5 +1,5 @@
 use alloc::{boxed::Box, string::String, vec::Vec};
-use core::{fmt, num::NonZeroU32};
+use core::{cmp::Ordering, fmt, num::NonZeroU32};
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer as _;
 use num_traits::{One, Signed, ToPrimitive, Zero};
@@ -948,6 +948,11 @@ impl Rational {
         self.add(&rhs.negate())
     }
 
+    pub(crate) fn compare(&self, rhs: &Self) -> Ordering {
+        (&self.numerator.inner * &rhs.denominator.inner.inner)
+            .cmp(&(&rhs.numerator.inner * &self.denominator.inner.inner))
+    }
+
     pub fn multiply(&self, rhs: &Self) -> Self {
         let numerator = &self.numerator.inner * &rhs.numerator.inner;
         let denominator = &self.denominator.inner.inner * &rhs.denominator.inner.inner;
@@ -1401,6 +1406,22 @@ mod tests {
             .multiply(&Rational::new(Integer::from(9), Integer::from(4)).unwrap());
         assert_eq!(product.numerator.to_string(), "3");
         assert_eq!(product.denominator.inner.to_string(), "2");
+    }
+
+    #[test]
+    fn rational_comparison_uses_exact_cross_products() {
+        assert_eq!(
+            Rational::new(Integer::from(2), Integer::from(3))
+                .unwrap()
+                .compare(&Rational::new(Integer::from(3), Integer::from(4)).unwrap()),
+            Ordering::Less
+        );
+        assert_eq!(
+            Rational::new(Integer::from(-2), Integer::from(3))
+                .unwrap()
+                .compare(&Rational::new(Integer::from(-3), Integer::from(4)).unwrap()),
+            Ordering::Greater
+        );
     }
 
     #[test]

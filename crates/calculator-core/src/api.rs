@@ -12,7 +12,7 @@ use num_traits::{Signed, Zero};
 
 use crate::expression::{
     evaluate_interval_dag, evaluate_rational_evaluation_dag, evaluate_rational_pi_multiple_dag,
-    lower_source_expression, ExactExpressionDag, RationalEvaluation,
+    lower_source_expression, ExactExpressionDag, PiCoefficientEvaluation, RationalEvaluation,
 };
 use crate::interval;
 use crate::types::*;
@@ -80,35 +80,41 @@ pub fn evaluate(
     let rational = match evaluate_rational_evaluation_dag(&dag) {
         Ok(rational) => rational,
         Err(error) if should_fallback_to_symbolic_interval(&error) => {
-            if let Some(coefficient) = evaluate_rational_pi_multiple_dag(&dag)? {
-                if coefficient.is_zero() {
+            if let Some(pi_multiple) = evaluate_rational_pi_multiple_dag(&dag)? {
+                if pi_multiple.coefficient().is_zero() {
                     return Ok(rational_evaluation_outcome(
                         expression,
                         &dag,
-                        RationalEvaluation::direct(Rational::zero()),
+                        RationalEvaluation::direct(pi_multiple.into_coefficient()),
                         request,
                     ));
                 }
                 let certified_enclosure =
-                    evaluate_interval_dag(&dag).map_err(|interval_error| {
+                    rational_pi_enclosure(&dag, &pi_multiple).map_err(|interval_error| {
                         interval_error_to_evaluation_error(interval_error, error.clone())
                     })?;
+                let mut methods = vec![
+                    MethodTag::SymbolicRetention,
+                    MethodTag::CertifiedIntervalEvaluation,
+                ];
+                if pi_multiple.used_special_angle() {
+                    methods.push(MethodTag::SpecialAngle);
+                }
                 return Ok(EvaluationOutcome {
                     value: EvaluatedValue {
                         exact_expression: ExactExpression {
                             source: expression.source.clone(),
                         },
-                        recognized_exact: RecognizedExact::RationalPiMultiple(coefficient),
+                        recognized_exact: RecognizedExact::RationalPiMultiple(
+                            pi_multiple.into_coefficient(),
+                        ),
                         certified_enclosure: CertifiedEnclosureState::Available(
                             certified_enclosure,
                         ),
                     },
                     metadata: EvaluationMetadata {
                         semantic_settings: request.semantics,
-                        methods: vec![
-                            MethodTag::SymbolicRetention,
-                            MethodTag::CertifiedIntervalEvaluation,
-                        ],
+                        methods,
                         internal_precision_bits: 128,
                         refinement_rounds: 0,
                     },
@@ -141,6 +147,19 @@ pub fn evaluate(
     Ok(rational_evaluation_outcome(
         expression, &dag, rational, request,
     ))
+}
+
+fn rational_pi_enclosure(
+    dag: &ExactExpressionDag,
+    value: &PiCoefficientEvaluation,
+) -> Result<CertifiedInterval, interval::IntervalError> {
+    evaluate_interval_dag(dag).or_else(|error| match error {
+        interval::IntervalError::UnsupportedExpression => interval::multiply(
+            &interval::from_rational(value.coefficient(), 128),
+            &interval::constant(Constant::Pi, 128)?,
+        ),
+        error => Err(error),
+    })
 }
 
 fn rational_evaluation_outcome(
@@ -982,6 +1001,119 @@ mod tests {
     }
 
     #[test]
+    fn inverse_trigonometric_known_values_are_exact() {
+        for (source, expected) in [
+            ("asin(-1)", "-pi/2"),
+            ("asin(-1/2)", "-pi/6"),
+            ("asin(0)", "0"),
+            ("asin(1/2)", "pi/6"),
+            ("asin(1)", "pi/2"),
+            ("acos(-1)", "pi"),
+            ("acos(-1/2)", "2pi/3"),
+            ("acos(0)", "pi/2"),
+            ("acos(1/2)", "pi/3"),
+            ("acos(1)", "0"),
+            ("atan(-1)", "-pi/4"),
+            ("atan(0)", "0"),
+            ("atan(1)", "pi/4"),
+        ] {
+            assert_eq!(exact_plain_text(source), expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn inverse_trigonometric_known_values_honor_angle_unit_semantics() {
+        let mut degree_request = exact_only_request();
+        degree_request.semantics.angle_unit = AngleUnit::Degree;
+        for (source, expected) in [
+            ("asin(1/2)", "30"),
+            ("asin(-1/2)", "-30"),
+            ("acos(-1)", "180"),
+            ("acos(1/2)", "60"),
+            ("atan(1)", "45"),
+        ] {
+            assert_eq!(
+                exact_plain_text_with_request(source, &degree_request),
+                expected,
+                "{source}"
+            );
+        }
+
+        let mut gradian_request = exact_only_request();
+        gradian_request.semantics.angle_unit = AngleUnit::Gradian;
+        for (source, expected) in [
+            ("asin(1/2)", "100/3"),
+            ("acos(-1)", "200"),
+            ("atan(1)", "50"),
+        ] {
+            assert_eq!(
+                exact_plain_text_with_request(source, &gradian_request),
+                expected,
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn inverse_trigonometric_radian_metadata_reports_special_angle() {
+        let mut context = EvaluationContext::default();
+        let outcome = calculate("asin(1/2)", &exact_only_request(), &mut context).unwrap();
+        let CalculationOutcome::Complete(calculation) = outcome else {
+            panic!("expected complete calculation");
+        };
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("expected exact output");
+        };
+        assert_eq!(
+            exact.representation,
+            ExactRepresentationKind::RationalPiMultiple
+        );
+        assert_eq!(exact.plain_text, "pi/6");
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::SpecialAngle));
+        assert_eq!(
+            calculation.metadata.assurance,
+            AssuranceLevel::CertifiedEnclosure
+        );
+    }
+
+    #[test]
+    fn inverse_trigonometric_radian_values_return_partial_with_certified_enclosure() {
+        let mut context = EvaluationContext::default();
+        let outcome = calculate("asin(1/2)", &CalculationRequest::default(), &mut context)
+            .expect("asin(1/2)");
+        let CalculationOutcome::Partial {
+            calculation,
+            reason,
+            certified_enclosure,
+        } = outcome
+        else {
+            panic!("expected partial rational pi multiple calculation");
+        };
+        assert_eq!(
+            reason,
+            IncompleteReason::PrecisionLimit {
+                requested_digits: core::num::NonZeroU32::new(50).unwrap(),
+                confirmed_digits: 0,
+            }
+        );
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("expected exact output");
+        };
+        assert_eq!(exact.plain_text, "pi/6");
+        let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
+            panic!("expected enclosure output");
+        };
+        assert_eq!(certified_enclosure, enclosure);
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::SpecialAngle));
+    }
+
+    #[test]
     fn perfect_square_sqrt_is_exact_rational() {
         assert_eq!(exact_plain_text("sqrt(4)"), "2");
         assert_eq!(exact_plain_text("sqrt(9/16)"), "3/4");
@@ -1416,6 +1548,22 @@ mod tests {
                 span: None,
             })
         );
+    }
+
+    #[test]
+    fn inverse_trigonometric_out_of_range_is_domain_error() {
+        for source in ["asin(2)", "asin(exp(log(2)))", "acos(-2)"] {
+            let mut context = EvaluationContext::default();
+            let error = calculate(source, &exact_only_request(), &mut context).expect_err(source);
+            assert_eq!(
+                error,
+                CalculatorError::Domain(DomainError {
+                    kind: DomainErrorKind::InverseTrigonometricOutOfRange,
+                    span: None,
+                }),
+                "{source}"
+            );
+        }
     }
 
     #[test]

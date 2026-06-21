@@ -800,6 +800,59 @@ mod tests {
     }
 
     #[test]
+    fn wasm_dto_serializes_inverse_trigonometric_known_values() {
+        for (source, expected) in [
+            ("asin(1/2)", "pi/6"),
+            ("acos(-1)", "pi"),
+            ("atan(1)", "pi/4"),
+        ] {
+            let result = calculate_dto(source, exact_only_request());
+            let ApiResultDto::Ok {
+                value:
+                    CalculationOutcomeDto::Complete {
+                        calculation:
+                            CalculationDto {
+                                exact: ExactOutputDto::Included { value: exact },
+                                metadata,
+                                ..
+                            },
+                    },
+            } = result
+            else {
+                panic!("{source}: expected complete inverse trig calculation");
+            };
+            assert_eq!(
+                exact.representation,
+                ExactRepresentationKindDto::RationalPiMultiple
+            );
+            assert_eq!(exact.plain_text, expected, "{source}");
+            assert!(metadata.methods.contains(&MethodTagDto::SpecialAngle));
+        }
+
+        let mut degree_request = exact_only_request();
+        degree_request.semantics.angle_unit = AngleUnitDto::Degree;
+        let result = calculate_dto("asin(1/2)", degree_request);
+        let ApiResultDto::Ok {
+            value:
+                CalculationOutcomeDto::Complete {
+                    calculation:
+                        CalculationDto {
+                            exact: ExactOutputDto::Included { value: exact },
+                            metadata,
+                            ..
+                        },
+                },
+        } = result
+        else {
+            panic!("expected degree inverse trig calculation");
+        };
+        assert_eq!(exact.representation, ExactRepresentationKindDto::Integer);
+        assert_eq!(exact.plain_text, "30");
+        assert_eq!(metadata.semantic_settings.angle_unit, AngleUnitDto::Degree);
+        assert!(metadata.methods.contains(&MethodTagDto::SpecialAngle));
+    }
+
+    #[test]
     fn wasm_dto_reports_tangent_pole_error_code() {
         assert_eq!(
             calculate_dto("tan(pi/2)", exact_only_request()),
@@ -810,6 +863,22 @@ mod tests {
                 },
             }
         );
+    }
+
+    #[test]
+    fn wasm_dto_reports_inverse_trigonometric_out_of_range_error_code() {
+        for source in ["asin(2)", "acos(-2)"] {
+            assert_eq!(
+                calculate_dto(source, exact_only_request()),
+                ApiResultDto::Error {
+                    error: CalculatorErrorDto::Domain {
+                        code: DomainErrorCodeDto::InverseTrigonometricOutOfRange,
+                        span: OptionalTextSpanDto::None,
+                    },
+                },
+                "{source}"
+            );
+        }
     }
 
     #[test]
@@ -1415,11 +1484,41 @@ pub mod wasm_tests {
     }
 
     #[wasm_bindgen_test]
+    fn wasm32_calculates_inverse_trigonometric_known_values() {
+        for (source, expected) in [
+            ("asin(1/2)", "pi/6"),
+            ("acos(-1)", "pi"),
+            ("atan(1)", "pi/4"),
+        ] {
+            let result = calculate_dto(source, exact_only_request());
+            assert_eq!(exact_plain_text(result), expected, "{source}");
+        }
+
+        let mut degree_request = exact_only_request();
+        degree_request.semantics.angle_unit = AngleUnitDto::Degree;
+        assert_eq!(
+            exact_plain_text(calculate_dto("asin(1/2)", degree_request)),
+            "30"
+        );
+    }
+
+    #[wasm_bindgen_test]
     fn wasm32_reports_tangent_pole_error_code() {
         assert_eq!(
             calculator_error("tan(pi/2)", exact_only_request()),
             CalculatorErrorDto::Domain {
                 code: DomainErrorCodeDto::TangentPole,
+                span: OptionalTextSpanDto::None,
+            }
+        );
+    }
+
+    #[wasm_bindgen_test]
+    fn wasm32_reports_inverse_trigonometric_out_of_range_error_code() {
+        assert_eq!(
+            calculator_error("asin(2)", exact_only_request()),
+            CalculatorErrorDto::Domain {
+                code: DomainErrorCodeDto::InverseTrigonometricOutOfRange,
                 span: OptionalTextSpanDto::None,
             }
         );

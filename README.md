@@ -18,12 +18,13 @@ The implementation is following [doc/design.md](doc/design.md). The current work
 - `exp` / `log` identities are exact when proven over rational values, including `exp(0)`, `log(1)`, `exp(log(x))` for proven positive rational `x`, and `log(exp(x))` for rational `x`; `exp(1)` returns the certified enclosure for `e`.
 - Rational special angles are exact when the DAG proves the argument is a supported rational multiple of `pi`: examples include `sin(pi/6) = 1/2`, `cos(pi/3) = 1/2`, `tan(pi/4) = 1`, and `tan(pi/2)` as `domain.tangentPole`.
 - Forward trigonometric functions lower degree and gradian inputs to exact radian expressions before evaluation, so `sin(30)` in degree mode is exact `1/2`.
+- Inverse trigonometric known values are exact for supported rational arguments: examples include `asin(1/2) = pi/6` in radian mode, `asin(1/2) = 30` in degree mode, `acos(-1) = pi`, and `atan(1) = pi/4`.
 - `calculator-cli` evaluates exact expressions such as `0.1 + 0.2`.
 - `calculator-wasm` exposes DTO-based calculation through `wasm-bindgen`.
 - `packages/calculator` provides TypeScript facades for calculation and headless session dispatch over the Wasm module.
 - `examples/vanilla-web` is a browser example using the public npm facade.
 
-Later phases in the design document, including broader transcendental interval evaluation, symbolic simplification, radical-valued special angles, inverse trigonometric known values, and algebraic numbers, are still in progress.
+Later phases in the design document, including broader transcendental interval evaluation, symbolic simplification, radical-valued special angles, cyclotomic exact trig, and algebraic numbers, are still in progress.
 
 ## Native CLI
 
@@ -88,7 +89,8 @@ The Pages workflow in [.github/workflows/pages.yml](.github/workflows/pages.yml)
 The example e2e test covers the public worker API path, MathML rendering,
 clipboard copy, worker cancellation, rational scientific/enclosure output,
 guarded `exp` / `log` identities, exact rational power semantics, and rational
-`pi` multiple output, rational special-angle output, and `tan` pole errors.
+`pi` multiple output, rational special-angle output, inverse trigonometric
+known values, and `tan` pole errors.
 
 ## Verification
 
