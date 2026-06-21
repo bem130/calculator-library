@@ -2398,7 +2398,14 @@ fn evaluate_interval_node(
                 &evaluate_interval_node(dag, *argument, precision_bits)?,
                 precision_bits,
             ),
-            Function::Asin | Function::Acos => Err(IntervalError::UnsupportedExpression),
+            Function::Asin => interval::asin(
+                &evaluate_interval_node(dag, *argument, precision_bits)?,
+                precision_bits,
+            ),
+            Function::Acos => interval::acos(
+                &evaluate_interval_node(dag, *argument, precision_bits)?,
+                precision_bits,
+            ),
         },
     }
 }

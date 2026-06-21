@@ -161,6 +161,26 @@ pub(crate) fn atan(
     from_rational_bounds(&lower, &upper, precision_bits)
 }
 
+pub(crate) fn asin(
+    value: &CertifiedInterval,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    let (lower, upper) = inverse_sine_cosine_domain_bounds(value)?;
+    let (lower, _) = asin_rational_bounds(&lower, precision_bits)?;
+    let (_, upper) = asin_rational_bounds(&upper, precision_bits)?;
+    from_rational_bounds(&lower, &upper, precision_bits)
+}
+
+pub(crate) fn acos(
+    value: &CertifiedInterval,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    let (lower_endpoint, upper_endpoint) = inverse_sine_cosine_domain_bounds(value)?;
+    let (lower, _) = acos_rational_bounds(&upper_endpoint, precision_bits)?;
+    let (_, upper) = acos_rational_bounds(&lower_endpoint, precision_bits)?;
+    from_rational_bounds(&lower, &upper, precision_bits)
+}
+
 pub(crate) fn pow_i64(
     base: &CertifiedInterval,
     exponent: i64,
@@ -515,6 +535,143 @@ fn atan_unit_rational_bounds(
     } else {
         Ok((adjacent, sum))
     }
+}
+
+fn inverse_sine_cosine_domain_bounds(
+    value: &CertifiedInterval,
+) -> Result<(Rational, Rational), IntervalError> {
+    let lower = dyadic_to_rational(&value.lower)?;
+    let upper = dyadic_to_rational(&value.upper)?;
+    let minus_one = rational_integer(-1);
+    let one = Rational::one();
+    if compare_rationals(&upper, &minus_one) == Ordering::Less
+        || compare_rationals(&lower, &one) == Ordering::Greater
+    {
+        return Err(IntervalError::Domain(
+            DomainErrorKind::InverseTrigonometricOutOfRange,
+        ));
+    }
+    if compare_rationals(&lower, &minus_one) == Ordering::Less
+        || compare_rationals(&upper, &one) == Ordering::Greater
+    {
+        return Err(IntervalError::UnsupportedExpression);
+    }
+    Ok((lower, upper))
+}
+
+fn asin_rational_bounds(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    let minus_one = rational_integer(-1);
+    if compare_rationals(value, &minus_one) == Ordering::Equal {
+        let (pi_lower, pi_upper) = pi_bounds(precision_bits)?;
+        return Ok((
+            halve_rational(&pi_upper)?.negate(),
+            halve_rational(&pi_lower)?.negate(),
+        ));
+    }
+    if compare_rationals(value, &Rational::one()) == Ordering::Equal {
+        let (pi_lower, pi_upper) = pi_bounds(precision_bits)?;
+        return Ok((halve_rational(&pi_lower)?, halve_rational(&pi_upper)?));
+    }
+    if value.is_zero() {
+        return Ok((Rational::zero(), Rational::zero()));
+    }
+    if value.is_negative() {
+        let (lower, upper) = asin_positive_rational_bounds(&value.negate(), precision_bits)?;
+        return Ok((upper.negate(), lower.negate()));
+    }
+    asin_positive_rational_bounds(value, precision_bits)
+}
+
+fn asin_positive_rational_bounds(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    debug_assert!(!value.is_negative());
+    debug_assert!(!value.is_zero());
+    debug_assert!(compare_rationals(value, &Rational::one()) == Ordering::Less);
+
+    let half = halve_rational(&Rational::one())?;
+    if compare_rationals(value, &half) != Ordering::Greater {
+        return asin_unit_rational_bounds(value, precision_bits);
+    }
+
+    let one_minus_square = Rational::one().subtract(&value.multiply(value));
+    let numerator = nth_root_nonnegative_rational(&one_minus_square, 2, precision_bits)?;
+    let ratio_lower = divide_rational(&dyadic_to_rational(&numerator.lower)?, value)?;
+    let ratio_upper = divide_rational(&dyadic_to_rational(&numerator.upper)?, value)?;
+    let (atan_lower, atan_upper) = (
+        atan_rational_bounds(&ratio_lower, precision_bits)?.0,
+        atan_rational_bounds(&ratio_upper, precision_bits)?.1,
+    );
+    let (pi_lower, pi_upper) = pi_bounds(precision_bits)?;
+    Ok((
+        halve_rational(&pi_lower)?.subtract(&atan_upper),
+        halve_rational(&pi_upper)?.subtract(&atan_lower),
+    ))
+}
+
+fn asin_unit_rational_bounds(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    debug_assert!(!value.is_negative());
+    let half = halve_rational(&Rational::one())?;
+    debug_assert!(compare_rationals(value, &half) != Ordering::Greater);
+    let value_squared = value.multiply(value);
+    let term_count = series_terms(precision_bits)?;
+    let mut sum = Rational::zero();
+    let mut term = value.clone();
+    for n in 0..=term_count {
+        sum = sum.add(&term);
+        let odd = n
+            .checked_mul(2)
+            .and_then(|value| value.checked_add(1))
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        let numerator = odd
+            .checked_mul(odd)
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        let denominator = n
+            .checked_add(1)
+            .and_then(|value| value.checked_mul(2))
+            .and_then(|value| value.checked_mul(odd.checked_add(2)?))
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        term = divide_rational(
+            &term
+                .multiply(&value_squared)
+                .multiply(&rational_integer(i64::from(numerator))),
+            &rational_integer(i64::from(denominator)),
+        )?;
+    }
+    // For 0 <= x <= 1/2, later positive terms shrink by at least 1/4.
+    Ok((sum.clone(), sum.add(&scale_rational(&term, 2))))
+}
+
+fn acos_rational_bounds(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    let minus_one = rational_integer(-1);
+    if compare_rationals(value, &minus_one) == Ordering::Equal {
+        let (pi_lower, pi_upper) = pi_bounds(precision_bits)?;
+        return Ok((pi_lower, pi_upper));
+    }
+    if compare_rationals(value, &Rational::one()) == Ordering::Equal {
+        return Ok((Rational::zero(), Rational::zero()));
+    }
+    if value.is_zero() {
+        let (pi_lower, pi_upper) = pi_bounds(precision_bits)?;
+        return Ok((halve_rational(&pi_lower)?, halve_rational(&pi_upper)?));
+    }
+
+    let (asin_lower, asin_upper) = asin_rational_bounds(value, precision_bits)?;
+    let (pi_lower, pi_upper) = pi_bounds(precision_bits)?;
+    Ok((
+        halve_rational(&pi_lower)?.subtract(&asin_upper),
+        halve_rational(&pi_upper)?.subtract(&asin_lower),
+    ))
 }
 
 fn ceil_nonnegative_rational_to_u32(value: &Rational) -> Result<u32, IntervalError> {
@@ -1003,6 +1160,85 @@ mod tests {
         assert_eq!(
             compare_dyadic_to_rational(&negative.upper, &rational(-1, 1)).unwrap(),
             Ordering::Less
+        );
+    }
+
+    #[test]
+    fn asin_acos_intervals_are_inside_coarse_known_bounds() {
+        let asin_positive = asin(&from_rational(&rational(1, 2), 128), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&asin_positive.lower, &rational(1, 2)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&asin_positive.upper, &rational(2, 3)).unwrap(),
+            Ordering::Less
+        );
+
+        let asin_negative = asin(&from_rational(&rational(-1, 2), 128), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&asin_negative.lower, &rational(-2, 3)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&asin_negative.upper, &rational(-1, 2)).unwrap(),
+            Ordering::Less
+        );
+
+        let acos_positive = acos(&from_rational(&rational(1, 3), 128), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&acos_positive.lower, &rational(1, 1)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&acos_positive.upper, &rational(3, 2)).unwrap(),
+            Ordering::Less
+        );
+
+        let acos_negative = acos(&from_rational(&rational(-1, 3), 128), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&acos_negative.lower, &rational(3, 2)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&acos_negative.upper, &rational(2, 1)).unwrap(),
+            Ordering::Less
+        );
+
+        let asin_endpoint = asin(&from_rational(&rational(1, 1), 128), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&asin_endpoint.lower, &rational(3, 2)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&asin_endpoint.upper, &rational(8, 5)).unwrap(),
+            Ordering::Less
+        );
+
+        let acos_endpoint = acos(&from_rational(&rational(1, 1), 128), 128).unwrap();
+        assert!(contains_rational(&acos_endpoint, &rational(0, 1)).unwrap());
+    }
+
+    #[test]
+    fn asin_acos_intervals_reject_proven_out_of_range_domain() {
+        assert_eq!(
+            asin(&from_rational(&rational(2, 1), 16), 16),
+            Err(IntervalError::Domain(
+                DomainErrorKind::InverseTrigonometricOutOfRange
+            ))
+        );
+        assert_eq!(
+            acos(&from_rational(&rational(-2, 1), 16), 16),
+            Err(IntervalError::Domain(
+                DomainErrorKind::InverseTrigonometricOutOfRange
+            ))
+        );
+        assert_eq!(
+            asin(
+                &from_rational_bounds(&rational(-2, 1), &rational(0, 1), 16).unwrap(),
+                16,
+            ),
+            Err(IntervalError::UnsupportedExpression)
         );
     }
 

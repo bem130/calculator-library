@@ -2649,6 +2649,8 @@ mod tests {
             "log(sqrt(2))",
             "exp(sqrt(2))",
             "atan(1/3)",
+            "asin(1/3)",
+            "acos(1/3)",
         ] {
             let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
             let CalculationOutcome::Partial {
