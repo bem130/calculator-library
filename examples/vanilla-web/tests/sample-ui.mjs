@@ -94,6 +94,7 @@ async function runBrowserChecks(url, origin) {
 
         await assertIrrationalSqrtPartial(page);
         await assertPiPartial(page);
+        await assertInitialExpLog(page);
 
         await page.fill("#expression", "");
         await page.click('button[data-key="7"]');
@@ -148,6 +149,28 @@ async function assertPhase2Outputs(page) {
         dyadicCompareWithRational(interval.upper, 3n, 10n) >= 0,
         "certified enclosure upper bound is below 3/10",
     );
+}
+
+async function assertInitialExpLog(page) {
+    await page.fill("#expression", "exp(1)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= exp(1)");
+    await waitForText(page, "#scientific-state", "PRECISION LIMIT");
+    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+
+    const interval = parseExactDyadicInterval(await textContent(page, "#enclosure-output"));
+    assert(
+        dyadicCompareWithRational(interval.lower, 2n, 1n) > 0,
+        "exp(1) lower bound is not above 2",
+    );
+    assert(
+        dyadicCompareWithRational(interval.upper, 3n, 1n) < 0,
+        "exp(1) upper bound is not below 3",
+    );
+
+    await page.fill("#expression", "log(1)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 0");
 }
 
 async function assertPiPartial(page) {

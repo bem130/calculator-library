@@ -852,6 +852,45 @@ mod tests {
     }
 
     #[test]
+    fn initial_exp_log_identities_are_exact() {
+        assert_eq!(exact_plain_text("exp(0)"), "1");
+        assert_eq!(exact_plain_text("log(1)"), "0");
+    }
+
+    #[test]
+    fn exp_one_returns_partial_euler_enclosure() {
+        let mut context = EvaluationContext::default();
+        let outcome = calculate("exp(1)", &CalculationRequest::default(), &mut context).unwrap();
+        let CalculationOutcome::Partial {
+            calculation,
+            reason,
+            certified_enclosure,
+        } = outcome
+        else {
+            panic!("expected partial calculation");
+        };
+        assert_eq!(
+            reason,
+            IncompleteReason::PrecisionLimit {
+                requested_digits: core::num::NonZeroU32::new(50).unwrap(),
+                confirmed_digits: 0,
+            }
+        );
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("expected retained exact expression");
+        };
+        assert_eq!(exact.plain_text, "exp(1)");
+        let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
+            panic!("expected requested enclosure output");
+        };
+        assert_eq!(certified_enclosure, enclosure);
+        assert_eq!(
+            calculation.metadata.assurance,
+            AssuranceLevel::CertifiedEnclosure
+        );
+    }
+
+    #[test]
     fn rational_scientific_output_uses_exact_rounding_modes() {
         assert_eq!(
             scientific_parts("1.25", 2, DecimalRoundingMode::NearestTiesToEven),
@@ -997,5 +1036,21 @@ mod tests {
                 span: None,
             })
         );
+    }
+
+    #[test]
+    fn log_of_non_positive_is_domain_error() {
+        for source in ["log(0)", "log(-1)"] {
+            let mut context = EvaluationContext::default();
+            let error = calculate(source, &exact_only_request(), &mut context).expect_err(source);
+            assert_eq!(
+                error,
+                CalculatorError::Domain(DomainError {
+                    kind: DomainErrorKind::LogarithmOfNonPositive,
+                    span: None,
+                }),
+                "{source}"
+            );
+        }
     }
 }

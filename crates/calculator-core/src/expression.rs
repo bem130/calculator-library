@@ -119,14 +119,42 @@ fn evaluate_node(dag: &ExactExpressionDag, id: ExprId) -> Result<Rational, Evalu
                         },
                     ))
             }
+            Function::Exp => {
+                let argument = evaluate_node(dag, *argument)?;
+                if argument.is_zero() {
+                    Ok(Rational::one())
+                } else {
+                    Err(EvaluationError::UnsupportedFeature(
+                        UnsupportedFeatureError {
+                            feature: UnsupportedFeature::FunctionEvaluation,
+                        },
+                    ))
+                }
+            }
+            Function::Log => {
+                let argument = evaluate_node(dag, *argument)?;
+                if argument.is_negative() || argument.is_zero() {
+                    return Err(EvaluationError::Domain(DomainError {
+                        kind: DomainErrorKind::LogarithmOfNonPositive,
+                        span: None,
+                    }));
+                }
+                if argument == Rational::one() {
+                    Ok(Rational::zero())
+                } else {
+                    Err(EvaluationError::UnsupportedFeature(
+                        UnsupportedFeatureError {
+                            feature: UnsupportedFeature::FunctionEvaluation,
+                        },
+                    ))
+                }
+            }
             Function::Sin
             | Function::Cos
             | Function::Tan
             | Function::Asin
             | Function::Acos
-            | Function::Atan
-            | Function::Exp
-            | Function::Log => Err(EvaluationError::UnsupportedFeature(
+            | Function::Atan => Err(EvaluationError::UnsupportedFeature(
                 UnsupportedFeatureError {
                     feature: UnsupportedFeature::FunctionEvaluation,
                 },
@@ -189,14 +217,42 @@ fn evaluate_interval_node(
                 &evaluate_interval_node(dag, *argument, precision_bits)?,
                 precision_bits,
             ),
+            Function::Exp => {
+                let argument = evaluate_node(dag, *argument)
+                    .map_err(|_| IntervalError::UnsupportedExpression)?;
+                if argument.is_zero() {
+                    Ok(interval::from_rational(&Rational::one(), precision_bits))
+                } else if argument == Rational::one() {
+                    interval::constant(Constant::Euler, precision_bits)
+                } else {
+                    Err(IntervalError::UnsupportedExpression)
+                }
+            }
+            Function::Log => {
+                let argument = evaluate_node(dag, *argument).map_err(|error| match error {
+                    EvaluationError::Domain(DomainError {
+                        kind: DomainErrorKind::LogarithmOfNonPositive,
+                        ..
+                    }) => IntervalError::Domain(DomainErrorKind::LogarithmOfNonPositive),
+                    _ => IntervalError::UnsupportedExpression,
+                })?;
+                if argument.is_negative() || argument.is_zero() {
+                    return Err(IntervalError::Domain(
+                        DomainErrorKind::LogarithmOfNonPositive,
+                    ));
+                }
+                if argument == Rational::one() {
+                    Ok(interval::from_rational(&Rational::zero(), precision_bits))
+                } else {
+                    Err(IntervalError::UnsupportedExpression)
+                }
+            }
             Function::Sin
             | Function::Cos
             | Function::Tan
             | Function::Asin
             | Function::Acos
-            | Function::Atan
-            | Function::Exp
-            | Function::Log => Err(IntervalError::UnsupportedExpression),
+            | Function::Atan => Err(IntervalError::UnsupportedExpression),
         },
     }
 }
