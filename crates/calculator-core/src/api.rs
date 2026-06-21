@@ -203,9 +203,17 @@ pub fn evaluate(
             let limits = resource_limits(&request.limits);
             if let Some(algebraic) = evaluate_real_algebraic_dag(&dag, &limits)? {
                 let certified_enclosure =
-                    evaluate_interval_dag(&dag).map_err(|interval_error| {
+                    real_algebraic_enclosure(&dag, &algebraic).map_err(|interval_error| {
                         interval_error_to_evaluation_error(interval_error, error.clone())
                     })?;
+                let mut methods = vec![
+                    MethodTag::AlgebraicMinimalPolynomial,
+                    MethodTag::AlgebraicRootIsolation,
+                    MethodTag::CertifiedIntervalEvaluation,
+                ];
+                if contains_trigonometric_function(&dag) {
+                    methods.push(MethodTag::CyclotomicReduction);
+                }
                 return Ok(EvaluationOutcome {
                     value: EvaluatedValue {
                         exact_expression: ExactExpression {
@@ -218,11 +226,7 @@ pub fn evaluate(
                     },
                     metadata: EvaluationMetadata {
                         semantic_settings: request.semantics,
-                        methods: vec![
-                            MethodTag::AlgebraicMinimalPolynomial,
-                            MethodTag::AlgebraicRootIsolation,
-                            MethodTag::CertifiedIntervalEvaluation,
-                        ],
+                        methods,
                         internal_precision_bits: 128,
                         refinement_rounds: 0,
                     },
@@ -267,6 +271,32 @@ fn rational_pi_enclosure(
             &interval::constant(Constant::Pi, 128)?,
         ),
         error => Err(error),
+    })
+}
+
+fn real_algebraic_enclosure(
+    dag: &ExactExpressionDag,
+    value: &RealAlgebraic,
+) -> Result<CertifiedInterval, interval::IntervalError> {
+    evaluate_interval_dag(dag).or_else(|error| match error {
+        interval::IntervalError::UnsupportedExpression => interval::from_rational_bounds(
+            &value.isolating_interval().lower,
+            &value.isolating_interval().upper,
+            128,
+        ),
+        error => Err(error),
+    })
+}
+
+fn contains_trigonometric_function(dag: &ExactExpressionDag) -> bool {
+    dag.nodes().iter().any(|node| {
+        matches!(
+            node,
+            ExpressionNode::Function {
+                function: Function::Sin | Function::Cos | Function::Tan,
+                ..
+            }
+        )
     })
 }
 
@@ -1366,6 +1396,110 @@ mod tests {
             .methods
             .contains(&MethodTag::SpecialAngle));
         assert_eq!(calculation.metadata.assurance, AssuranceLevel::Exact);
+    }
+
+    #[test]
+    fn cyclotomic_trigonometric_values_are_real_algebraic() {
+        let mut context = EvaluationContext::default();
+        for (source, coefficients) in [
+            (
+                "sin(pi/5)",
+                vec![
+                    Integer::from(5),
+                    Integer::zero(),
+                    Integer::from(-20),
+                    Integer::zero(),
+                    Integer::from(16),
+                ],
+            ),
+            (
+                "cos(pi/5)",
+                vec![Integer::from(-1), Integer::from(-2), Integer::from(4)],
+            ),
+            (
+                "tan(pi/5)",
+                vec![
+                    Integer::from(5),
+                    Integer::zero(),
+                    Integer::from(-10),
+                    Integer::zero(),
+                    Integer::one(),
+                ],
+            ),
+        ] {
+            let parsed = parse(source, &ParseSettings::default()).unwrap();
+            let evaluation = evaluate(
+                &parsed,
+                &EvaluationRequest {
+                    semantics: SemanticSettings::default(),
+                    limits: ResourceLimitRequest::Default,
+                },
+                &mut context,
+            )
+            .unwrap();
+            let RecognizedExact::RealAlgebraic(algebraic) = &evaluation.value.recognized_exact
+            else {
+                panic!("{source}: expected cyclotomic real algebraic recognition");
+            };
+            assert_eq!(
+                algebraic.minimal_polynomial,
+                PrimitivePolynomial::new(coefficients).unwrap()
+            );
+            assert_eq!(
+                algebraic
+                    .minimal_polynomial
+                    .distinct_real_root_count_in_interval(&algebraic.isolating_interval)
+                    .unwrap(),
+                1
+            );
+            assert!(evaluation
+                .metadata
+                .methods
+                .contains(&MethodTag::CyclotomicReduction));
+
+            let outcome = calculate(source, &exact_only_request(), &mut context).unwrap();
+            let CalculationOutcome::Complete(calculation) = outcome else {
+                panic!("{source}: expected complete exact-only calculation");
+            };
+            let ExactOutput::Included(exact) = calculation.exact else {
+                panic!("{source}: expected exact algebraic output");
+            };
+            assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
+            assert_eq!(exact.plain_text, source);
+            assert!(calculation
+                .metadata
+                .methods
+                .contains(&MethodTag::CyclotomicReduction));
+            assert_eq!(
+                calculation.metadata.exact_representation,
+                ExactRepresentationKind::RealAlgebraic
+            );
+        }
+    }
+
+    #[test]
+    fn cyclotomic_trig_limits_fall_back_to_symbolic_without_error() {
+        assert_source_symbolic_fallback_with_limits(
+            "sin(pi/5)",
+            ResourceLimits {
+                max_cyclotomic_order: 4,
+                ..ResourceLimits::default()
+            },
+        );
+        assert_source_symbolic_fallback_with_limits(
+            "sin(pi/5)",
+            ResourceLimits {
+                max_factorization_work: 0,
+                ..ResourceLimits::default()
+            },
+        );
+        assert_source_symbolic_fallback_with_limits(
+            "tan(pi/5)",
+            ResourceLimits {
+                max_cyclotomic_order: 4,
+                ..ResourceLimits::default()
+            },
+        );
     }
 
     #[test]

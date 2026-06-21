@@ -299,6 +299,42 @@ impl RealAlgebraic {
             rhs_interval = refined_rhs;
         }
     }
+
+    pub(crate) fn from_candidate_polynomial_bounded(
+        candidate_polynomial: PrimitivePolynomial,
+        isolating_interval: RationalInterval,
+        max_algebraic_degree: u32,
+        max_polynomial_coefficient_bits: u32,
+        max_factorization_work: u32,
+        max_root_isolation_steps: u32,
+    ) -> Result<Option<Self>, RealAlgebraicConstructionError> {
+        if candidate_polynomial.max_coefficient_bits() > u64::from(max_polynomial_coefficient_bits)
+        {
+            return Ok(None);
+        }
+
+        let factorization = candidate_polynomial
+            .factor_bounded(max_factorization_work)
+            .map_err(RealAlgebraicConstructionError::PolynomialConstruction)?;
+        if factorization.incomplete_reason.is_some() || factorization.residual.is_some() {
+            return Ok(None);
+        }
+
+        match select_single_factor_in_interval(
+            &factorization,
+            &isolating_interval,
+            max_algebraic_degree,
+            max_polynomial_coefficient_bits,
+        )? {
+            FactorSelection::Selected(minimal_polynomial) => Self::from_irreducible_polynomial(
+                minimal_polynomial,
+                isolating_interval,
+                max_root_isolation_steps,
+            )
+            .map(Some),
+            FactorSelection::Ambiguous | FactorSelection::LimitExceeded => Ok(None),
+        }
+    }
 }
 
 impl PrimitivePolynomial {

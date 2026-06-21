@@ -97,6 +97,7 @@ export type ResourceLimits = {
     readonly maxSourceDepth: number;
     readonly maxExpressionNodes: number;
     readonly maxIntegerBits: number;
+    readonly maxCyclotomicOrder: number;
     readonly maxAlgebraicDegree: number;
     readonly maxPolynomialCoefficientBits: number;
     readonly maxResultantDegree: number;

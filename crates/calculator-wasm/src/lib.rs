@@ -299,6 +299,7 @@ const RESOURCE_LIMIT_U32_FIELDS: &[&str] = &[
     "maxSourceDepth",
     "maxExpressionNodes",
     "maxIntegerBits",
+    "maxCyclotomicOrder",
     "maxAlgebraicDegree",
     "maxPolynomialCoefficientBits",
     "maxResultantDegree",
@@ -459,17 +460,18 @@ mod tests {
             max_source_depth: 1_003,
             max_expression_nodes: 1_004,
             max_integer_bits: 1_005,
-            max_algebraic_degree: 1_006,
-            max_polynomial_coefficient_bits: 1_007,
-            max_resultant_degree: 1_008,
-            max_factorization_work: 1_009,
-            max_root_isolation_steps: 1_010,
-            max_rewrite_steps: 1_011,
-            max_precision_bits: 1_012,
-            max_refinement_rounds: 1_013,
-            max_logical_work_units: String::from("1014"),
-            max_presentation_nodes: 1_015,
-            max_output_bytes: 1_016,
+            max_cyclotomic_order: 1_006,
+            max_algebraic_degree: 1_007,
+            max_polynomial_coefficient_bits: 1_008,
+            max_resultant_degree: 1_009,
+            max_factorization_work: 1_010,
+            max_root_isolation_steps: 1_011,
+            max_rewrite_steps: 1_012,
+            max_precision_bits: 1_013,
+            max_refinement_rounds: 1_014,
+            max_logical_work_units: String::from("1015"),
+            max_presentation_nodes: 1_016,
+            max_output_bytes: 1_017,
         }
     }
 
@@ -1300,6 +1302,7 @@ mod tests {
         assert_eq!(converted.max_source_depth, limits.max_source_depth);
         assert_eq!(converted.max_expression_nodes, limits.max_expression_nodes);
         assert_eq!(converted.max_integer_bits, limits.max_integer_bits);
+        assert_eq!(converted.max_cyclotomic_order, limits.max_cyclotomic_order);
         assert_eq!(converted.max_algebraic_degree, limits.max_algebraic_degree);
         assert_eq!(
             converted.max_polynomial_coefficient_bits,
@@ -1661,17 +1664,18 @@ pub mod wasm_tests {
             max_source_depth: 1_003,
             max_expression_nodes: 1_004,
             max_integer_bits: 1_005,
-            max_algebraic_degree: 1_006,
-            max_polynomial_coefficient_bits: 1_007,
-            max_resultant_degree: 1_008,
-            max_factorization_work: 1_009,
-            max_root_isolation_steps: 1_010,
-            max_rewrite_steps: 1_011,
-            max_precision_bits: 1_012,
-            max_refinement_rounds: 1_013,
-            max_logical_work_units: String::from("1014"),
-            max_presentation_nodes: 1_015,
-            max_output_bytes: 1_016,
+            max_cyclotomic_order: 1_006,
+            max_algebraic_degree: 1_007,
+            max_polynomial_coefficient_bits: 1_008,
+            max_resultant_degree: 1_009,
+            max_factorization_work: 1_010,
+            max_root_isolation_steps: 1_011,
+            max_rewrite_steps: 1_012,
+            max_precision_bits: 1_013,
+            max_refinement_rounds: 1_014,
+            max_logical_work_units: String::from("1015"),
+            max_presentation_nodes: 1_016,
+            max_output_bytes: 1_017,
         }
     }
 
