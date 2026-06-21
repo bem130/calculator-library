@@ -501,6 +501,65 @@ mod tests {
     }
 
     #[test]
+    fn wasm_dto_serializes_partial_sqrt_with_certified_enclosure() {
+        let mut request = exact_only_request();
+        request.scientific_output = ScientificOutputRequestDto::Include {
+            significant_digits: 50,
+            rounding_mode: DecimalRoundingModeDto::NearestTiesToEven,
+        };
+        request.enclosure_output = EnclosureOutputRequestDto::Include {
+            format: EnclosureFormatDto::ExactDyadic,
+        };
+        let result = calculate_dto("sqrt(2)", request);
+        let ApiResultDto::Ok {
+            value:
+                CalculationOutcomeDto::Partial {
+                    calculation,
+                    reason,
+                    certified_enclosure,
+                },
+        } = result
+        else {
+            panic!("expected partial sqrt calculation");
+        };
+        assert_eq!(
+            reason,
+            IncompleteReasonDto::PrecisionLimit {
+                requested_digits: 50,
+                confirmed_digits: 0,
+            }
+        );
+        let ExactOutputDto::Included { value: exact } = calculation.exact else {
+            panic!("expected exact symbolic output");
+        };
+        assert_eq!(
+            exact.representation,
+            ExactRepresentationKindDto::GeneralSymbolic
+        );
+        assert_eq!(exact.plain_text, "sqrt(2)");
+        let ScientificOutputDto::Unavailable { value: scientific } = calculation.scientific else {
+            panic!("expected unavailable scientific output");
+        };
+        assert_eq!(scientific.reason, reason);
+        let EnclosureOutputDto::Included { value: enclosure } = calculation.enclosure else {
+            panic!("expected enclosure output");
+        };
+        assert_eq!(certified_enclosure, enclosure);
+        assert_eq!(
+            calculation.metadata.assurance,
+            AssuranceLevelDto::CertifiedEnclosure
+        );
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTagDto::SymbolicRetention));
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTagDto::CertifiedIntervalEvaluation));
+    }
+
+    #[test]
     fn wasm_dto_rejects_zero_significant_digits_before_core() {
         let mut request = exact_only_request();
         request.scientific_output = ScientificOutputRequestDto::Include {

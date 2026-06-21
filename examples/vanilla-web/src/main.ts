@@ -678,7 +678,7 @@ function renderScientific(calculation: Calculation): void {
             return;
         case "unavailable":
             scientificState.textContent = formatLabel(calculation.scientific.value.reason.tag);
-            scientificOutput.textContent = "Phase 1 exact mode keeps this as unavailable.";
+            scientificOutput.textContent = "Requested decimal digits are not confirmed.";
             return;
         case "included":
             scientificState.textContent = `${calculation.scientific.value.confirmedSignificantDigits} digits`;

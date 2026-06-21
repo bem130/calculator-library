@@ -909,6 +909,10 @@ impl Rational {
         self.numerator.is_zero()
     }
 
+    pub(crate) fn is_negative(&self) -> bool {
+        self.numerator.inner.sign() == Sign::Minus
+    }
+
     pub fn is_integer(&self) -> bool {
         self.denominator.inner.inner == BigInt::one()
     }
@@ -970,6 +974,27 @@ impl Rational {
     pub fn percent(&self) -> Self {
         self.divide(&Self::from_integer(Integer::from(100)))
             .expect("100 is non-zero")
+    }
+
+    pub(crate) fn sqrt_if_rational(&self) -> Option<Self> {
+        if self.is_negative() {
+            return None;
+        }
+        let numerator = floor_sqrt_nonnegative(&self.numerator.inner);
+        if &numerator * &numerator != self.numerator.inner {
+            return None;
+        }
+        let denominator = floor_sqrt_nonnegative(&self.denominator.inner.inner);
+        if &denominator * &denominator != self.denominator.inner.inner {
+            return None;
+        }
+        Some(
+            Self::new(
+                Integer::from_bigint(numerator),
+                Integer::from_bigint(denominator),
+            )
+            .expect("square root of a canonical positive denominator is canonical"),
+        )
     }
 
     pub fn pow_i64(&self, exponent: i64) -> Result<Self, RationalArithmeticError> {
@@ -1071,6 +1096,37 @@ impl Rational {
             Rational::new(Integer::from_bigint(numerator * multiplier), Integer::one())
                 .map_err(|_| DecimalLiteralError::InvalidDigit)
         }
+    }
+}
+
+pub(crate) fn floor_sqrt_nonnegative(value: &BigInt) -> BigInt {
+    debug_assert!(value.sign() != Sign::Minus);
+    if value.is_zero() {
+        return BigInt::zero();
+    }
+
+    let mut high = BigInt::one();
+    while &high * &high <= *value {
+        high <<= 1_u8;
+    }
+    let mut low = &high >> 1_u8;
+    while &low + 1_u8 < high {
+        let mid = (&low + &high) >> 1_u8;
+        if &mid * &mid <= *value {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+    low
+}
+
+pub(crate) fn ceil_sqrt_nonnegative(value: &BigInt) -> BigInt {
+    let floor = floor_sqrt_nonnegative(value);
+    if &floor * &floor == *value {
+        floor
+    } else {
+        floor + 1_u8
     }
 }
 
