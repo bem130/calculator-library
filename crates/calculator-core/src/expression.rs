@@ -33,6 +33,10 @@ impl ExactExpressionDag {
         &self.nodes[id.0 as usize]
     }
 
+    pub(crate) fn nodes(&self) -> &[ExpressionNode] {
+        &self.nodes
+    }
+
     fn list(&self, id: ExprListId) -> &[ExprId] {
         &self.lists[id.0 as usize]
     }
@@ -530,6 +534,10 @@ fn evaluate_real_algebraic_node(
             numerator,
             denominator,
         } => evaluate_real_algebraic_quotient(dag, *numerator, *denominator, limits),
+        ExpressionNode::Function {
+            function: function @ (Function::Sin | Function::Cos | Function::Tan),
+            argument,
+        } => evaluate_real_algebraic_trigonometric_function(dag, *function, *argument, limits),
         ExpressionNode::Rational(_)
         | ExpressionNode::Constant(_)
         | ExpressionNode::Function { .. } => Ok(None),
@@ -765,6 +773,146 @@ fn reciprocal_real_algebraic(
         )) => Ok(None),
         Err(error) => Err(real_algebraic_construction_error(error)),
     }
+}
+
+fn evaluate_real_algebraic_trigonometric_function(
+    dag: &ExactExpressionDag,
+    function: Function,
+    argument: ExprId,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraic>, EvaluationError> {
+    let Some(coefficient) = evaluate_pi_coefficient(dag, argument)? else {
+        return Ok(None);
+    };
+    match function {
+        Function::Sin => cyclotomic_sine_algebraic(coefficient.coefficient(), limits),
+        Function::Cos => cyclotomic_cosine_algebraic(coefficient.coefficient(), limits),
+        Function::Tan => {
+            let phase = coefficient.coefficient().modulo_integer(1);
+            if phase_matches_any(&phase, TANGENT_POLE_PHASES) {
+                return Err(domain_error(DomainErrorKind::TangentPole));
+            }
+            let Some(sine) = cyclotomic_sine_algebraic(coefficient.coefficient(), limits)? else {
+                return Ok(None);
+            };
+            let Some(cosine) = cyclotomic_cosine_algebraic(coefficient.coefficient(), limits)?
+            else {
+                return Ok(None);
+            };
+            let Some(reciprocal_cosine) = reciprocal_real_algebraic(cosine, limits)? else {
+                return Ok(None);
+            };
+            multiply_real_algebraics(sine, reciprocal_cosine, limits)
+        }
+        _ => unreachable!("only trigonometric functions are dispatched here"),
+    }
+}
+
+fn cyclotomic_sine_algebraic(
+    coefficient: &Rational,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraic>, EvaluationError> {
+    let cosine_coefficient = rational(1, 2).subtract(coefficient);
+    cyclotomic_cosine_algebraic(&cosine_coefficient, limits)
+}
+
+fn cyclotomic_cosine_algebraic(
+    coefficient: &Rational,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraic>, EvaluationError> {
+    let phase = coefficient.modulo_integer(2);
+    let Some((numerator, denominator)) = cyclotomic_phase_parts(&phase) else {
+        return Ok(None);
+    };
+    if denominator > limits.max_cyclotomic_order {
+        return Ok(None);
+    }
+
+    let candidate_polynomial = chebyshev_cosine_candidate_polynomial(numerator, denominator)?;
+    let Some(root_index) = cosine_candidate_root_index(numerator, denominator) else {
+        return Ok(None);
+    };
+    let intervals = match candidate_polynomial.isolate_real_roots(limits.max_root_isolation_steps) {
+        Ok(intervals) => intervals,
+        Err(PrimitivePolynomialRootIsolationError::StepLimitExceeded) => return Ok(None),
+        Err(error) => {
+            return Err(real_algebraic_construction_error(
+                RealAlgebraicConstructionError::RootIsolation(error),
+            ));
+        }
+    };
+    let Some(isolating_interval) = intervals.get(root_index).cloned() else {
+        return Err(invalid_algebraic_isolation_error());
+    };
+
+    match RealAlgebraic::from_candidate_polynomial_bounded(
+        candidate_polynomial,
+        isolating_interval,
+        limits.max_algebraic_degree,
+        limits.max_polynomial_coefficient_bits,
+        limits.max_factorization_work,
+        limits.max_root_isolation_steps,
+    ) {
+        Ok(value) => Ok(value),
+        Err(RealAlgebraicConstructionError::RootIsolation(
+            PrimitivePolynomialRootIsolationError::StepLimitExceeded,
+        )) => Ok(None),
+        Err(error) => Err(real_algebraic_construction_error(error)),
+    }
+}
+
+fn cyclotomic_phase_parts(phase: &Rational) -> Option<(u32, u32)> {
+    let numerator = phase.numerator.inner.to_u32()?;
+    let denominator = phase.denominator.inner.inner.to_u32()?;
+    Some((numerator, denominator))
+}
+
+fn cosine_candidate_root_index(numerator: u32, denominator: u32) -> Option<usize> {
+    let denominator = u64::from(denominator);
+    let period = denominator.checked_mul(2)?;
+    let phase_numerator = u64::from(numerator) % period;
+    let target_angle_numerator = if phase_numerator > denominator {
+        period - phase_numerator
+    } else {
+        phase_numerator
+    };
+    let parity = u64::from(numerator % 2);
+    let index = ((target_angle_numerator + 1)..=denominator)
+        .filter(|candidate| candidate % 2 == parity)
+        .count();
+    Some(index)
+}
+
+fn chebyshev_cosine_candidate_polynomial(
+    numerator: u32,
+    denominator: u32,
+) -> Result<PrimitivePolynomial, EvaluationError> {
+    let mut polynomial = chebyshev_t_polynomial(denominator)?;
+    let target = if numerator.is_multiple_of(2) { 1 } else { -1 };
+    polynomial.coefficients_low_to_high[0].inner -= target;
+    PrimitivePolynomial::new(polynomial.coefficients_low_to_high)
+        .map_err(|_| invalid_algebraic_isolation_error())
+}
+
+fn chebyshev_t_polynomial(order: u32) -> Result<PrimitivePolynomial, EvaluationError> {
+    let mut previous = vec![Integer::one()];
+    if order == 0 {
+        return PrimitivePolynomial::new(previous).map_err(|_| invalid_algebraic_isolation_error());
+    }
+
+    let mut current = vec![Integer::zero(), Integer::one()];
+    for _ in 1..order {
+        let mut next = vec![Integer::zero(); current.len() + 1];
+        for (index, coefficient) in current.iter().enumerate() {
+            next[index + 1].inner += &coefficient.inner * 2;
+        }
+        for (index, coefficient) in previous.iter().enumerate() {
+            next[index].inner -= &coefficient.inner;
+        }
+        previous = current;
+        current = next;
+    }
+    PrimitivePolynomial::new(current).map_err(|_| invalid_algebraic_isolation_error())
 }
 
 fn rational_prime_root_algebraic(
@@ -1948,14 +2096,48 @@ fn evaluate_interval_node(
                     Err(IntervalError::UnsupportedExpression)
                 }
             }
-            Function::Sin
-            | Function::Cos
-            | Function::Tan
-            | Function::Asin
-            | Function::Acos
-            | Function::Atan => Err(IntervalError::UnsupportedExpression),
+            Function::Sin | Function::Cos => {
+                evaluate_interval_node(dag, *argument, precision_bits)?;
+                interval::from_rational_bounds(&rational(-1, 1), &rational(1, 1), precision_bits)
+            }
+            Function::Tan => tangent_rational_pi_interval(dag, *argument, precision_bits),
+            Function::Asin | Function::Acos | Function::Atan => {
+                Err(IntervalError::UnsupportedExpression)
+            }
         },
     }
+}
+
+fn tangent_rational_pi_interval(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    let coefficient = evaluate_pi_coefficient(dag, argument).map_err(|error| match error {
+        EvaluationError::Domain(DomainError { kind, .. }) => IntervalError::Domain(kind),
+        _ => IntervalError::UnsupportedExpression,
+    })?;
+    let Some(coefficient) = coefficient else {
+        return Err(IntervalError::UnsupportedExpression);
+    };
+
+    let phase = coefficient.coefficient().modulo_integer(1);
+    if phase_matches_any(&phase, TANGENT_POLE_PHASES) {
+        return Err(IntervalError::Domain(DomainErrorKind::TangentPole));
+    }
+
+    let mut distance_to_pole = phase.subtract(&rational(1, 2));
+    if distance_to_pole.is_negative() {
+        distance_to_pole = distance_to_pole.negate();
+    }
+    if distance_to_pole.is_zero() {
+        return Err(IntervalError::Domain(DomainErrorKind::TangentPole));
+    }
+    let denominator = distance_to_pole.multiply(&rational_integer(2));
+    let bound = Rational::one()
+        .divide(&denominator)
+        .map_err(|_| IntervalError::DivisionByIntervalContainingZero)?;
+    interval::from_rational_bounds(&bound.negate(), &bound, precision_bits)
 }
 
 fn arithmetic_error(error: RationalArithmeticError) -> EvaluationError {

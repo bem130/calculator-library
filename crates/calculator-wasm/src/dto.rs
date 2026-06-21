@@ -165,6 +165,7 @@ pub struct ResourceLimitsDto {
     pub max_source_depth: u32,
     pub max_expression_nodes: u32,
     pub max_integer_bits: u32,
+    pub max_cyclotomic_order: u32,
     pub max_algebraic_degree: u32,
     pub max_polynomial_coefficient_bits: u32,
     pub max_resultant_degree: u32,
