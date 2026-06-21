@@ -1,0 +1,13 @@
+[package]
+name = "calculator-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+calculator-core = { path = "../calculator-core", features = ["std"] }
+
+[lints]
+workspace = true

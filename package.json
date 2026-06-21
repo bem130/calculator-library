@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "packageManager": "pnpm@10.14.0",
+  "scripts": {
+    "check": "npm --prefix packages/calculator run check"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@bem130/exact-calculator",
+  "version": "0.1.0",
+  "author": "bem130",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./worker": "./src/worker.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0"
+  }
+}

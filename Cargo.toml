@@ -1,0 +1,19 @@
+[workspace]
+members = [
+    "crates/calculator-core",
+    "crates/calculator-wasm",
+    "crates/calculator-cli",
+    "crates/calculator-wasi",
+    "crates/xtask",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["bem130"]
+license = "MIT"
+repository = "https://github.com/bem130/calculator-library"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

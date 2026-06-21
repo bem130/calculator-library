@@ -1,0 +1,871 @@
+use alloc::{boxed::Box, string::String, vec::Vec};
+use core::num::NonZeroU32;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EvaluatedValue {
+    pub exact_expression: ExactExpression,
+    pub recognized_exact: RecognizedExact,
+    pub certified_enclosure: CertifiedEnclosureState,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExactExpression {
+    pub(crate) source: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CertifiedEnclosureState {
+    NotRequested,
+    Available(CertifiedInterval),
+    Unavailable,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RecognizedExact {
+    Rational(Rational),
+    RealAlgebraic(RealAlgebraic),
+    RationalPiMultiple(Rational),
+    GeneralSymbolic,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EvaluationDomain {
+    Real,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AngleUnit {
+    Radian,
+    Degree,
+    Gradian,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PowerSemantics {
+    RealPrincipal,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DecimalRoundingMode {
+    NearestTiesToEven,
+    NearestTiesAwayFromZero,
+    TowardPositiveInfinity,
+    TowardNegativeInfinity,
+    TowardZero,
+    AwayFromZero,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Truth {
+    Proven,
+    Disproven,
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SignKnowledge {
+    Negative,
+    Zero,
+    Positive,
+    NonNegative,
+    NonPositive,
+    NonZero,
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExprId(pub u32);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExprListId(pub u32);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RationalId(pub u32);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExpressionNode {
+    Rational(RationalId),
+    Constant(Constant),
+    Add(ExprListId),
+    Multiply(ExprListId),
+    Divide {
+        numerator: ExprId,
+        denominator: ExprId,
+    },
+    Power {
+        base: ExprId,
+        exponent: ExprId,
+    },
+    Function {
+        function: Function,
+        argument: ExprId,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Constant {
+    Pi,
+    Euler,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Function {
+    Sin,
+    Cos,
+    Tan,
+    Asin,
+    Acos,
+    Atan,
+    Sqrt,
+    Exp,
+    Log,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BinaryOperator {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Power,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Integer {
+    pub(crate) digits: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BigIntBackend {
+    pub(crate) digits: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PositiveInteger {
+    pub inner: Integer,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Rational {
+    pub numerator: Integer,
+    pub denominator: PositiveInteger,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PrimitivePolynomial {
+    pub coefficients_low_to_high: Vec<Integer>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RealAlgebraic {
+    pub minimal_polynomial: PrimitivePolynomial,
+    pub real_root_index: u32,
+    pub isolating_interval: RationalInterval,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RationalInterval {
+    pub lower: Rational,
+    pub upper: Rational,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RationalPiMultiple {
+    pub coefficient: Rational,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CertifiedInterval {
+    pub lower: ExactDyadic,
+    pub upper: ExactDyadic,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExactDyadic {
+    pub coefficient: Integer,
+    pub exponent_two: Integer,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CalculationOutcome {
+    Complete(Calculation),
+    Partial {
+        calculation: Calculation,
+        reason: IncompleteReason,
+        certified_enclosure: CertifiedIntervalPresentation,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum IncompleteReason {
+    PrecisionLimit {
+        requested_digits: NonZeroU32,
+        confirmed_digits: u32,
+    },
+    ComputationLimit {
+        kind: ComputationLimitKind,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PresentationNode {
+    Text(String),
+    Row(Vec<PresentationNode>),
+    Fraction {
+        numerator: Box<PresentationNode>,
+        denominator: Box<PresentationNode>,
+    },
+    Superscript {
+        base: Box<PresentationNode>,
+        exponent: Box<PresentationNode>,
+    },
+    Radical {
+        index: RadicalIndex,
+        radicand: Box<PresentationNode>,
+    },
+    Function {
+        name: FunctionName,
+        argument: Box<PresentationNode>,
+    },
+    Parenthesized(Box<PresentationNode>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RadicalIndex {
+    Square,
+    Nth(PositiveInteger),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FunctionName {
+    Sin,
+    Cos,
+    Tan,
+    Asin,
+    Acos,
+    Atan,
+    Sqrt,
+    Exp,
+    Log,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResultRelation {
+    ExactEqual,
+    ApproximatelyEqual,
+    ElementOf,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParsedExpression {
+    pub(crate) source: String,
+    pub(crate) settings: ParseSettings,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct EvaluationContext {
+    cache_generation: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EvaluationOutcome {
+    pub value: EvaluatedValue,
+    pub metadata: EvaluationMetadata,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EvaluationMetadata {
+    pub methods: Vec<MethodTag>,
+    pub internal_precision_bits: u32,
+    pub refinement_rounds: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EvaluationError {
+    Domain(DomainError),
+    InputLimit(InputLimitError),
+    ComputationLimit(ComputationLimitError),
+    UnsupportedFeature(UnsupportedFeatureError),
+    InternalInvariant(InternalInvariantError),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PresentationError {
+    InputLimit(InputLimitError),
+    ComputationLimit(ComputationLimitError),
+    InternalInvariant(InternalInvariantError),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CalculationRequest {
+    pub parse: ParseSettings,
+    pub semantics: SemanticSettings,
+    pub exact_output: ExactOutputRequest,
+    pub scientific_output: ScientificOutputRequest,
+    pub enclosure_output: EnclosureOutputRequest,
+    pub limits: ResourceLimitRequest,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ParseSettings {
+    pub grammar: GrammarProfile,
+    pub implicit_multiplication: ImplicitMultiplicationPolicy,
+    pub unicode_aliases: UnicodeAliasPolicy,
+    pub percent: PercentParsePolicy,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GrammarProfile {
+    Default,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ImplicitMultiplicationPolicy {
+    Enabled,
+    Disabled,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnicodeAliasPolicy {
+    MathematicalAliases,
+    AsciiOnly,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PercentParsePolicy {
+    PostfixPercent,
+    RejectPercent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SemanticSettings {
+    pub domain: EvaluationDomain,
+    pub angle_unit: AngleUnit,
+    pub power_semantics: PowerSemantics,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExactOutputRequest {
+    Omit,
+    Include { format: ExactFormatPreference },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScientificOutputRequest {
+    Omit,
+    Include {
+        significant_digits: NonZeroU32,
+        rounding_mode: DecimalRoundingMode,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EnclosureOutputRequest {
+    Omit,
+    Include { format: EnclosureFormat },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ResourceLimitRequest {
+    Default,
+    Custom(ResourceLimits),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EvaluationRequest {
+    pub semantics: SemanticSettings,
+    pub limits: ResourceLimitRequest,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PresentationRequest {
+    pub exact_output: ExactOutputRequest,
+    pub scientific_output: ScientificOutputRequest,
+    pub enclosure_output: EnclosureOutputRequest,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExactFormatPreference {
+    Auto,
+    Rational,
+    FiniteDecimal,
+    MixedFraction,
+    Symbolic,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EnclosureFormat {
+    ExactDyadic,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Calculation {
+    pub exact: ExactOutput,
+    pub scientific: ScientificOutput,
+    pub enclosure: EnclosureOutput,
+    pub metadata: CalculationMetadata,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExactOutput {
+    Omitted,
+    Included(ExactPresentation),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ScientificOutput {
+    Omitted,
+    Included(ScientificPresentation),
+    Unavailable(UnavailableScientificOutput),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EnclosureOutput {
+    Omitted,
+    Included(CertifiedIntervalPresentation),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExactPresentation {
+    pub relation: ResultRelation,
+    pub representation: ExactRepresentationKind,
+    pub presentation: PresentationNode,
+    pub plain_text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScientificPresentation {
+    pub relation: ResultRelation,
+    pub significand: String,
+    pub exponent_ten: String,
+    pub requested_significant_digits: NonZeroU32,
+    pub confirmed_significant_digits: u32,
+    pub rounding_mode: DecimalRoundingMode,
+    pub presentation: PresentationNode,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnavailableScientificOutput {
+    pub requested_significant_digits: NonZeroU32,
+    pub confirmed_significant_digits: u32,
+    pub rounding_mode: DecimalRoundingMode,
+    pub reason: IncompleteReason,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CertifiedIntervalPresentation {
+    pub relation: ResultRelation,
+    pub lower: ExactDyadic,
+    pub upper: ExactDyadic,
+    pub format: EnclosureFormat,
+    pub presentation: PresentationNode,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CalculationMetadata {
+    pub exact_representation: ExactRepresentationKind,
+    pub simplification_status: SimplificationStatus,
+    pub semantic_settings: SemanticSettings,
+    pub methods: Vec<MethodTag>,
+    pub internal_precision_bits: u32,
+    pub refinement_rounds: u32,
+    pub confirmed_significant_digits: u32,
+    pub assurance: AssuranceLevel,
+    pub protocol_version: ProtocolVersion,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExactRepresentationKind {
+    Integer,
+    Rational,
+    FiniteDecimal,
+    RationalPiMultiple,
+    Radical,
+    RealAlgebraic,
+    GeneralSymbolic,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SimplificationStatus {
+    FullySimplifiedWithinLimits,
+    PartiallySimplified { reason: IncompleteReason },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProtocolVersion {
+    pub major: u16,
+    pub minor: u16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MethodTag {
+    RationalReduction,
+    RadicalExtraction,
+    SpecialAngle,
+    CyclotomicReduction,
+    AlgebraicMinimalPolynomial,
+    AlgebraicRootIsolation,
+    SymbolicRetention,
+    CertifiedIntervalEvaluation,
+    AdaptivePrecisionRefinement,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AssuranceLevel {
+    Exact,
+    CertifiedEnclosure,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PortableCertificate {
+    PolynomialRootIsolation(PolynomialRootCertificate),
+    SeriesRemainderBound(SeriesCertificate),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PolynomialRootCertificate {
+    _private: (),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SeriesCertificate {
+    _private: (),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CalculatorError {
+    Parse(ParseError),
+    Domain(DomainError),
+    InputLimit(InputLimitError),
+    ComputationLimit(ComputationLimitError),
+    UnsupportedFeature(UnsupportedFeatureError),
+    InternalInvariant(InternalInvariantError),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DomainError {
+    pub kind: DomainErrorKind,
+    pub span: Option<ByteSpan>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DomainErrorKind {
+    DivisionByZero,
+    LogarithmOfNonPositive,
+    EvenRootOfNegative,
+    InverseTrigonometricOutOfRange,
+    TangentPole,
+    ZeroToNegativePower,
+    IndeterminateZeroToZero,
+    NonRealPower,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ParseErrorKind {
+    UnexpectedToken,
+    UnexpectedEnd,
+    UnknownIdentifier,
+    InvalidNumberLiteral,
+    MissingFunctionParenthesis,
+    ImplicitMultiplicationDisabled,
+    PercentRejected,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParseError {
+    pub kind: ParseErrorKind,
+    pub span: ByteSpan,
+    pub expected: Vec<ExpectedToken>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExpectedToken {
+    pub kind: ExpectedTokenKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExpectedTokenKind {
+    Number,
+    Identifier,
+    Operator,
+    OpenParenthesis,
+    CloseParenthesis,
+    EndOfInput,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ByteSpan {
+    pub start: u32,
+    pub end: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InputLimitError {
+    pub kind: InputLimitErrorKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputLimitErrorKind {
+    InputTooLong,
+    SourceAstTooDeep,
+    SourceAstTooLarge,
+    ExpressionTooLarge,
+    IntegerTooLarge,
+    OutputTooLarge,
+    InvalidSignificantDigits,
+    InvalidResourceLimit,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ComputationLimitError {
+    pub kind: ComputationLimitKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ComputationLimitKind {
+    AlgebraicDegree,
+    PolynomialCoefficientBits,
+    ResultantDegree,
+    FactorizationWork,
+    RootIsolationSteps,
+    RewriteSteps,
+    PrecisionBits,
+    RefinementRounds,
+    LogicalWorkUnits,
+    PresentationNodes,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnsupportedFeatureError {
+    pub feature: UnsupportedFeature,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnsupportedFeature {
+    ComplexDomain,
+    PortableProofCertificate,
+    EvaluationEngine,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InternalInvariantError {
+    pub code: InternalInvariantCode,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InternalInvariantCode {
+    NonCanonicalRational,
+    InvalidAlgebraicIsolation,
+    InvalidCertifiedInterval,
+    NonDeterministicCacheAccounting,
+    PresentationWithoutEvaluation,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResourceLimits {
+    pub max_input_bytes: u32,
+    pub max_source_ast_nodes: u32,
+    pub max_source_depth: u32,
+    pub max_expression_nodes: u32,
+    pub max_integer_bits: u32,
+    pub max_algebraic_degree: u32,
+    pub max_polynomial_coefficient_bits: u32,
+    pub max_rewrite_steps: u32,
+    pub max_precision_bits: u32,
+    pub max_refinement_rounds: u32,
+    pub max_logical_work_units: u64,
+    pub max_presentation_nodes: u32,
+    pub max_output_bytes: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InputAction {
+    Digit(u8),
+    DecimalPoint,
+    Constant(Constant),
+    Function(Function),
+    BinaryOperator(BinaryOperator),
+    Percent,
+    OpenParenthesis,
+    CloseParenthesis,
+    DeleteBackward,
+    ClearEntry,
+    ClearAll,
+    MemoryClear,
+    MemoryRecall,
+    MemoryAdd,
+    MemorySubtract,
+    Evaluate,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InputState {
+    pub(crate) source: String,
+    pub(crate) cursor_utf8: u32,
+    pub(crate) selection_utf8: OptionalTextSpan,
+    pub(crate) has_ans: bool,
+    pub(crate) has_memory: bool,
+    pub(crate) display: SessionDisplay,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InputError {
+    pub kind: InputErrorKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputErrorKind {
+    InvalidDigit,
+    InvalidCursor,
+    SelectionOutOfBounds,
+    ActionNotAllowedAfterError,
+    MemoryEmpty,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionReduction {
+    pub state: InputState,
+    pub command: SessionCommand,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SessionCommand {
+    None,
+    Calculate {
+        source: String,
+        request: CalculationRequest,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InputPolicy {
+    pub calculation_request: CalculationRequest,
+    pub percent_policy: PercentPolicy,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PercentPolicy {
+    ExpressionPercent,
+    CalculatorPercent,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OptionalTextSpan {
+    None,
+    Some(ByteSpan),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SessionDisplay {
+    Editing,
+    Result { calculation: Box<Calculation> },
+    Error { error: CalculatorError },
+    Calculating,
+}
+
+impl Default for ParseSettings {
+    fn default() -> Self {
+        Self {
+            grammar: GrammarProfile::Default,
+            implicit_multiplication: ImplicitMultiplicationPolicy::Enabled,
+            unicode_aliases: UnicodeAliasPolicy::MathematicalAliases,
+            percent: PercentParsePolicy::PostfixPercent,
+        }
+    }
+}
+
+impl Default for SemanticSettings {
+    fn default() -> Self {
+        Self {
+            domain: EvaluationDomain::Real,
+            angle_unit: AngleUnit::Radian,
+            power_semantics: PowerSemantics::RealPrincipal,
+        }
+    }
+}
+
+impl Default for CalculationRequest {
+    fn default() -> Self {
+        Self {
+            parse: ParseSettings::default(),
+            semantics: SemanticSettings::default(),
+            exact_output: ExactOutputRequest::Include {
+                format: ExactFormatPreference::Auto,
+            },
+            scientific_output: ScientificOutputRequest::Include {
+                significant_digits: nonzero_u32(50),
+                rounding_mode: DecimalRoundingMode::NearestTiesToEven,
+            },
+            enclosure_output: EnclosureOutputRequest::Include {
+                format: EnclosureFormat::ExactDyadic,
+            },
+            limits: ResourceLimitRequest::Default,
+        }
+    }
+}
+
+impl Default for ResourceLimits {
+    fn default() -> Self {
+        Self {
+            max_input_bytes: 16 * 1024,
+            max_source_ast_nodes: 16 * 1024,
+            max_source_depth: 512,
+            max_expression_nodes: 64 * 1024,
+            max_integer_bits: 1_000_000,
+            max_algebraic_degree: 64,
+            max_polynomial_coefficient_bits: 1_000_000,
+            max_rewrite_steps: 100_000,
+            max_precision_bits: 1_000_000,
+            max_refinement_rounds: 256,
+            max_logical_work_units: 10_000_000,
+            max_presentation_nodes: 64 * 1024,
+            max_output_bytes: 1024 * 1024,
+        }
+    }
+}
+
+impl Default for InputPolicy {
+    fn default() -> Self {
+        Self {
+            calculation_request: CalculationRequest::default(),
+            percent_policy: PercentPolicy::ExpressionPercent,
+        }
+    }
+}
+
+impl ProtocolVersion {
+    pub const CURRENT: Self = Self { major: 1, minor: 0 };
+}
+
+const fn nonzero_u32(value: u32) -> NonZeroU32 {
+    match NonZeroU32::new(value) {
+        Some(value) => value,
+        None => unreachable!(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_request_matches_phase_zero_contract() {
+        let request = CalculationRequest::default();
+        assert_eq!(request.parse.grammar, GrammarProfile::Default);
+        assert_eq!(request.semantics.domain, EvaluationDomain::Real);
+        assert_eq!(request.semantics.angle_unit, AngleUnit::Radian);
+        assert_eq!(
+            request.semantics.power_semantics,
+            PowerSemantics::RealPrincipal
+        );
+        assert_eq!(request.limits, ResourceLimitRequest::Default);
+    }
+
+    #[test]
+    fn protocol_version_starts_at_one_zero() {
+        assert_eq!(
+            ProtocolVersion::CURRENT,
+            ProtocolVersion { major: 1, minor: 0 }
+        );
+    }
+}
