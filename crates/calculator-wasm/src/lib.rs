@@ -887,8 +887,11 @@ mod tests {
     fn wasm_dto_serializes_inverse_trigonometric_known_values() {
         for (source, expected) in [
             ("asin(1/2)", "pi/6"),
+            ("asin(sqrt(2)/2)", "pi/4"),
+            ("acos(sqrt(3)/2)", "pi/6"),
             ("acos(-1)", "pi"),
             ("atan(1)", "pi/4"),
+            ("atan(sqrt(3))", "pi/3"),
         ] {
             let result = calculate_dto(source, exact_only_request());
             let ApiResultDto::Ok {
@@ -934,6 +937,28 @@ mod tests {
         assert_eq!(exact.plain_text, "30");
         assert_eq!(metadata.semantic_settings.angle_unit, AngleUnitDto::Degree);
         assert!(metadata.methods.contains(&MethodTagDto::SpecialAngle));
+
+        let mut degree_request = exact_only_request();
+        degree_request.semantics.angle_unit = AngleUnitDto::Degree;
+        let result = calculate_dto("atan(sqrt(3))", degree_request);
+        let ApiResultDto::Ok {
+            value:
+                CalculationOutcomeDto::Complete {
+                    calculation:
+                        CalculationDto {
+                            exact: ExactOutputDto::Included { value: exact },
+                            metadata,
+                            ..
+                        },
+                },
+        } = result
+        else {
+            panic!("expected radical inverse trig degree calculation");
+        };
+        assert_eq!(exact.representation, ExactRepresentationKindDto::Integer);
+        assert_eq!(exact.plain_text, "60");
+        assert_eq!(metadata.semantic_settings.angle_unit, AngleUnitDto::Degree);
+        assert!(metadata.methods.contains(&MethodTagDto::SpecialAngle));
     }
 
     #[test]
@@ -951,7 +976,7 @@ mod tests {
 
     #[test]
     fn wasm_dto_reports_inverse_trigonometric_out_of_range_error_code() {
-        for source in ["asin(2)", "acos(-2)"] {
+        for source in ["asin(2)", "asin(sqrt(2))", "acos(-2)"] {
             assert_eq!(
                 calculate_dto(source, exact_only_request()),
                 ApiResultDto::Error {
@@ -1592,8 +1617,11 @@ pub mod wasm_tests {
     fn wasm32_calculates_inverse_trigonometric_known_values() {
         for (source, expected) in [
             ("asin(1/2)", "pi/6"),
+            ("asin(sqrt(2)/2)", "pi/4"),
+            ("acos(sqrt(3)/2)", "pi/6"),
             ("acos(-1)", "pi"),
             ("atan(1)", "pi/4"),
+            ("atan(sqrt(3))", "pi/3"),
         ] {
             let result = calculate_dto(source, exact_only_request());
             assert_eq!(exact_plain_text(result), expected, "{source}");
@@ -1604,6 +1632,12 @@ pub mod wasm_tests {
         assert_eq!(
             exact_plain_text(calculate_dto("asin(1/2)", degree_request)),
             "30"
+        );
+        let mut degree_request = exact_only_request();
+        degree_request.semantics.angle_unit = AngleUnitDto::Degree;
+        assert_eq!(
+            exact_plain_text(calculate_dto("atan(sqrt(3))", degree_request)),
+            "60"
         );
     }
 
@@ -1622,6 +1656,13 @@ pub mod wasm_tests {
     fn wasm32_reports_inverse_trigonometric_out_of_range_error_code() {
         assert_eq!(
             calculator_error("asin(2)", exact_only_request()),
+            CalculatorErrorDto::Domain {
+                code: DomainErrorCodeDto::InverseTrigonometricOutOfRange,
+                span: OptionalTextSpanDto::None,
+            }
+        );
+        assert_eq!(
+            calculator_error("asin(sqrt(2))", exact_only_request()),
             CalculatorErrorDto::Domain {
                 code: DomainErrorCodeDto::InverseTrigonometricOutOfRange,
                 span: OptionalTextSpanDto::None,

@@ -19,7 +19,7 @@ The implementation is following [doc/design.md](doc/design.md). The current work
 - `exp` / `log` identities are exact when proven over rational values, including `exp(0)`, `log(1)`, `exp(log(x))` for proven positive rational `x`, and `log(exp(x))` for rational `x`; `exp(1)` returns the certified enclosure for `e`.
 - Rational and simple-radical special angles are exact when the DAG proves the argument is a supported rational multiple of `pi`: examples include `sin(pi/6) = 1/2`, `cos(pi/3) = 1/2`, `sin(pi/4) = sqrt(2)/2`, `tan(pi/3) = sqrt(3)`, and `tan(pi/2)` as `domain.tangentPole`.
 - Forward trigonometric functions lower degree and gradian inputs to exact radian expressions before evaluation, so `sin(30)` in degree mode is exact `1/2`.
-- Inverse trigonometric known values are exact for supported rational arguments: examples include `asin(1/2) = pi/6` in radian mode, `asin(1/2) = 30` in degree mode, `acos(-1) = pi`, and `atan(1) = pi/4`.
+- Inverse trigonometric known values are exact for supported rational and simple-radical arguments: examples include `asin(1/2) = pi/6`, `asin(sqrt(2)/2) = pi/4`, `atan(sqrt(3)) = pi/3` in radian mode, and `asin(1/2) = 30` / `atan(sqrt(3)) = 60` in degree mode.
 - `calculator-cli` evaluates exact expressions such as `0.1 + 0.2`.
 - `calculator-wasm` exposes DTO-based calculation through `wasm-bindgen`.
 - `packages/calculator` provides TypeScript facades for calculation and headless session dispatch over the Wasm module.
