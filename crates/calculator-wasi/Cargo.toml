@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-calculator-core = { path = "../calculator-core", features = ["std"] }
+calculator-core = { workspace = true, features = ["std"] }
 
 [lints]
 workspace = true

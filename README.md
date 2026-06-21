@@ -87,9 +87,13 @@ cargo test --workspace
 cargo clippy --all-targets --all-features -- -D warnings
 cargo check -p calculator-core --no-default-features
 cargo test -p calculator-core --no-default-features
+cargo deny check
+cargo xtask generate-types
 cargo xtask check-generated
 cargo xtask check-no-floats
+git diff --exit-code
 corepack pnpm --dir packages/calculator run check
 corepack pnpm --dir examples/vanilla-web run build
+corepack pnpm --dir examples/vanilla-web run test:e2e
 cargo doc --workspace --no-deps
 ```

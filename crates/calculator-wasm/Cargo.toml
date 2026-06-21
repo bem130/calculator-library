@@ -10,7 +10,7 @@ repository.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-calculator-core = { path = "../calculator-core" }
+calculator-core = { workspace = true }
 num-bigint = { version = "0.4.6", default-features = false }
 serde = { version = "1.0.228", features = ["derive"] }
 

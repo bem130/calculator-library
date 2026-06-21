@@ -15,5 +15,8 @@ authors = ["bem130"]
 license = "MIT"
 repository = "https://github.com/bem130/calculator-library"
 
+[workspace.dependencies]
+calculator-core = { path = "crates/calculator-core", version = "0.1.0" }
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
