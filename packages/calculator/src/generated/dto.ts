@@ -92,7 +92,19 @@ export type ResourceLimitRequest =
     };
 
 export type ResourceLimits = {
+    readonly maxInputBytes: number;
+    readonly maxSourceAstNodes: number;
+    readonly maxSourceDepth: number;
+    readonly maxExpressionNodes: number;
+    readonly maxIntegerBits: number;
+    readonly maxAlgebraicDegree: number;
+    readonly maxPolynomialCoefficientBits: number;
+    readonly maxRewriteSteps: number;
+    readonly maxPrecisionBits: number;
+    readonly maxRefinementRounds: number;
     readonly maxLogicalWorkUnits: string;
+    readonly maxPresentationNodes: number;
+    readonly maxOutputBytes: number;
 };
 
 export type CalculationOutcome =
