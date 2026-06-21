@@ -1171,13 +1171,13 @@ mod tests {
         exact.plain_text
     }
 
-    fn assert_symbolic_fallback_with_limits(limits: ResourceLimits) {
+    fn assert_source_symbolic_fallback_with_limits(source: &str, limits: ResourceLimits) {
         let request = CalculationRequest {
             limits: ResourceLimitRequest::Custom(limits),
             ..CalculationRequest::default()
         };
         let mut context = EvaluationContext::default();
-        let outcome = calculate("2^(1/3)", &request, &mut context)
+        let outcome = calculate(source, &request, &mut context)
             .expect("bounded algebraic fallback should calculate");
         let CalculationOutcome::Partial { calculation, .. } = outcome else {
             panic!("expected partial symbolic fallback");
@@ -1189,7 +1189,7 @@ mod tests {
             exact.representation,
             ExactRepresentationKind::GeneralSymbolic
         );
-        assert_eq!(exact.plain_text, "2^(1/3)");
+        assert_eq!(exact.plain_text, source);
         assert_eq!(
             calculation.metadata.exact_representation,
             ExactRepresentationKind::GeneralSymbolic
@@ -1202,6 +1202,10 @@ mod tests {
             .metadata
             .methods
             .contains(&MethodTag::AlgebraicMinimalPolynomial));
+    }
+
+    fn assert_symbolic_fallback_with_limits(limits: ResourceLimits) {
+        assert_source_symbolic_fallback_with_limits("2^(1/3)", limits);
     }
 
     fn scientific_parts(
@@ -2011,6 +2015,71 @@ mod tests {
             assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
             assert_eq!(exact.plain_text, source);
         }
+    }
+
+    #[test]
+    fn repeated_prime_root_sum_is_real_algebraic() {
+        let source = "2^(1/3)+2^(1/3)";
+        let parsed = parse(source, &ParseSettings::default()).unwrap();
+        let mut context = EvaluationContext::default();
+        let evaluation = evaluate(
+            &parsed,
+            &EvaluationRequest {
+                semantics: SemanticSettings::default(),
+                limits: ResourceLimitRequest::Default,
+            },
+            &mut context,
+        )
+        .unwrap();
+        let RecognizedExact::RealAlgebraic(algebraic) = &evaluation.value.recognized_exact else {
+            panic!("expected root-sum real algebraic recognition");
+        };
+        assert_eq!(
+            algebraic.minimal_polynomial,
+            PrimitivePolynomial::new(vec![
+                Integer::from(-16),
+                Integer::zero(),
+                Integer::zero(),
+                Integer::one(),
+            ])
+            .unwrap()
+        );
+        assert_eq!(
+            algebraic
+                .minimal_polynomial
+                .distinct_real_root_count_in_interval(&algebraic.isolating_interval)
+                .unwrap(),
+            1
+        );
+
+        let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+        let CalculationOutcome::Partial { calculation, .. } = outcome else {
+            panic!("expected partial calculation for root-sum algebraic number");
+        };
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("expected exact algebraic output");
+        };
+        assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
+        assert_eq!(exact.plain_text, source);
+    }
+
+    #[test]
+    fn algebraic_sum_limits_fall_back_to_symbolic_without_error() {
+        let source = "2^(1/3)+2^(1/3)";
+        assert_source_symbolic_fallback_with_limits(
+            source,
+            ResourceLimits {
+                max_resultant_degree: 2,
+                ..ResourceLimits::default()
+            },
+        );
+        assert_source_symbolic_fallback_with_limits(
+            source,
+            ResourceLimits {
+                max_factorization_work: 0,
+                ..ResourceLimits::default()
+            },
+        );
     }
 
     #[test]
