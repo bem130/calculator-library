@@ -1259,7 +1259,9 @@ mod tests {
         for (source, expected) in [
             ("sqrt(2)", "sqrt(2)"),
             ("sqrt(72)", "6sqrt(2)"),
+            ("sqrt(6962)", "59sqrt(2)"),
             ("sqrt(1/2)", "sqrt(2)/2"),
+            ("sqrt(1/6962)", "sqrt(2)/118"),
             ("2^(1/2)", "sqrt(2)"),
             ("3*sqrt(8)", "6sqrt(2)"),
             ("sqrt(2)/2", "sqrt(2)/2"),

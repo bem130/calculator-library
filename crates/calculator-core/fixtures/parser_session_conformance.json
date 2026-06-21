@@ -66,6 +66,12 @@
       "expectedExact": "6sqrt(2)"
     },
     {
+      "id": "bounded_square_factor_radical_sqrt",
+      "source": "sqrt(6962)",
+      "expectedParseTree": "sqrt(number(6962))",
+      "expectedExact": "59sqrt(2)"
+    },
+    {
       "id": "radical_product_reduces_to_rational",
       "source": "sqrt(2)*sqrt(2)",
       "expectedParseTree": "multiply(sqrt(number(2)),sqrt(number(2)))",

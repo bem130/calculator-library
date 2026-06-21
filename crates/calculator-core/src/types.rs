@@ -1181,17 +1181,19 @@ impl Rational {
 
 const SMALL_PRIME_SQUARE_FACTORS: [u32; 16] =
     [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53];
+const MAX_TRIAL_SQUARE_FACTOR: u32 = 4096;
 
 fn extract_square_factor(mut value: BigInt) -> (BigInt, BigInt) {
     debug_assert!(value.sign() == Sign::Plus);
     let mut outside = BigInt::one();
     for prime in SMALL_PRIME_SQUARE_FACTORS {
-        let prime = BigInt::from(prime);
-        let square = &prime * &prime;
-        while (&value % &square).is_zero() {
-            value /= &square;
-            outside *= &prime;
-        }
+        extract_repeated_square_factor(&mut value, &mut outside, prime);
+    }
+
+    let mut factor = SMALL_PRIME_SQUARE_FACTORS[SMALL_PRIME_SQUARE_FACTORS.len() - 1] + 2;
+    while factor <= MAX_TRIAL_SQUARE_FACTOR && !value.is_one() {
+        extract_repeated_square_factor(&mut value, &mut outside, factor);
+        factor += 2;
     }
 
     let root = floor_sqrt_nonnegative(&value);
@@ -1201,6 +1203,15 @@ fn extract_square_factor(mut value: BigInt) -> (BigInt, BigInt) {
     }
 
     (outside, value)
+}
+
+fn extract_repeated_square_factor(value: &mut BigInt, outside: &mut BigInt, factor: u32) {
+    let factor = BigInt::from(factor);
+    let square = &factor * &factor;
+    while (&*value % &square).is_zero() {
+        *value /= &square;
+        *outside *= &factor;
+    }
 }
 
 pub(crate) fn floor_sqrt_nonnegative(value: &BigInt) -> BigInt {
@@ -1531,6 +1542,19 @@ mod tests {
             .sqrt_as_simple_radical()
             .unwrap();
         assert_eq!(radical.coefficient.to_string(), "1/2");
+        assert_eq!(radical.radicand.inner.to_string(), "2");
+
+        let radical = Rational::from_integer(Integer::from(6962))
+            .sqrt_as_simple_radical()
+            .unwrap();
+        assert_eq!(radical.coefficient.to_string(), "59");
+        assert_eq!(radical.radicand.inner.to_string(), "2");
+
+        let radical = Rational::new(Integer::from(1), Integer::from(6962))
+            .unwrap()
+            .sqrt_as_simple_radical()
+            .unwrap();
+        assert_eq!(radical.coefficient.to_string(), "1/118");
         assert_eq!(radical.radicand.inner.to_string(), "2");
 
         assert!(Rational::from_integer(Integer::from(4))

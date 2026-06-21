@@ -285,6 +285,11 @@ async function assertSimpleRadicalAlgebra(page) {
     await waitForText(page, "#exact-output", "= sqrt(6)");
     await waitForText(page, "#exact-kind", "RADICAL");
 
+    await page.fill("#expression", "sqrt(6962)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 59sqrt(2)");
+    await waitForText(page, "#exact-kind", "RADICAL");
+
     await page.fill("#expression", "sqrt(8)/sqrt(2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 2");
