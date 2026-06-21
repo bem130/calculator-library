@@ -272,12 +272,21 @@ pub enum PrimitivePolynomialResultantError {
     DegreeOverflow,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct RealAlgebraic {
     pub(crate) minimal_polynomial: PrimitivePolynomial,
     pub(crate) real_root_index: u32,
     pub(crate) isolating_interval: RationalInterval,
 }
+
+impl PartialEq for RealAlgebraic {
+    fn eq(&self, rhs: &Self) -> bool {
+        self.minimal_polynomial == rhs.minimal_polynomial
+            && self.real_root_index == rhs.real_root_index
+    }
+}
+
+impl Eq for RealAlgebraic {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RationalInterval {

@@ -1727,6 +1727,33 @@ mod tests {
     }
 
     #[test]
+    fn real_algebraic_equality_uses_polynomial_and_root_index() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-2, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        let positive_wide = RealAlgebraic::from_irreducible_polynomial(
+            polynomial.clone(),
+            rational_interval(1, 1, 2, 1),
+            64,
+        )
+        .expect("positive square root interval isolates one root");
+        let positive_refined = RealAlgebraic::from_irreducible_polynomial(
+            polynomial.clone(),
+            rational_interval(5, 4, 3, 2),
+            64,
+        )
+        .expect("refined positive square root interval isolates the same root");
+        let negative = RealAlgebraic::from_irreducible_polynomial(
+            polynomial,
+            rational_interval(-2, 1, -1, 1),
+            64,
+        )
+        .expect("negative square root interval isolates one root");
+
+        assert_eq!(positive_wide, positive_refined);
+        assert_ne!(positive_wide, negative);
+    }
+
+    #[test]
     fn resultant_matches_linear_root_difference() {
         let x_minus_two =
             PrimitivePolynomial::new(integers(&[-2, 1])).expect("non-zero polynomial normalizes");
