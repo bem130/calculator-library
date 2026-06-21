@@ -150,6 +150,17 @@ pub(crate) fn log(
     from_rational_bounds(&lower, &upper, precision_bits)
 }
 
+pub(crate) fn atan(
+    value: &CertifiedInterval,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    let lower = dyadic_to_rational(&value.lower)?;
+    let upper = dyadic_to_rational(&value.upper)?;
+    let (lower, _) = atan_rational_bounds(&lower, precision_bits)?;
+    let (_, upper) = atan_rational_bounds(&upper, precision_bits)?;
+    from_rational_bounds(&lower, &upper, precision_bits)
+}
+
 pub(crate) fn pow_i64(
     base: &CertifiedInterval,
     exponent: i64,
@@ -432,6 +443,80 @@ fn log_reduced_rational_bounds(
     Ok((lower, upper))
 }
 
+fn atan_rational_bounds(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    if value.is_negative() {
+        let (lower, upper) = atan_nonnegative_rational_bounds(&value.negate(), precision_bits)?;
+        return Ok((upper.negate(), lower.negate()));
+    }
+    atan_nonnegative_rational_bounds(value, precision_bits)
+}
+
+fn atan_nonnegative_rational_bounds(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    debug_assert!(!value.is_negative());
+    if value.is_zero() {
+        return Ok((Rational::zero(), Rational::zero()));
+    }
+    if compare_rationals(value, &Rational::one()) == Ordering::Greater {
+        let reciprocal = divide_rational(&Rational::one(), value)?;
+        let (reciprocal_lower, reciprocal_upper) =
+            atan_unit_rational_bounds(&reciprocal, precision_bits)?;
+        let (pi_lower, pi_upper) = pi_bounds(precision_bits)?;
+        return Ok((
+            halve_rational(&pi_lower)?.subtract(&reciprocal_upper),
+            halve_rational(&pi_upper)?.subtract(&reciprocal_lower),
+        ));
+    }
+    atan_unit_rational_bounds(value, precision_bits)
+}
+
+fn atan_unit_rational_bounds(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    debug_assert!(!value.is_negative());
+    debug_assert!(compare_rationals(value, &Rational::one()) != Ordering::Greater);
+    let value_squared = value.multiply(value);
+    let term_count = series_terms(precision_bits)?;
+    let mut sum = Rational::zero();
+    let mut term_power = value.clone();
+    for k in 0..=term_count {
+        let denominator = k
+            .checked_mul(2)
+            .and_then(|value| value.checked_add(1))
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        let term = divide_rational(&term_power, &rational_integer(i64::from(denominator)))?;
+        if k.is_multiple_of(2) {
+            sum = sum.add(&term);
+        } else {
+            sum = sum.subtract(&term);
+        }
+        term_power = term_power.multiply(&value_squared);
+    }
+
+    let next_denominator = term_count
+        .checked_add(1)
+        .and_then(|value| value.checked_mul(2))
+        .and_then(|value| value.checked_add(1))
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let next = divide_rational(&term_power, &rational_integer(i64::from(next_denominator)))?;
+    let adjacent = if (term_count + 1).is_multiple_of(2) {
+        sum.add(&next)
+    } else {
+        sum.subtract(&next)
+    };
+    if compare_rationals(&sum, &adjacent) == Ordering::Less {
+        Ok((sum, adjacent))
+    } else {
+        Ok((adjacent, sum))
+    }
+}
+
 fn ceil_nonnegative_rational_to_u32(value: &Rational) -> Result<u32, IntervalError> {
     debug_assert!(!value.is_negative());
     let quotient = value
@@ -468,6 +553,10 @@ fn pow_positive_rational(value: &Rational, exponent: u32) -> Result<Rational, In
 fn divide_rational(left: &Rational, right: &Rational) -> Result<Rational, IntervalError> {
     left.divide(right)
         .map_err(|_| IntervalError::DivisionByIntervalContainingZero)
+}
+
+fn halve_rational(value: &Rational) -> Result<Rational, IntervalError> {
+    divide_rational(value, &rational_integer(2))
 }
 
 fn negate_dyadic(value: &ExactDyadic) -> ExactDyadic {
@@ -880,6 +969,39 @@ mod tests {
         );
         assert_eq!(
             compare_dyadic_to_rational(&negative.upper, &rational(-1, 2)).unwrap(),
+            Ordering::Less
+        );
+    }
+
+    #[test]
+    fn atan_interval_is_inside_coarse_known_bounds() {
+        let small = atan(&from_rational(&rational(1, 3), 128), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&small.lower, &rational(0, 1)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&small.upper, &rational(1, 2)).unwrap(),
+            Ordering::Less
+        );
+
+        let large = atan(&from_rational(&rational(2, 1), 128), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&large.lower, &rational(1, 1)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&large.upper, &rational(3, 2)).unwrap(),
+            Ordering::Less
+        );
+
+        let negative = atan(&from_rational(&rational(-2, 1), 128), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&negative.lower, &rational(-3, 2)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&negative.upper, &rational(-1, 1)).unwrap(),
             Ordering::Less
         );
     }

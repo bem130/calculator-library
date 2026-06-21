@@ -2394,9 +2394,11 @@ fn evaluate_interval_node(
                 interval::from_rational_bounds(&rational(-1, 1), &rational(1, 1), precision_bits)
             }
             Function::Tan => tangent_rational_pi_interval(dag, *argument, precision_bits),
-            Function::Asin | Function::Acos | Function::Atan => {
-                Err(IntervalError::UnsupportedExpression)
-            }
+            Function::Atan => interval::atan(
+                &evaluate_interval_node(dag, *argument, precision_bits)?,
+                precision_bits,
+            ),
+            Function::Asin | Function::Acos => Err(IntervalError::UnsupportedExpression),
         },
     }
 }
