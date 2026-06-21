@@ -196,11 +196,18 @@ pub enum PrimitivePolynomialConstructionError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrimitivePolynomialDivisionError {
     ZeroDivisor,
+    NotDivisible,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrimitivePolynomial {
     pub coefficients_low_to_high: Vec<Integer>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PrimitiveSquareFreeFactor {
+    pub factor: PrimitivePolynomial,
+    pub multiplicity: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
