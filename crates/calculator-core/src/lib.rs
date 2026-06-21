@@ -6,6 +6,7 @@ extern crate alloc;
 mod api;
 mod expression;
 mod interval;
+mod polynomial;
 mod session;
 mod syntax;
 mod types;

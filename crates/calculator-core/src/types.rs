@@ -188,6 +188,11 @@ pub enum RationalArithmeticError {
     ExponentTooLarge,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrimitivePolynomialConstructionError {
+    ZeroPolynomial,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrimitivePolynomial {
     pub coefficients_low_to_high: Vec<Integer>,
