@@ -702,6 +702,60 @@ impl PrimitivePolynomial {
         interpolate_integer_polynomial_at_consecutive_integers(&samples)
     }
 
+    pub fn root_product_resultant_bounded(
+        &self,
+        rhs: &Self,
+        max_resultant_degree: u32,
+    ) -> Result<Self, PrimitivePolynomialResultantError> {
+        let lhs = Self::new(effective_coefficients(&self.coefficients_low_to_high).to_vec())
+            .map_err(resultant_construction_error)?;
+        let rhs = Self::new(effective_coefficients(&rhs.coefficients_low_to_high).to_vec())
+            .map_err(resultant_construction_error)?;
+        let lhs_degree = lhs
+            .degree()
+            .ok_or(PrimitivePolynomialResultantError::ZeroPolynomial)?;
+        let rhs_degree = rhs
+            .degree()
+            .ok_or(PrimitivePolynomialResultantError::ZeroPolynomial)?;
+        if lhs_degree == 0 || rhs_degree == 0 {
+            return Err(PrimitivePolynomialResultantError::ConstantPolynomial);
+        }
+        let output_degree = lhs_degree
+            .checked_mul(rhs_degree)
+            .ok_or(PrimitivePolynomialResultantError::DegreeOverflow)?;
+        if output_degree > max_resultant_degree as usize {
+            return Err(PrimitivePolynomialResultantError::DegreeLimitExceeded);
+        }
+        let matrix_degree = lhs_degree
+            .checked_add(rhs_degree)
+            .ok_or(PrimitivePolynomialResultantError::DegreeOverflow)?;
+        if matrix_degree > max_resultant_degree as usize {
+            return Err(PrimitivePolynomialResultantError::DegreeLimitExceeded);
+        }
+
+        let sample_count = output_degree
+            .checked_add(1)
+            .ok_or(PrimitivePolynomialResultantError::DegreeOverflow)?;
+        let mut points = Vec::with_capacity(sample_count);
+        let mut samples = Vec::with_capacity(sample_count);
+        for point in 1..=sample_count {
+            let point = BigInt::from(point);
+            let product_sample = lhs.product_resultant_sample_coefficients(&point)?;
+            points.push(point);
+            samples.push(
+                resultant_coefficients_with_degree_limit(
+                    &product_sample,
+                    effective_coefficients(&rhs.coefficients_low_to_high),
+                    Some(max_resultant_degree),
+                )?
+                .inner,
+            );
+        }
+
+        interpolate_integer_polynomial_at_points(&points, &samples)
+            .ok_or(PrimitivePolynomialResultantError::NonIntegralInterpolation)
+    }
+
     fn resultant_with_degree_limit(
         &self,
         rhs: &Self,
@@ -711,52 +765,11 @@ impl PrimitivePolynomial {
             .map_err(resultant_construction_error)?;
         let rhs = Self::new(effective_coefficients(&rhs.coefficients_low_to_high).to_vec())
             .map_err(resultant_construction_error)?;
-        let lhs_coefficients = effective_coefficients(&lhs.coefficients_low_to_high);
-        let rhs_coefficients = effective_coefficients(&rhs.coefficients_low_to_high);
-        let lhs_degree = lhs_coefficients.len() - 1;
-        let rhs_degree = rhs_coefficients.len() - 1;
-        let matrix_size = lhs_degree
-            .checked_add(rhs_degree)
-            .ok_or(PrimitivePolynomialResultantError::DegreeOverflow)?;
-        if let Some(max_resultant_degree) = max_resultant_degree {
-            let max_resultant_degree = max_resultant_degree as usize;
-            if matrix_size > max_resultant_degree {
-                return Err(PrimitivePolynomialResultantError::DegreeLimitExceeded);
-            }
-        }
-
-        if lhs_degree == 0 && rhs_degree == 0 {
-            return Ok(Integer::one());
-        }
-        if lhs_degree == 0 {
-            return Ok(Integer::from_bigint(pow_bigint_usize(
-                &lhs_coefficients[0].inner,
-                rhs_degree,
-            )));
-        }
-        if rhs_degree == 0 {
-            return Ok(Integer::from_bigint(pow_bigint_usize(
-                &rhs_coefficients[0].inner,
-                lhs_degree,
-            )));
-        }
-
-        let mut matrix = vec![vec![BigInt::zero(); matrix_size]; matrix_size];
-        let lhs_high_to_low = reversed_bigint_coefficients(lhs_coefficients);
-        let rhs_high_to_low = reversed_bigint_coefficients(rhs_coefficients);
-        for (row, matrix_row) in matrix.iter_mut().take(rhs_degree).enumerate() {
-            matrix_row[row..row + lhs_high_to_low.len()].clone_from_slice(&lhs_high_to_low);
-        }
-        for (row, matrix_row) in matrix
-            .iter_mut()
-            .skip(rhs_degree)
-            .take(lhs_degree)
-            .enumerate()
-        {
-            matrix_row[row..row + rhs_high_to_low.len()].clone_from_slice(&rhs_high_to_low);
-        }
-
-        Ok(Integer::from_bigint(bareiss_determinant(matrix)))
+        resultant_coefficients_with_degree_limit(
+            effective_coefficients(&lhs.coefficients_low_to_high),
+            effective_coefficients(&rhs.coefficients_low_to_high),
+            max_resultant_degree,
+        )
     }
 
     fn compose_integer_minus_x(
@@ -784,6 +797,25 @@ impl PrimitivePolynomial {
         }
         Self::new(composed.into_iter().map(Integer::from_bigint).collect())
             .map_err(resultant_construction_error)
+    }
+
+    fn product_resultant_sample_coefficients(
+        &self,
+        sample: &BigInt,
+    ) -> Result<Vec<Integer>, PrimitivePolynomialResultantError> {
+        let coefficients = effective_coefficients(&self.coefficients_low_to_high);
+        if coefficients.is_empty() {
+            return Err(PrimitivePolynomialResultantError::ZeroPolynomial);
+        }
+        let degree = coefficients.len() - 1;
+        let mut composed = vec![BigInt::zero(); degree + 1];
+        for (source_degree, coefficient) in coefficients.iter().enumerate() {
+            let target_degree = degree - source_degree;
+            let mut term = coefficient.inner.clone();
+            term *= pow_bigint_usize(sample, source_degree);
+            composed[target_degree] += term;
+        }
+        Ok(composed.into_iter().map(Integer::from_bigint).collect())
     }
 
     pub fn factor_rational_roots(
@@ -1407,6 +1439,63 @@ fn consume_root_isolation_step(
     }
     *steps += 1;
     Ok(())
+}
+
+fn resultant_coefficients_with_degree_limit(
+    lhs_coefficients: &[Integer],
+    rhs_coefficients: &[Integer],
+    max_resultant_degree: Option<u32>,
+) -> Result<Integer, PrimitivePolynomialResultantError> {
+    let lhs_coefficients = effective_coefficients(lhs_coefficients);
+    let rhs_coefficients = effective_coefficients(rhs_coefficients);
+    if lhs_coefficients.is_empty() || rhs_coefficients.is_empty() {
+        return Err(PrimitivePolynomialResultantError::ZeroPolynomial);
+    }
+
+    let lhs_degree = lhs_coefficients.len() - 1;
+    let rhs_degree = rhs_coefficients.len() - 1;
+    let matrix_size = lhs_degree
+        .checked_add(rhs_degree)
+        .ok_or(PrimitivePolynomialResultantError::DegreeOverflow)?;
+    if let Some(max_resultant_degree) = max_resultant_degree {
+        let max_resultant_degree = max_resultant_degree as usize;
+        if matrix_size > max_resultant_degree {
+            return Err(PrimitivePolynomialResultantError::DegreeLimitExceeded);
+        }
+    }
+
+    if lhs_degree == 0 && rhs_degree == 0 {
+        return Ok(Integer::one());
+    }
+    if lhs_degree == 0 {
+        return Ok(Integer::from_bigint(pow_bigint_usize(
+            &lhs_coefficients[0].inner,
+            rhs_degree,
+        )));
+    }
+    if rhs_degree == 0 {
+        return Ok(Integer::from_bigint(pow_bigint_usize(
+            &rhs_coefficients[0].inner,
+            lhs_degree,
+        )));
+    }
+
+    let mut matrix = vec![vec![BigInt::zero(); matrix_size]; matrix_size];
+    let lhs_high_to_low = reversed_bigint_coefficients(lhs_coefficients);
+    let rhs_high_to_low = reversed_bigint_coefficients(rhs_coefficients);
+    for (row, matrix_row) in matrix.iter_mut().take(rhs_degree).enumerate() {
+        matrix_row[row..row + lhs_high_to_low.len()].clone_from_slice(&lhs_high_to_low);
+    }
+    for (row, matrix_row) in matrix
+        .iter_mut()
+        .skip(rhs_degree)
+        .take(lhs_degree)
+        .enumerate()
+    {
+        matrix_row[row..row + rhs_high_to_low.len()].clone_from_slice(&rhs_high_to_low);
+    }
+
+    Ok(Integer::from_bigint(bareiss_determinant(matrix)))
 }
 
 fn reversed_bigint_coefficients(coefficients: &[Integer]) -> Vec<BigInt> {
@@ -2936,6 +3025,43 @@ mod tests {
         );
         assert_eq!(
             square_root_two.root_sum_resultant_bounded(&square_root_three, 3),
+            Err(PrimitivePolynomialResultantError::DegreeLimitExceeded)
+        );
+    }
+
+    #[test]
+    fn root_product_resultant_recovers_product_elimination_polynomial() {
+        let x_minus_two =
+            PrimitivePolynomial::new(integers(&[-2, 1])).expect("non-zero polynomial normalizes");
+        let x_minus_three =
+            PrimitivePolynomial::new(integers(&[-3, 1])).expect("non-zero polynomial normalizes");
+        assert_eq!(
+            x_minus_two
+                .root_product_resultant_bounded(&x_minus_three, 4)
+                .unwrap(),
+            PrimitivePolynomial::new(integers(&[-6, 1])).expect("product resultant normalizes")
+        );
+
+        let square_root_two = PrimitivePolynomial::new(integers(&[-2, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        assert_eq!(
+            square_root_two
+                .root_product_resultant_bounded(&x_minus_three, 8)
+                .unwrap(),
+            PrimitivePolynomial::new(integers(&[-18, 0, 1])).expect("product resultant normalizes")
+        );
+
+        let square_root_three = PrimitivePolynomial::new(integers(&[-3, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        assert_eq!(
+            square_root_two
+                .root_product_resultant_bounded(&square_root_three, 8)
+                .unwrap(),
+            PrimitivePolynomial::new(integers(&[36, 0, -12, 0, 1]))
+                .expect("product resultant normalizes")
+        );
+        assert_eq!(
+            square_root_two.root_product_resultant_bounded(&square_root_three, 3),
             Err(PrimitivePolynomialResultantError::DegreeLimitExceeded)
         );
     }
