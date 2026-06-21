@@ -1,4 +1,7 @@
-use alloc::string::{String, ToString};
+use alloc::{
+    format,
+    string::{String, ToString},
+};
 
 use crate::types::*;
 
@@ -28,7 +31,7 @@ pub fn reduce_input(
         InputAction::BinaryOperator(operator) => {
             edit_source(state, binary_operator_source(operator))
         }
-        InputAction::Percent => edit_source(state, "%"),
+        InputAction::Percent => percent(state, policy),
         InputAction::OpenParenthesis => edit_source(state, "("),
         InputAction::CloseParenthesis => edit_source(state, ")"),
         InputAction::DeleteBackward => delete_backward(state),
@@ -133,6 +136,184 @@ fn edit_source(state: &InputState, text: &str) -> Result<SessionReduction, Input
     next.cursor_utf8 = (start + text.len()) as u32;
     next.selection_utf8 = OptionalTextSpan::None;
     Ok(no_command(next))
+}
+
+fn percent(state: &InputState, policy: &InputPolicy) -> Result<SessionReduction, InputError> {
+    match policy.percent_policy {
+        PercentPolicy::ExpressionPercent => edit_source(state, "%"),
+        PercentPolicy::CalculatorPercent => calculator_percent(state),
+    }
+}
+
+fn calculator_percent(state: &InputState) -> Result<SessionReduction, InputError> {
+    let mut next = editable_state(state);
+    let (start, end) = selected_or_cursor_span(&next)?;
+    if start != end {
+        next.source.replace_range(start..end, "%");
+        next.cursor_utf8 = (start + 1) as u32;
+        next.selection_utf8 = OptionalTextSpan::None;
+        return Ok(no_command(next));
+    }
+
+    if let Some(rewrite) = calculator_percent_rewrite(&next.source, start) {
+        next.source
+            .replace_range(rewrite.start..rewrite.end, &rewrite.text);
+        next.cursor_utf8 = (rewrite.start + rewrite.text.len()) as u32;
+    } else {
+        next.source.replace_range(start..start, "%");
+        next.cursor_utf8 = (start + 1) as u32;
+    }
+    next.selection_utf8 = OptionalTextSpan::None;
+    Ok(no_command(next))
+}
+
+struct PercentRewrite {
+    start: usize,
+    end: usize,
+    text: String,
+}
+
+fn calculator_percent_rewrite(source: &str, cursor: usize) -> Option<PercentRewrite> {
+    let operand_end = trim_end_whitespace(source, cursor);
+    let container_start = containing_expression_start(source, operand_end);
+    let operator_start = find_additive_operator(source, container_start, operand_end)?;
+    let rhs_start = trim_start_whitespace(source, operator_start + 1, operand_end);
+    if rhs_start >= operand_end {
+        return None;
+    }
+
+    let base = source[container_start..operator_start].trim();
+    let rhs = source[rhs_start..operand_end].trim();
+    if base.is_empty() || rhs.is_empty() {
+        return None;
+    }
+
+    Some(PercentRewrite {
+        start: rhs_start,
+        end: operand_end,
+        text: format!("(({})*({})/100)", base, rhs),
+    })
+}
+
+fn containing_expression_start(source: &str, end: usize) -> usize {
+    let mut cursor = end;
+    let mut depth = 0_u32;
+    while let Some((index, ch)) = previous_char(source, cursor) {
+        match ch {
+            ')' => depth += 1,
+            '(' if depth == 0 => return index + ch.len_utf8(),
+            '(' => depth -= 1,
+            _ => {}
+        }
+        cursor = index;
+    }
+    0
+}
+
+fn find_additive_operator(source: &str, start: usize, end: usize) -> Option<usize> {
+    let mut cursor = end;
+    let mut depth = 0_u32;
+    while cursor > start {
+        let (index, ch) = previous_char(source, cursor)?;
+        match ch {
+            ')' => depth += 1,
+            '(' if depth > 0 => depth -= 1,
+            '+' | '-' if depth == 0 && is_binary_additive_operator(source, index, start, end) => {
+                return Some(index);
+            }
+            _ => {}
+        }
+        cursor = index;
+    }
+    None
+}
+
+fn is_binary_additive_operator(source: &str, index: usize, start: usize, end: usize) -> bool {
+    if is_number_exponent_sign(source, index) {
+        return false;
+    }
+    let Some((previous_index, previous)) = previous_non_whitespace(source, index) else {
+        return false;
+    };
+    if previous_index < start {
+        return false;
+    }
+    if matches!(previous, '(' | '+' | '-' | '*' | '/' | '^') {
+        return false;
+    }
+    next_non_whitespace(source, index + 1).is_some_and(|(next_index, _)| next_index < end)
+}
+
+fn is_number_exponent_sign(source: &str, index: usize) -> bool {
+    let Some((exponent_index, exponent)) = previous_char(source, index) else {
+        return false;
+    };
+    if exponent != 'e' && exponent != 'E' {
+        return false;
+    }
+    let Some((_, before_exponent)) = previous_char(source, exponent_index) else {
+        return false;
+    };
+    let Some((_, after_sign)) = next_char(source, index + 1) else {
+        return false;
+    };
+    before_exponent.is_ascii_digit() && after_sign.is_ascii_digit()
+}
+
+fn trim_start_whitespace(source: &str, start: usize, end: usize) -> usize {
+    let mut cursor = start;
+    while cursor < end {
+        let ch = source[cursor..].chars().next().expect("cursor is in range");
+        if !ch.is_whitespace() {
+            return cursor;
+        }
+        cursor += ch.len_utf8();
+    }
+    end
+}
+
+fn trim_end_whitespace(source: &str, end: usize) -> usize {
+    let mut cursor = end;
+    while let Some((index, ch)) = previous_char(source, cursor) {
+        if !ch.is_whitespace() {
+            return cursor;
+        }
+        cursor = index;
+    }
+    0
+}
+
+fn previous_non_whitespace(source: &str, cursor: usize) -> Option<(usize, char)> {
+    let mut current = cursor;
+    while let Some((index, ch)) = previous_char(source, current) {
+        if !ch.is_whitespace() {
+            return Some((index, ch));
+        }
+        current = index;
+    }
+    None
+}
+
+fn next_non_whitespace(source: &str, cursor: usize) -> Option<(usize, char)> {
+    let mut current = cursor;
+    while let Some((index, ch)) = next_char(source, current) {
+        if !ch.is_whitespace() {
+            return Some((index, ch));
+        }
+        current = index + ch.len_utf8();
+    }
+    None
+}
+
+fn previous_char(source: &str, cursor: usize) -> Option<(usize, char)> {
+    source[..cursor].char_indices().last()
+}
+
+fn next_char(source: &str, cursor: usize) -> Option<(usize, char)> {
+    source[cursor..]
+        .char_indices()
+        .next()
+        .map(|(offset, ch)| (cursor + offset, ch))
 }
 
 fn delete_backward(state: &InputState) -> Result<SessionReduction, InputError> {
@@ -242,7 +423,26 @@ mod tests {
     use super::*;
 
     fn reduce_sequence(actions: &[InputAction]) -> SessionReduction {
-        let policy = InputPolicy::default();
+        reduce_sequence_with_policy(actions, InputPolicy::default())
+    }
+
+    fn reduce_sequence_with_percent_policy(
+        actions: &[InputAction],
+        percent_policy: PercentPolicy,
+    ) -> SessionReduction {
+        reduce_sequence_with_policy(
+            actions,
+            InputPolicy {
+                percent_policy,
+                ..InputPolicy::default()
+            },
+        )
+    }
+
+    fn reduce_sequence_with_policy(
+        actions: &[InputAction],
+        policy: InputPolicy,
+    ) -> SessionReduction {
         let mut state = InputState::empty();
         let mut reduction = no_command(state.clone());
         for action in actions {
@@ -251,6 +451,24 @@ mod tests {
             state = reduction.state.clone();
         }
         reduction
+    }
+
+    fn exact_plain_text(source: &str) -> String {
+        let request = CalculationRequest {
+            scientific_output: ScientificOutputRequest::Omit,
+            enclosure_output: EnclosureOutputRequest::Omit,
+            ..CalculationRequest::default()
+        };
+        let mut context = EvaluationContext::default();
+        let outcome =
+            crate::calculate(source, &request, &mut context).expect("source should calculate");
+        let CalculationOutcome::Complete(calculation) = outcome else {
+            panic!("expected complete calculation");
+        };
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("expected exact output");
+        };
+        exact.plain_text
     }
 
     #[test]
@@ -280,6 +498,168 @@ mod tests {
             InputAction::Constant(Constant::Pi),
         ]);
         assert_eq!(reduction.state.source, "sqrt(2)*pi");
+    }
+
+    #[test]
+    fn expression_percent_keeps_string_api_meaning() {
+        let reduction = reduce_sequence_with_percent_policy(
+            &[
+                InputAction::Digit(1),
+                InputAction::Digit(0),
+                InputAction::Digit(0),
+                InputAction::BinaryOperator(BinaryOperator::Add),
+                InputAction::Digit(1),
+                InputAction::Digit(0),
+                InputAction::Percent,
+                InputAction::Evaluate,
+            ],
+            PercentPolicy::ExpressionPercent,
+        );
+        let SessionCommand::Calculate { source, .. } = reduction.command else {
+            panic!("expected calculate command");
+        };
+        assert_eq!(source, "100+10%");
+        assert_eq!(exact_plain_text(&source), "1001/10");
+    }
+
+    #[test]
+    fn calculator_percent_uses_additive_left_operand() {
+        let addition = reduce_sequence_with_percent_policy(
+            &[
+                InputAction::Digit(1),
+                InputAction::Digit(0),
+                InputAction::Digit(0),
+                InputAction::BinaryOperator(BinaryOperator::Add),
+                InputAction::Digit(1),
+                InputAction::Digit(0),
+                InputAction::Percent,
+                InputAction::Evaluate,
+            ],
+            PercentPolicy::CalculatorPercent,
+        );
+        let SessionCommand::Calculate {
+            source: addition, ..
+        } = addition.command
+        else {
+            panic!("expected calculate command");
+        };
+        assert_eq!(addition, "100+((100)*(10)/100)");
+        assert_eq!(exact_plain_text(&addition), "110");
+
+        let subtraction = reduce_sequence_with_percent_policy(
+            &[
+                InputAction::Digit(1),
+                InputAction::Digit(0),
+                InputAction::Digit(0),
+                InputAction::BinaryOperator(BinaryOperator::Subtract),
+                InputAction::Digit(1),
+                InputAction::Digit(0),
+                InputAction::Percent,
+                InputAction::Evaluate,
+            ],
+            PercentPolicy::CalculatorPercent,
+        );
+        let SessionCommand::Calculate {
+            source: subtraction,
+            ..
+        } = subtraction.command
+        else {
+            panic!("expected calculate command");
+        };
+        assert_eq!(subtraction, "100-((100)*(10)/100)");
+        assert_eq!(exact_plain_text(&subtraction), "90");
+    }
+
+    #[test]
+    fn calculator_percent_keeps_product_and_repeated_percent_semantics() {
+        let product = reduce_sequence_with_percent_policy(
+            &[
+                InputAction::Digit(1),
+                InputAction::Digit(0),
+                InputAction::Digit(0),
+                InputAction::BinaryOperator(BinaryOperator::Multiply),
+                InputAction::Digit(1),
+                InputAction::Digit(0),
+                InputAction::Percent,
+                InputAction::Evaluate,
+            ],
+            PercentPolicy::CalculatorPercent,
+        );
+        let SessionCommand::Calculate {
+            source: product, ..
+        } = product.command
+        else {
+            panic!("expected calculate command");
+        };
+        assert_eq!(product, "100*10%");
+        assert_eq!(exact_plain_text(&product), "10");
+
+        let division = reduce_sequence_with_percent_policy(
+            &[
+                InputAction::Digit(1),
+                InputAction::Digit(0),
+                InputAction::Digit(0),
+                InputAction::BinaryOperator(BinaryOperator::Divide),
+                InputAction::Digit(1),
+                InputAction::Digit(0),
+                InputAction::Percent,
+                InputAction::Evaluate,
+            ],
+            PercentPolicy::CalculatorPercent,
+        );
+        let SessionCommand::Calculate {
+            source: division, ..
+        } = division.command
+        else {
+            panic!("expected calculate command");
+        };
+        assert_eq!(division, "100/10%");
+        assert_eq!(exact_plain_text(&division), "1000");
+
+        let repeated = reduce_sequence_with_percent_policy(
+            &[
+                InputAction::Digit(5),
+                InputAction::Digit(0),
+                InputAction::Percent,
+                InputAction::Percent,
+                InputAction::Evaluate,
+            ],
+            PercentPolicy::CalculatorPercent,
+        );
+        let SessionCommand::Calculate {
+            source: repeated, ..
+        } = repeated.command
+        else {
+            panic!("expected calculate command");
+        };
+        assert_eq!(repeated, "50%%");
+        assert_eq!(exact_plain_text(&repeated), "1/200");
+    }
+
+    #[test]
+    fn calculator_percent_uses_nearest_parenthesized_additive_context() {
+        let reduction = reduce_sequence_with_percent_policy(
+            &[
+                InputAction::Digit(2),
+                InputAction::BinaryOperator(BinaryOperator::Multiply),
+                InputAction::OpenParenthesis,
+                InputAction::Digit(1),
+                InputAction::Digit(0),
+                InputAction::Digit(0),
+                InputAction::BinaryOperator(BinaryOperator::Add),
+                InputAction::Digit(1),
+                InputAction::Digit(0),
+                InputAction::Percent,
+                InputAction::CloseParenthesis,
+                InputAction::Evaluate,
+            ],
+            PercentPolicy::CalculatorPercent,
+        );
+        let SessionCommand::Calculate { source, .. } = reduction.command else {
+            panic!("expected calculate command");
+        };
+        assert_eq!(source, "2*(100+((100)*(10)/100))");
+        assert_eq!(exact_plain_text(&source), "220");
     }
 
     #[test]

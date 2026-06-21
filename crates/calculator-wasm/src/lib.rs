@@ -349,6 +349,50 @@ mod tests {
     }
 
     #[test]
+    fn session_dispatch_honors_calculator_percent_policy() {
+        let mut policy = input_policy();
+        policy.percent_policy = PercentPolicyDto::CalculatorPercent;
+        let mut session = SessionCore::new(policy).unwrap();
+        for action in [
+            InputActionDto::Digit { value: 1 },
+            InputActionDto::Digit { value: 0 },
+            InputActionDto::Digit { value: 0 },
+            InputActionDto::BinaryOperator {
+                value: BinaryOperatorDto::Add,
+            },
+            InputActionDto::Digit { value: 1 },
+            InputActionDto::Digit { value: 0 },
+            InputActionDto::Percent,
+        ] {
+            session.dispatch_dto(action);
+        }
+
+        let SessionDispatchResultDto::Calculate {
+            source, request, ..
+        } = session.dispatch_dto(InputActionDto::Evaluate)
+        else {
+            panic!("expected calculate command");
+        };
+        assert_eq!(source, "100+((100)*(10)/100)");
+
+        let result = calculate_dto(&source, request);
+        let ApiResultDto::Ok {
+            value:
+                CalculationOutcomeDto::Complete {
+                    calculation:
+                        CalculationDto {
+                            exact: ExactOutputDto::Included { value },
+                            ..
+                        },
+                },
+        } = result
+        else {
+            panic!("expected exact successful calculation");
+        };
+        assert_eq!(value.plain_text, "110");
+    }
+
+    #[test]
     fn session_dispatch_reports_input_error_without_mutating_state() {
         let mut session = SessionCore::new(input_policy()).unwrap();
         let result = session.dispatch_dto(InputActionDto::MemoryRecall);
