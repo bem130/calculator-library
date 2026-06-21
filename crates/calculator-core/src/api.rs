@@ -25,6 +25,8 @@ pub fn calculate(
     request: &CalculationRequest,
     context: &mut EvaluationContext,
 ) -> Result<CalculationOutcome, CalculatorError> {
+    let limits = resource_limits(&request.limits);
+    validate_input_bytes(source, &limits).map_err(CalculatorError::InputLimit)?;
     let parsed = parse(source, &request.parse).map_err(CalculatorError::Parse)?;
     let evaluation = evaluate(
         &parsed,
@@ -79,7 +81,10 @@ pub fn evaluate(
     request: &EvaluationRequest,
     _context: &mut EvaluationContext,
 ) -> Result<EvaluationOutcome, EvaluationError> {
+    let limits = resource_limits(&request.limits);
+    validate_parsed_expression_limits(expression, &limits).map_err(EvaluationError::InputLimit)?;
     let dag = lower_source_expression(&expression.root, request.semantics)?;
+    validate_expression_dag_limits(&dag, &limits).map_err(EvaluationError::InputLimit)?;
     let rational = match evaluate_rational_evaluation_dag(&dag) {
         Ok(rational) => rational,
         Err(error) if should_fallback_to_symbolic_interval(&error) => {
@@ -200,7 +205,6 @@ pub fn evaluate(
                     }
                 }
             }
-            let limits = resource_limits(&request.limits);
             if let Some(algebraic) = evaluate_real_algebraic_dag(&dag, &limits)? {
                 let certified_enclosure =
                     real_algebraic_enclosure(&dag, &algebraic).map_err(|interval_error| {
@@ -538,6 +542,48 @@ fn resource_limits(request: &ResourceLimitRequest) -> ResourceLimits {
         ResourceLimitRequest::Default => ResourceLimits::default(),
         ResourceLimitRequest::Custom(value) => value.clone(),
     }
+}
+
+fn validate_input_bytes(source: &str, limits: &ResourceLimits) -> Result<(), InputLimitError> {
+    if source.len() > limits.max_input_bytes as usize {
+        return Err(InputLimitError {
+            kind: InputLimitErrorKind::InputTooLong,
+        });
+    }
+    Ok(())
+}
+
+fn validate_parsed_expression_limits(
+    expression: &ParsedExpression,
+    limits: &ResourceLimits,
+) -> Result<(), InputLimitError> {
+    validate_input_bytes(&expression.source, limits)?;
+    let stats = expression.root.stats().ok_or(InputLimitError {
+        kind: InputLimitErrorKind::SourceAstTooLarge,
+    })?;
+    if stats.depth > limits.max_source_depth {
+        return Err(InputLimitError {
+            kind: InputLimitErrorKind::SourceAstTooDeep,
+        });
+    }
+    if stats.nodes > limits.max_source_ast_nodes {
+        return Err(InputLimitError {
+            kind: InputLimitErrorKind::SourceAstTooLarge,
+        });
+    }
+    Ok(())
+}
+
+fn validate_expression_dag_limits(
+    dag: &ExactExpressionDag,
+    limits: &ResourceLimits,
+) -> Result<(), InputLimitError> {
+    if dag.nodes().len() > limits.max_expression_nodes as usize {
+        return Err(InputLimitError {
+            kind: InputLimitErrorKind::ExpressionTooLarge,
+        });
+    }
+    Ok(())
 }
 
 fn partial_reason(calculation: &Calculation) -> Option<IncompleteReason> {
