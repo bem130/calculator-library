@@ -102,6 +102,12 @@
       "expectedExact": "pi/6"
     },
     {
+      "id": "radical_inverse_trigonometric_known_value",
+      "source": "atan(sqrt(3))",
+      "expectedParseTree": "atan(sqrt(number(3)))",
+      "expectedExact": "pi/3"
+    },
+    {
       "id": "inverse_trigonometric_out_of_range",
       "source": "acos(-2)",
       "expectedParseTree": "acos(negate(number(2)))",

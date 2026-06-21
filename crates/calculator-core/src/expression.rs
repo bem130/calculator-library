@@ -1107,70 +1107,175 @@ fn evaluate_inverse_trig_pi_coefficient(
     function: Function,
     argument: ExprId,
 ) -> Result<Option<PiCoefficientEvaluation>, EvaluationError> {
-    let argument = match evaluate_node(dag, argument) {
-        Ok(value) => value,
-        Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+    let reduction = match evaluate_node(dag, argument) {
+        Ok(value) => RadicalReduction::Rational(value),
+        Err(error) if is_unsupported_exact_expression(&error) => {
+            let Some(reduction) = evaluate_radical_node(dag, argument)? else {
+                return Ok(None);
+            };
+            reduction
+        }
         Err(error) => return Err(error),
     };
     let coefficient = match function {
-        Function::Asin => asin_known_pi_coefficient(argument.value())?,
-        Function::Acos => acos_known_pi_coefficient(argument.value())?,
-        Function::Atan => atan_known_pi_coefficient(argument.value()),
+        Function::Asin => asin_known_pi_coefficient(&reduction)?,
+        Function::Acos => acos_known_pi_coefficient(&reduction)?,
+        Function::Atan => atan_known_pi_coefficient(&reduction),
         _ => unreachable!("only inverse trigonometric functions are dispatched here"),
     };
     Ok(coefficient.map(PiCoefficientEvaluation::special_angle))
 }
 
-fn asin_known_pi_coefficient(argument: &Rational) -> Result<Option<Rational>, EvaluationError> {
-    ensure_inverse_sine_cosine_domain(argument)?;
-    if *argument == rational_integer(-1) {
-        Ok(Some(rational(-1, 2)))
-    } else if *argument == rational(-1, 2) {
-        Ok(Some(rational(-1, 6)))
-    } else if argument.is_zero() {
-        Ok(Some(Rational::zero()))
-    } else if *argument == rational(1, 2) {
-        Ok(Some(rational(1, 6)))
-    } else if *argument == Rational::one() {
-        Ok(Some(rational(1, 2)))
-    } else {
-        Ok(None)
+fn asin_known_pi_coefficient(
+    argument: &RadicalReduction,
+) -> Result<Option<Rational>, EvaluationError> {
+    match argument {
+        RadicalReduction::Rational(argument) => {
+            let argument = argument.value();
+            ensure_inverse_sine_cosine_rational_domain(argument)?;
+            if *argument == rational_integer(-1) {
+                Ok(Some(rational(-1, 2)))
+            } else if *argument == rational(-1, 2) {
+                Ok(Some(rational(-1, 6)))
+            } else if argument.is_zero() {
+                Ok(Some(Rational::zero()))
+            } else if *argument == rational(1, 2) {
+                Ok(Some(rational(1, 6)))
+            } else if *argument == Rational::one() {
+                Ok(Some(rational(1, 2)))
+            } else {
+                Ok(None)
+            }
+        }
+        RadicalReduction::Radical(argument) => {
+            ensure_inverse_sine_cosine_radical_domain(argument.value())?;
+            Ok(asin_radical_pi_coefficient(argument.value()))
+        }
+        RadicalReduction::LinearCombination(_) => Ok(None),
     }
 }
 
-fn acos_known_pi_coefficient(argument: &Rational) -> Result<Option<Rational>, EvaluationError> {
-    ensure_inverse_sine_cosine_domain(argument)?;
-    if *argument == rational_integer(-1) {
-        Ok(Some(Rational::one()))
-    } else if *argument == rational(-1, 2) {
-        Ok(Some(rational(2, 3)))
-    } else if argument.is_zero() {
-        Ok(Some(rational(1, 2)))
-    } else if *argument == rational(1, 2) {
-        Ok(Some(rational(1, 3)))
-    } else if *argument == Rational::one() {
-        Ok(Some(Rational::zero()))
-    } else {
-        Ok(None)
+fn acos_known_pi_coefficient(
+    argument: &RadicalReduction,
+) -> Result<Option<Rational>, EvaluationError> {
+    match argument {
+        RadicalReduction::Rational(argument) => {
+            let argument = argument.value();
+            ensure_inverse_sine_cosine_rational_domain(argument)?;
+            if *argument == rational_integer(-1) {
+                Ok(Some(Rational::one()))
+            } else if *argument == rational(-1, 2) {
+                Ok(Some(rational(2, 3)))
+            } else if argument.is_zero() {
+                Ok(Some(rational(1, 2)))
+            } else if *argument == rational(1, 2) {
+                Ok(Some(rational(1, 3)))
+            } else if *argument == Rational::one() {
+                Ok(Some(Rational::zero()))
+            } else {
+                Ok(None)
+            }
+        }
+        RadicalReduction::Radical(argument) => {
+            ensure_inverse_sine_cosine_radical_domain(argument.value())?;
+            Ok(acos_radical_pi_coefficient(argument.value()))
+        }
+        RadicalReduction::LinearCombination(_) => Ok(None),
     }
 }
 
-fn atan_known_pi_coefficient(argument: &Rational) -> Option<Rational> {
-    if *argument == rational_integer(-1) {
-        Some(rational(-1, 4))
-    } else if argument.is_zero() {
-        Some(Rational::zero())
-    } else if *argument == Rational::one() {
+fn atan_known_pi_coefficient(argument: &RadicalReduction) -> Option<Rational> {
+    match argument {
+        RadicalReduction::Rational(argument) => {
+            let argument = argument.value();
+            if *argument == rational_integer(-1) {
+                Some(rational(-1, 4))
+            } else if argument.is_zero() {
+                Some(Rational::zero())
+            } else if *argument == Rational::one() {
+                Some(rational(1, 4))
+            } else {
+                None
+            }
+        }
+        RadicalReduction::Radical(argument) => atan_radical_pi_coefficient(argument.value()),
+        RadicalReduction::LinearCombination(_) => None,
+    }
+}
+
+fn asin_radical_pi_coefficient(argument: &SimpleRadical) -> Option<Rational> {
+    if is_simple_radical(argument, rational(1, 2), 2) {
         Some(rational(1, 4))
+    } else if is_simple_radical(argument, rational(-1, 2), 2) {
+        Some(rational(-1, 4))
+    } else if is_simple_radical(argument, rational(1, 2), 3) {
+        Some(rational(1, 3))
+    } else if is_simple_radical(argument, rational(-1, 2), 3) {
+        Some(rational(-1, 3))
     } else {
         None
     }
 }
 
-fn ensure_inverse_sine_cosine_domain(argument: &Rational) -> Result<(), EvaluationError> {
+fn acos_radical_pi_coefficient(argument: &SimpleRadical) -> Option<Rational> {
+    if is_simple_radical(argument, rational(1, 2), 3) {
+        Some(rational(1, 6))
+    } else if is_simple_radical(argument, rational(-1, 2), 3) {
+        Some(rational(5, 6))
+    } else if is_simple_radical(argument, rational(1, 2), 2) {
+        Some(rational(1, 4))
+    } else if is_simple_radical(argument, rational(-1, 2), 2) {
+        Some(rational(3, 4))
+    } else {
+        None
+    }
+}
+
+fn atan_radical_pi_coefficient(argument: &SimpleRadical) -> Option<Rational> {
+    if !has_radicand(argument, 3) {
+        return None;
+    }
+    if argument.coefficient == Rational::one() {
+        Some(rational(1, 3))
+    } else if argument.coefficient == rational_integer(-1) {
+        Some(rational(-1, 3))
+    } else if argument.coefficient == rational(1, 3) {
+        Some(rational(1, 6))
+    } else if argument.coefficient == rational(-1, 3) {
+        Some(rational(-1, 6))
+    } else {
+        None
+    }
+}
+
+fn is_simple_radical(argument: &SimpleRadical, coefficient: Rational, radicand: i64) -> bool {
+    argument.coefficient == coefficient && has_radicand(argument, radicand)
+}
+
+fn has_radicand(argument: &SimpleRadical, radicand: i64) -> bool {
+    argument.radicand.inner == Integer::from(radicand)
+}
+
+fn ensure_inverse_sine_cosine_rational_domain(argument: &Rational) -> Result<(), EvaluationError> {
     if argument.compare(&rational_integer(-1)) == Ordering::Less
         || argument.compare(&Rational::one()) == Ordering::Greater
     {
+        Err(domain_error(
+            DomainErrorKind::InverseTrigonometricOutOfRange,
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn ensure_inverse_sine_cosine_radical_domain(
+    argument: &SimpleRadical,
+) -> Result<(), EvaluationError> {
+    let squared = argument
+        .coefficient
+        .multiply(&argument.coefficient)
+        .multiply(&rational_from_positive_integer(&argument.radicand));
+    if squared.compare(&Rational::one()) == Ordering::Greater {
         Err(domain_error(
             DomainErrorKind::InverseTrigonometricOutOfRange,
         ))

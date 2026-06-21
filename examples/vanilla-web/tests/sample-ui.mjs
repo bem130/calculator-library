@@ -262,6 +262,16 @@ async function assertSpecialAngles(page) {
     await waitForText(page, "#exact-output", "= pi/6");
     await waitForText(page, "#exact-kind", "RATIONAL PI MULTIPLE");
 
+    await page.fill("#expression", "asin(sqrt(2)/2)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= pi/4");
+    await waitForText(page, "#exact-kind", "RATIONAL PI MULTIPLE");
+
+    await page.fill("#expression", "atan(sqrt(3))");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= pi/3");
+    await waitForText(page, "#exact-kind", "RATIONAL PI MULTIPLE");
+
     await page.click('button[data-angle="degree"]');
     await page.fill("#expression", "sin(30)");
     await page.click("#calculate");
@@ -271,6 +281,11 @@ async function assertSpecialAngles(page) {
     await page.fill("#expression", "asin(1/2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 30");
+    await waitForText(page, "#exact-kind", "INTEGER");
+
+    await page.fill("#expression", "atan(sqrt(3))");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 60");
     await waitForText(page, "#exact-kind", "INTEGER");
 }
 

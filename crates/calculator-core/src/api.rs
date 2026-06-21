@@ -1289,15 +1289,23 @@ mod tests {
             ("asin(-1/2)", "-pi/6"),
             ("asin(0)", "0"),
             ("asin(1/2)", "pi/6"),
+            ("asin(sqrt(2)/2)", "pi/4"),
+            ("asin(sqrt(3)/2)", "pi/3"),
             ("asin(1)", "pi/2"),
             ("acos(-1)", "pi"),
             ("acos(-1/2)", "2pi/3"),
+            ("acos(-sqrt(2)/2)", "3pi/4"),
             ("acos(0)", "pi/2"),
+            ("acos(sqrt(3)/2)", "pi/6"),
             ("acos(1/2)", "pi/3"),
             ("acos(1)", "0"),
             ("atan(-1)", "-pi/4"),
+            ("atan(-sqrt(3))", "-pi/3"),
+            ("atan(-sqrt(3)/3)", "-pi/6"),
             ("atan(0)", "0"),
+            ("atan(sqrt(3)/3)", "pi/6"),
             ("atan(1)", "pi/4"),
+            ("atan(sqrt(3))", "pi/3"),
         ] {
             assert_eq!(exact_plain_text(source), expected, "{source}");
         }
@@ -1309,10 +1317,13 @@ mod tests {
         degree_request.semantics.angle_unit = AngleUnit::Degree;
         for (source, expected) in [
             ("asin(1/2)", "30"),
+            ("asin(sqrt(2)/2)", "45"),
             ("asin(-1/2)", "-30"),
             ("acos(-1)", "180"),
+            ("acos(-sqrt(2)/2)", "135"),
             ("acos(1/2)", "60"),
             ("atan(1)", "45"),
+            ("atan(sqrt(3))", "60"),
         ] {
             assert_eq!(
                 exact_plain_text_with_request(source, &degree_request),
@@ -1325,8 +1336,11 @@ mod tests {
         gradian_request.semantics.angle_unit = AngleUnit::Gradian;
         for (source, expected) in [
             ("asin(1/2)", "100/3"),
+            ("asin(sqrt(2)/2)", "50"),
             ("acos(-1)", "200"),
+            ("acos(sqrt(3)/2)", "100/3"),
             ("atan(1)", "50"),
+            ("atan(sqrt(3)/3)", "100/3"),
         ] {
             assert_eq!(
                 exact_plain_text_with_request(source, &gradian_request),
@@ -1948,7 +1962,13 @@ mod tests {
 
     #[test]
     fn inverse_trigonometric_out_of_range_is_domain_error() {
-        for source in ["asin(2)", "asin(exp(log(2)))", "acos(-2)"] {
+        for source in [
+            "asin(2)",
+            "asin(exp(log(2)))",
+            "asin(sqrt(2))",
+            "acos(-2)",
+            "acos(-2*sqrt(2))",
+        ] {
             let mut context = EvaluationContext::default();
             let error = calculate(source, &exact_only_request(), &mut context).expect_err(source);
             assert_eq!(
