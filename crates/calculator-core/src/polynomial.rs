@@ -94,6 +94,43 @@ impl RealAlgebraic {
         )
         .map(Some)
     }
+
+    pub(crate) fn scale_rational_bounded(
+        &self,
+        scalar: &Rational,
+        max_polynomial_coefficient_bits: u32,
+        max_root_isolation_steps: u32,
+    ) -> Result<Option<Self>, RealAlgebraicConstructionError> {
+        if scalar.is_zero() {
+            return Ok(None);
+        }
+        let minimal_polynomial = self
+            .minimal_polynomial
+            .scale_root_by_rational(scalar)
+            .map_err(RealAlgebraicConstructionError::PolynomialConstruction)?;
+        if minimal_polynomial.max_coefficient_bits() > u64::from(max_polynomial_coefficient_bits) {
+            return Ok(None);
+        }
+        let first = self.isolating_interval.lower.multiply(scalar);
+        let second = self.isolating_interval.upper.multiply(scalar);
+        let isolating_interval = if first.compare(&second) == Ordering::Greater {
+            RationalInterval {
+                lower: second,
+                upper: first,
+            }
+        } else {
+            RationalInterval {
+                lower: first,
+                upper: second,
+            }
+        };
+        Self::from_irreducible_polynomial(
+            minimal_polynomial,
+            isolating_interval,
+            max_root_isolation_steps,
+        )
+        .map(Some)
+    }
 }
 
 impl PrimitivePolynomial {
@@ -208,6 +245,31 @@ impl PrimitivePolynomial {
         }
 
         Self::new(translated.into_iter().map(Integer::from_bigint).collect())
+    }
+
+    pub fn scale_root_by_rational(
+        &self,
+        scalar: &Rational,
+    ) -> Result<Self, PrimitivePolynomialConstructionError> {
+        let coefficients = effective_coefficients(&self.coefficients_low_to_high);
+        if coefficients.is_empty() || scalar.is_zero() {
+            return Err(PrimitivePolynomialConstructionError::ZeroPolynomial);
+        }
+
+        let degree = coefficients.len() - 1;
+        let scalar_numerator = &scalar.numerator.inner;
+        let scalar_denominator = &scalar.denominator.inner.inner;
+        let scaled = coefficients
+            .iter()
+            .enumerate()
+            .map(|(source_degree, coefficient)| {
+                let mut value = coefficient.inner.clone();
+                value *= pow_bigint_usize(scalar_denominator, source_degree);
+                value *= pow_bigint_usize(scalar_numerator, degree - source_degree);
+                Integer::from_bigint(value)
+            })
+            .collect();
+        Self::new(scaled)
     }
 
     pub fn derivative(&self) -> Result<Self, PrimitivePolynomialConstructionError> {
@@ -1299,6 +1361,34 @@ mod tests {
     }
 
     #[test]
+    fn scale_root_by_rational_scales_minimal_polynomial() {
+        let square_root_two = PrimitivePolynomial::new(integers(&[-2, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        assert_eq!(
+            square_root_two
+                .scale_root_by_rational(&rational(2, 1))
+                .unwrap(),
+            PrimitivePolynomial::new(integers(&[-8, 0, 1])).expect("scaled polynomial normalizes")
+        );
+        assert_eq!(
+            square_root_two
+                .scale_root_by_rational(&rational(1, 2))
+                .unwrap(),
+            PrimitivePolynomial::new(integers(&[-1, 0, 2])).expect("scaled polynomial normalizes")
+        );
+
+        let cube_root_two = PrimitivePolynomial::new(integers(&[-2, 0, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        assert_eq!(
+            cube_root_two
+                .scale_root_by_rational(&rational(-1, 1))
+                .unwrap(),
+            PrimitivePolynomial::new(integers(&[2, 0, 0, 1]))
+                .expect("scaled polynomial normalizes")
+        );
+    }
+
+    #[test]
     fn primitive_polynomial_derivative_normalizes_and_rejects_zero_derivative() {
         let cubic = PrimitivePolynomial::new(integers(&[-1, -1, 0, 1]))
             .expect("non-zero polynomial normalizes");
@@ -1893,6 +1983,38 @@ mod tests {
         );
         assert_eq!(
             algebraic.add_rational_bounded(&rational(1, 1), 1, 64),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn real_algebraic_scale_rational_scales_polynomial_and_interval() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-2, 0, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        let algebraic = RealAlgebraic::from_irreducible_polynomial(
+            polynomial,
+            rational_interval(1, 1, 2, 1),
+            64,
+        )
+        .expect("cube root interval isolates one root");
+
+        let scaled = algebraic
+            .scale_rational_bounded(&rational(-1, 1), 1_000_000, 64)
+            .unwrap()
+            .expect("scaled polynomial remains within coefficient limit");
+
+        assert_eq!(
+            scaled.minimal_polynomial(),
+            &PrimitivePolynomial::new(integers(&[2, 0, 0, 1]))
+                .expect("scaled polynomial normalizes")
+        );
+        assert_eq!(scaled.real_root_index(), 0);
+        assert_eq!(
+            scaled.isolating_interval(),
+            &rational_interval(-2, 1, -1, 1)
+        );
+        assert_eq!(
+            algebraic.scale_rational_bounded(&rational(-1, 1), 1, 64),
             Ok(None)
         );
     }
