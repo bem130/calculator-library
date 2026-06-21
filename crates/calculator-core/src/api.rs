@@ -2654,6 +2654,9 @@ mod tests {
             "tan(1)",
             "sin(1)",
             "cos(1)",
+            "sin(2)",
+            "cos(2)",
+            "tan(2)",
         ] {
             let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
             let CalculationOutcome::Partial {

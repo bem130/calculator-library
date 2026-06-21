@@ -12,7 +12,7 @@
 * `0.1 + 0.2 = 3/10` などの decimal lossless evaluation。
 * real principal power semantics に基づく rational power の exact root / domain error / symbolic fallback。
 * exact dyadic certified interval と adaptive scientific rounding。
-* `pi`、`e`、exp/log の証明可能な恒等式と、bounded rational/dyadic endpoint に対する exp/log/asin/acos/atan と unit-range sin/cos/tan の certified interval。
+* `pi`、`e`、exp/log の証明可能な恒等式と、bounded rational/dyadic endpoint に対する exp/log/asin/acos/atan、unit-range sin/cos/tan、rational point trigonometric range reduction の certified interval。
 * rational pi multiple recognition。
 * simple radical と radical linear combination の exact presentation、積・商・整数累乗の bounded reduction。
 * rational/simple-radical special angles と inverse trigonometric known values。

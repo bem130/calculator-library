@@ -12,6 +12,7 @@ use crate::types::{
 
 const MAX_EXP_RANGE_REDUCTION_STEPS: u32 = 4096;
 const MAX_LOG_RANGE_REDUCTION_STEPS: u32 = 4096;
+const MAX_TRIG_RANGE_REDUCTION_STEPS: u32 = 4096;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum IntervalError {
@@ -194,9 +195,36 @@ pub(crate) fn tan(
         return Err(IntervalError::UnsupportedExpression);
     }
 
-    let (lower, _) = tan_rational_bounds(&lower, precision_bits)?;
-    let (_, upper) = tan_rational_bounds(&upper, precision_bits)?;
+    let (lower, _) = tan_unit_rational_bounds(&lower, precision_bits)?;
+    let (_, upper) = tan_unit_rational_bounds(&upper, precision_bits)?;
     from_rational_bounds(&lower, &upper, precision_bits)
+}
+
+pub(crate) fn sin_rational(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    let (sine, _) = sin_cos_rational(value, precision_bits)?;
+    Ok(sine)
+}
+
+pub(crate) fn cos_rational(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    let (_, cosine) = sin_cos_rational(value, precision_bits)?;
+    Ok(cosine)
+}
+
+pub(crate) fn tan_rational(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    let (sine, cosine) = sin_cos_rational(value, precision_bits)?;
+    if contains_zero(&cosine) {
+        return Err(IntervalError::UnsupportedExpression);
+    }
+    divide(&sine, &cosine, precision_bits)
 }
 
 pub(crate) fn sin(
@@ -734,7 +762,7 @@ fn acos_rational_bounds(
     ))
 }
 
-fn tan_rational_bounds(
+fn tan_unit_rational_bounds(
     value: &Rational,
     precision_bits: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
@@ -748,7 +776,7 @@ fn tan_rational_bounds(
         return Ok((Rational::zero(), Rational::zero()));
     }
     if value.is_negative() {
-        let (lower, upper) = tan_rational_bounds(&value.negate(), precision_bits)?;
+        let (lower, upper) = tan_unit_rational_bounds(&value.negate(), precision_bits)?;
         return Ok((upper.negate(), lower.negate()));
     }
 
@@ -761,6 +789,55 @@ fn tan_rational_bounds(
         divide_rational(&sin_lower, &cos_upper)?,
         divide_rational(&sin_upper, &cos_lower)?,
     ))
+}
+
+fn sin_cos_rational(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<(CertifiedInterval, CertifiedInterval), IntervalError> {
+    let divisor = ceil_absolute_rational_to_u32(value)?;
+    let reduced = divide_rational(value, &rational_integer(i64::from(divisor)))?;
+    let (sin_lower, sin_upper) = sin_unit_rational_bounds(&reduced, precision_bits)?;
+    let (cos_lower, cos_upper) = cos_unit_rational_bounds(&reduced, precision_bits)?;
+    let mut result = TrigPair {
+        cosine: from_rational(&Rational::one(), precision_bits),
+        sine: from_rational(&Rational::zero(), precision_bits),
+    };
+    let mut factor = TrigPair {
+        cosine: from_rational_bounds(&cos_lower, &cos_upper, precision_bits)?,
+        sine: from_rational_bounds(&sin_lower, &sin_upper, precision_bits)?,
+    };
+    let mut remaining = divisor;
+    while remaining > 0 {
+        if remaining & 1 == 1 {
+            result = multiply_trig_pairs(&result, &factor, precision_bits)?;
+        }
+        remaining >>= 1;
+        if remaining > 0 {
+            factor = multiply_trig_pairs(&factor, &factor, precision_bits)?;
+        }
+    }
+    Ok((result.sine, result.cosine))
+}
+
+struct TrigPair {
+    cosine: CertifiedInterval,
+    sine: CertifiedInterval,
+}
+
+fn multiply_trig_pairs(
+    left: &TrigPair,
+    right: &TrigPair,
+    precision_bits: u32,
+) -> Result<TrigPair, IntervalError> {
+    let cos_cos = multiply(&left.cosine, &right.cosine)?;
+    let sin_sin = multiply(&left.sine, &right.sine)?;
+    let cos_sin = multiply(&left.cosine, &right.sine)?;
+    let sin_cos = multiply(&left.sine, &right.cosine)?;
+    Ok(TrigPair {
+        cosine: clamp_trigonometric_interval(&subtract(&cos_cos, &sin_sin)?, precision_bits)?,
+        sine: clamp_trigonometric_interval(&add(&cos_sin, &sin_cos)?, precision_bits)?,
+    })
 }
 
 fn sin_unit_rational_bounds(
@@ -857,6 +934,53 @@ fn ordered_rational_bounds(
     }
 }
 
+fn subtract(
+    left: &CertifiedInterval,
+    right: &CertifiedInterval,
+) -> Result<CertifiedInterval, IntervalError> {
+    add(left, &negate_interval(right))
+}
+
+fn negate_interval(value: &CertifiedInterval) -> CertifiedInterval {
+    CertifiedInterval {
+        lower: negate_dyadic(&value.upper),
+        upper: negate_dyadic(&value.lower),
+    }
+}
+
+fn clamp_trigonometric_interval(
+    value: &CertifiedInterval,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    intersect_with_rational_bounds(
+        value,
+        &rational_integer(-1),
+        &Rational::one(),
+        precision_bits,
+    )
+}
+
+fn intersect_with_rational_bounds(
+    value: &CertifiedInterval,
+    lower_bound: &Rational,
+    upper_bound: &Rational,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    let lower = dyadic_to_rational(&value.lower)?;
+    let upper = dyadic_to_rational(&value.upper)?;
+    let lower = if compare_rationals(&lower, lower_bound) == Ordering::Less {
+        lower_bound.clone()
+    } else {
+        lower
+    };
+    let upper = if compare_rationals(&upper, upper_bound) == Ordering::Greater {
+        upper_bound.clone()
+    } else {
+        upper
+    };
+    from_rational_bounds(&lower, &upper, precision_bits)
+}
+
 fn unit_trigonometric_rational_bounds(
     value: &CertifiedInterval,
 ) -> Result<Option<(Rational, Rational)>, IntervalError> {
@@ -908,6 +1032,23 @@ fn ceil_nonnegative_rational_to_u32(value: &Rational) -> Result<u32, IntervalErr
         quotient.to_u32().ok_or(IntervalError::ExponentTooLarge)?
     };
     if value > MAX_EXP_RANGE_REDUCTION_STEPS {
+        return Err(IntervalError::ExponentTooLarge);
+    }
+    Ok(value)
+}
+
+fn ceil_absolute_rational_to_u32(value: &Rational) -> Result<u32, IntervalError> {
+    let value = abs_rational(value);
+    let quotient = value
+        .numerator
+        .inner
+        .div_ceil(&value.denominator.inner.inner);
+    let value = if quotient.is_zero() {
+        1
+    } else {
+        quotient.to_u32().ok_or(IntervalError::ExponentTooLarge)?
+    };
+    if value > MAX_TRIG_RANGE_REDUCTION_STEPS {
         return Err(IntervalError::ExponentTooLarge);
     }
     Ok(value)
@@ -1490,6 +1631,39 @@ mod tests {
         .unwrap();
         assert!(contains_rational(&interval, &rational(-1, 1)).unwrap());
         assert!(contains_rational(&interval, &rational(1, 1)).unwrap());
+    }
+
+    #[test]
+    fn rational_point_trig_range_reduction_is_inside_coarse_known_bounds() {
+        let sine = sin_rational(&rational(2, 1), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&sine.lower, &rational(9, 10)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&sine.upper, &rational(1, 1)).unwrap(),
+            Ordering::Less
+        );
+
+        let cosine = cos_rational(&rational(2, 1), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&cosine.lower, &rational(-1, 2)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&cosine.upper, &rational(-2, 5)).unwrap(),
+            Ordering::Less
+        );
+
+        let tangent = tan_rational(&rational(2, 1), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&tangent.lower, &rational(-9, 4)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&tangent.upper, &rational(-2, 1)).unwrap(),
+            Ordering::Less
+        );
     }
 
     #[test]

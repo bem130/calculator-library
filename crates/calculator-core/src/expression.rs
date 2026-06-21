@@ -2389,14 +2389,8 @@ fn evaluate_interval_node(
                 &evaluate_interval_node(dag, *argument, precision_bits)?,
                 precision_bits,
             ),
-            Function::Sin => interval::sin(
-                &evaluate_interval_node(dag, *argument, precision_bits)?,
-                precision_bits,
-            ),
-            Function::Cos => interval::cos(
-                &evaluate_interval_node(dag, *argument, precision_bits)?,
-                precision_bits,
-            ),
+            Function::Sin => sine_interval(dag, *argument, precision_bits),
+            Function::Cos => cosine_interval(dag, *argument, precision_bits),
             Function::Tan => tangent_interval(dag, *argument, precision_bits),
             Function::Atan => interval::atan(
                 &evaluate_interval_node(dag, *argument, precision_bits)?,
@@ -2456,11 +2450,55 @@ fn tangent_interval(
 ) -> Result<CertifiedInterval, IntervalError> {
     match tangent_rational_pi_interval(dag, argument, precision_bits) {
         Ok(interval) => Ok(interval),
-        Err(IntervalError::UnsupportedExpression) => interval::tan(
+        Err(IntervalError::UnsupportedExpression) => match evaluate_node(dag, argument) {
+            Ok(argument) => interval::tan_rational(argument.value(), precision_bits),
+            Err(error) if is_unsupported_exact_expression(&error) => interval::tan(
+                &evaluate_interval_node(dag, argument, precision_bits)?,
+                precision_bits,
+            ),
+            Err(error) => Err(evaluation_error_to_interval_error(error)),
+        },
+        Err(error) => Err(error),
+    }
+}
+
+fn sine_interval(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    match evaluate_node(dag, argument) {
+        Ok(argument) => interval::sin_rational(argument.value(), precision_bits),
+        Err(error) if is_unsupported_exact_expression(&error) => interval::sin(
             &evaluate_interval_node(dag, argument, precision_bits)?,
             precision_bits,
         ),
-        Err(error) => Err(error),
+        Err(error) => Err(evaluation_error_to_interval_error(error)),
+    }
+}
+
+fn cosine_interval(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    match evaluate_node(dag, argument) {
+        Ok(argument) => interval::cos_rational(argument.value(), precision_bits),
+        Err(error) if is_unsupported_exact_expression(&error) => interval::cos(
+            &evaluate_interval_node(dag, argument, precision_bits)?,
+            precision_bits,
+        ),
+        Err(error) => Err(evaluation_error_to_interval_error(error)),
+    }
+}
+
+fn evaluation_error_to_interval_error(error: EvaluationError) -> IntervalError {
+    match error {
+        EvaluationError::Domain(DomainError { kind, .. }) => IntervalError::Domain(kind),
+        EvaluationError::ComputationLimit(_)
+        | EvaluationError::InputLimit(_)
+        | EvaluationError::UnsupportedFeature(_)
+        | EvaluationError::InternalInvariant(_) => IntervalError::UnsupportedExpression,
     }
 }
 
