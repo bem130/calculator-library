@@ -2,7 +2,7 @@ use alloc::{boxed::Box, string::String, vec::Vec};
 use core::{fmt, num::NonZeroU32};
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer as _;
-use num_traits::{One, Signed, Zero};
+use num_traits::{One, Signed, ToPrimitive, Zero};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EvaluatedValue {
@@ -299,6 +299,7 @@ pub struct EvaluationOutcome {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EvaluationMetadata {
+    pub semantic_settings: SemanticSettings,
     pub methods: Vec<MethodTag>,
     pub internal_precision_bits: u32,
     pub refinement_rounds: u32,
@@ -669,6 +670,9 @@ pub enum UnsupportedFeature {
     ComplexDomain,
     PortableProofCertificate,
     EvaluationEngine,
+    ConstantEvaluation,
+    FunctionEvaluation,
+    NonIntegerPower,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -683,6 +687,7 @@ pub enum InternalInvariantCode {
     InvalidCertifiedInterval,
     NonDeterministicCacheAccounting,
     PresentationWithoutEvaluation,
+    InvalidParsedNumberLiteral,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -901,6 +906,18 @@ impl Rational {
 
     pub fn is_zero(&self) -> bool {
         self.numerator.is_zero()
+    }
+
+    pub fn is_integer(&self) -> bool {
+        self.denominator.inner.inner == BigInt::one()
+    }
+
+    pub fn as_i64_if_integer(&self) -> Option<i64> {
+        if self.is_integer() {
+            self.numerator.inner.to_i64()
+        } else {
+            None
+        }
     }
 
     pub fn negate(&self) -> Self {
