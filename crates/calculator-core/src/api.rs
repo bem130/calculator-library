@@ -11,8 +11,8 @@ use num_integer::Integer as _;
 use num_traits::{Signed, Zero};
 
 use crate::expression::{
-    evaluate_interval_dag, evaluate_rational_dag, evaluate_rational_pi_multiple_dag,
-    lower_source_expression, ExactExpressionDag,
+    evaluate_interval_dag, evaluate_rational_evaluation_dag, evaluate_rational_pi_multiple_dag,
+    lower_source_expression, ExactExpressionDag, RationalEvaluation,
 };
 use crate::interval;
 use crate::types::*;
@@ -76,8 +76,8 @@ pub fn evaluate(
     request: &EvaluationRequest,
     _context: &mut EvaluationContext,
 ) -> Result<EvaluationOutcome, EvaluationError> {
-    let dag = lower_source_expression(&expression.root)?;
-    let rational = match evaluate_rational_dag(&dag) {
+    let dag = lower_source_expression(&expression.root, request.semantics)?;
+    let rational = match evaluate_rational_evaluation_dag(&dag) {
         Ok(rational) => rational,
         Err(error) if should_fallback_to_symbolic_interval(&error) => {
             if let Some(coefficient) = evaluate_rational_pi_multiple_dag(&dag)? {
@@ -85,7 +85,7 @@ pub fn evaluate(
                     return Ok(rational_evaluation_outcome(
                         expression,
                         &dag,
-                        Rational::zero(),
+                        RationalEvaluation::direct(Rational::zero()),
                         request,
                     ));
                 }
@@ -146,29 +146,29 @@ pub fn evaluate(
 fn rational_evaluation_outcome(
     expression: &ParsedExpression,
     dag: &ExactExpressionDag,
-    rational: Rational,
+    rational: RationalEvaluation,
     request: &EvaluationRequest,
 ) -> EvaluationOutcome {
-    let certified_enclosure = evaluate_interval_dag(dag).ok();
-    let has_certified_enclosure = certified_enclosure.is_some();
+    let certified_enclosure = evaluate_interval_dag(dag)
+        .unwrap_or_else(|_| interval::from_rational(rational.value(), 128));
     let mut methods = vec![MethodTag::RationalReduction];
-    if has_certified_enclosure {
-        methods.push(MethodTag::CertifiedIntervalEvaluation);
+    if rational.used_special_angle() {
+        methods.push(MethodTag::SpecialAngle);
     }
+    methods.push(MethodTag::CertifiedIntervalEvaluation);
+    let rational = rational.into_value();
     EvaluationOutcome {
         value: EvaluatedValue {
             exact_expression: ExactExpression {
                 source: expression.source.clone(),
             },
             recognized_exact: RecognizedExact::Rational(rational),
-            certified_enclosure: certified_enclosure
-                .map(CertifiedEnclosureState::Available)
-                .unwrap_or(CertifiedEnclosureState::Unavailable),
+            certified_enclosure: CertifiedEnclosureState::Available(certified_enclosure),
         },
         metadata: EvaluationMetadata {
             semantic_settings: request.semantics,
             methods,
-            internal_precision_bits: if has_certified_enclosure { 128 } else { 0 },
+            internal_precision_bits: 128,
             refinement_rounds: 0,
         },
     }
@@ -802,6 +802,16 @@ mod tests {
     fn exact_plain_text(source: &str) -> String {
         let mut context = EvaluationContext::default();
         let outcome = calculate(source, &exact_only_request(), &mut context).expect(source);
+        exact_plain_text_from_outcome(outcome)
+    }
+
+    fn exact_plain_text_with_request(source: &str, request: &CalculationRequest) -> String {
+        let mut context = EvaluationContext::default();
+        let outcome = calculate(source, request, &mut context).expect(source);
+        exact_plain_text_from_outcome(outcome)
+    }
+
+    fn exact_plain_text_from_outcome(outcome: CalculationOutcome) -> String {
         let CalculationOutcome::Complete(calculation) = outcome else {
             panic!("expected complete calculation");
         };
@@ -896,6 +906,79 @@ mod tests {
             ExactRepresentationKind::RationalPiMultiple
         );
         assert_eq!(exact.plain_text, "3pi/4");
+    }
+
+    #[test]
+    fn rational_special_angles_are_exact() {
+        for (source, expected) in [
+            ("sin(0)", "0"),
+            ("sin(pi/6)", "1/2"),
+            ("sin(5*pi/6)", "1/2"),
+            ("sin(7*pi/6)", "-1/2"),
+            ("sin(-pi/6)", "-1/2"),
+            ("sin(pi/2)", "1"),
+            ("sin(pi)", "0"),
+            ("sin(1 - 1)", "0"),
+            ("sin(pi/6 + 2*pi)", "1/2"),
+            ("cos(0)", "1"),
+            ("cos(log(1))", "1"),
+            ("cos(pi/3)", "1/2"),
+            ("cos(2*pi/3)", "-1/2"),
+            ("cos(-pi)", "-1"),
+            ("cos(3*pi/2)", "0"),
+            ("tan(0)", "0"),
+            ("tan(exp(log(2)) - 2)", "0"),
+            ("tan(pi/4)", "1"),
+            ("tan(-pi/4)", "-1"),
+            ("tan(pi)", "0"),
+        ] {
+            assert_eq!(exact_plain_text(source), expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn special_angles_honor_angle_unit_semantics() {
+        let mut degree_request = exact_only_request();
+        degree_request.semantics.angle_unit = AngleUnit::Degree;
+        for (source, expected) in [("sin(30)", "1/2"), ("cos(60)", "1/2"), ("tan(45)", "1")] {
+            assert_eq!(
+                exact_plain_text_with_request(source, &degree_request),
+                expected,
+                "{source}"
+            );
+        }
+
+        let mut gradian_request = exact_only_request();
+        gradian_request.semantics.angle_unit = AngleUnit::Gradian;
+        for (source, expected) in [("sin(100)", "1"), ("cos(200)", "-1"), ("tan(50)", "1")] {
+            assert_eq!(
+                exact_plain_text_with_request(source, &gradian_request),
+                expected,
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn special_angle_metadata_reports_method_tag() {
+        let mut context = EvaluationContext::default();
+        let outcome = calculate("sin(pi/6)", &exact_only_request(), &mut context).unwrap();
+        let CalculationOutcome::Complete(calculation) = outcome else {
+            panic!("expected complete calculation");
+        };
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("expected exact output");
+        };
+        assert_eq!(exact.representation, ExactRepresentationKind::Rational);
+        assert_eq!(
+            calculation.metadata.exact_representation,
+            ExactRepresentationKind::Rational
+        );
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::SpecialAngle));
+        assert_eq!(calculation.metadata.assurance, AssuranceLevel::Exact);
     }
 
     #[test]
@@ -1305,6 +1388,34 @@ mod tests {
                 "{source}"
             );
         }
+    }
+
+    #[test]
+    fn tangent_poles_are_domain_errors() {
+        for source in ["tan(pi/2)", "tan(3*pi/2)", "tan(-pi/2)"] {
+            let mut context = EvaluationContext::default();
+            let error = calculate(source, &exact_only_request(), &mut context).expect_err(source);
+            assert_eq!(
+                error,
+                CalculatorError::Domain(DomainError {
+                    kind: DomainErrorKind::TangentPole,
+                    span: None,
+                }),
+                "{source}"
+            );
+        }
+
+        let mut request = exact_only_request();
+        request.semantics.angle_unit = AngleUnit::Degree;
+        let mut context = EvaluationContext::default();
+        let error = calculate("tan(90)", &request, &mut context).expect_err("tan(90)");
+        assert_eq!(
+            error,
+            CalculatorError::Domain(DomainError {
+                kind: DomainErrorKind::TangentPole,
+                span: None,
+            })
+        );
     }
 
     #[test]
