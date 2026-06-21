@@ -245,6 +245,60 @@ impl RealAlgebraic {
         )
         .map(Some)
     }
+
+    pub fn compare_bounded(
+        &self,
+        rhs: &Self,
+        max_root_isolation_steps: u32,
+    ) -> Result<Option<Ordering>, RealAlgebraicConstructionError> {
+        if self == rhs {
+            return Ok(Some(Ordering::Equal));
+        }
+
+        let mut lhs_interval = self.isolating_interval.clone();
+        let mut rhs_interval = rhs.isolating_interval.clone();
+        let mut refinement_steps = 0;
+        loop {
+            if let Some(ordering) =
+                compare_disjoint_isolating_intervals(&lhs_interval, &rhs_interval)
+            {
+                return Ok(Some(ordering));
+            }
+            if refinement_steps >= max_root_isolation_steps {
+                return Ok(None);
+            }
+
+            let Some(refined_lhs) = refine_isolating_interval(
+                &self.minimal_polynomial,
+                &lhs_interval,
+                &mut refinement_steps,
+                max_root_isolation_steps,
+            )?
+            else {
+                return Ok(None);
+            };
+            lhs_interval = refined_lhs;
+            if let Some(ordering) =
+                compare_disjoint_isolating_intervals(&lhs_interval, &rhs_interval)
+            {
+                return Ok(Some(ordering));
+            }
+            if refinement_steps >= max_root_isolation_steps {
+                return Ok(None);
+            }
+
+            let Some(refined_rhs) = refine_isolating_interval(
+                &rhs.minimal_polynomial,
+                &rhs_interval,
+                &mut refinement_steps,
+                max_root_isolation_steps,
+            )?
+            else {
+                return Ok(None);
+            };
+            rhs_interval = refined_rhs;
+        }
+    }
 }
 
 impl PrimitivePolynomial {
@@ -1133,6 +1187,19 @@ fn rational_midpoint(lower: &Rational, upper: &Rational) -> Rational {
 fn rational_intervals_overlap(left: &RationalInterval, right: &RationalInterval) -> bool {
     left.lower.compare(&right.upper) != Ordering::Greater
         && right.lower.compare(&left.upper) != Ordering::Greater
+}
+
+fn compare_disjoint_isolating_intervals(
+    lhs: &RationalInterval,
+    rhs: &RationalInterval,
+) -> Option<Ordering> {
+    if lhs.upper.compare(&rhs.lower) != Ordering::Greater {
+        Some(Ordering::Less)
+    } else if lhs.lower.compare(&rhs.upper) != Ordering::Less {
+        Some(Ordering::Greater)
+    } else {
+        None
+    }
 }
 
 fn interpolate_integer_polynomial_at_consecutive_integers(
@@ -2860,6 +2927,60 @@ mod tests {
 
         assert_eq!(positive_wide, positive_refined);
         assert_ne!(positive_wide, negative);
+    }
+
+    #[test]
+    fn real_algebraic_compare_bounded_uses_root_identity_for_equality() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-2, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        let positive_wide = RealAlgebraic::from_irreducible_polynomial(
+            polynomial.clone(),
+            rational_interval(1, 1, 2, 1),
+            64,
+        )
+        .expect("positive square root interval isolates one root");
+        let positive_refined = RealAlgebraic::from_irreducible_polynomial(
+            polynomial,
+            rational_interval(5, 4, 3, 2),
+            64,
+        )
+        .expect("refined positive square root interval isolates the same root");
+
+        assert_eq!(
+            positive_wide.compare_bounded(&positive_refined, 0),
+            Ok(Some(Ordering::Equal))
+        );
+    }
+
+    #[test]
+    fn real_algebraic_compare_bounded_refines_overlapping_intervals() {
+        let square_root_two = RealAlgebraic::from_irreducible_polynomial(
+            PrimitivePolynomial::new(integers(&[-2, 0, 1]))
+                .expect("non-zero polynomial normalizes"),
+            rational_interval(1, 1, 2, 1),
+            64,
+        )
+        .expect("positive square root interval isolates one root");
+        let square_root_three = RealAlgebraic::from_irreducible_polynomial(
+            PrimitivePolynomial::new(integers(&[-3, 0, 1]))
+                .expect("non-zero polynomial normalizes"),
+            rational_interval(1, 1, 2, 1),
+            64,
+        )
+        .expect("positive square root interval isolates one root");
+
+        assert_eq!(
+            square_root_two.compare_bounded(&square_root_three, 64),
+            Ok(Some(Ordering::Less))
+        );
+        assert_eq!(
+            square_root_three.compare_bounded(&square_root_two, 64),
+            Ok(Some(Ordering::Greater))
+        );
+        assert_eq!(
+            square_root_two.compare_bounded(&square_root_three, 0),
+            Ok(None)
+        );
     }
 
     #[test]

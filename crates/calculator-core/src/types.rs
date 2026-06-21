@@ -262,7 +262,7 @@ pub enum PrimitivePolynomialRootIsolationError {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum RealAlgebraicConstructionError {
+pub enum RealAlgebraicConstructionError {
     ConstantPolynomial,
     InvalidInterval,
     EndpointRoot,
