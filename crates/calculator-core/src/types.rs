@@ -223,6 +223,13 @@ pub struct PrimitivePolynomialRationalRootFactorization {
     pub incomplete_reason: Option<PrimitivePolynomialFactorizationIncompleteReason>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PrimitivePolynomialFactorization {
+    pub factors: Vec<PrimitivePolynomialFactor>,
+    pub residual: Option<PrimitivePolynomial>,
+    pub incomplete_reason: Option<PrimitivePolynomialFactorizationIncompleteReason>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrimitivePolynomialFactorizationIncompleteReason {
     WorkLimitExceeded,
