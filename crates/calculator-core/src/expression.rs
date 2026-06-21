@@ -131,13 +131,6 @@ pub(crate) struct RadicalEvaluation {
 }
 
 impl RadicalEvaluation {
-    fn special_angle(value: SimpleRadical) -> Self {
-        Self {
-            value,
-            used_special_angle: true,
-        }
-    }
-
     fn with_origin(value: SimpleRadical, used_special_angle: bool) -> Self {
         Self {
             value,
@@ -987,198 +980,267 @@ fn rational_zero_as_pi_coefficient(
     }
 }
 
-fn sine_special_angle(coefficient: &Rational) -> Option<Rational> {
-    let phase = coefficient.modulo_integer(2);
-    if phase == rational(0, 1) || phase == rational(1, 1) {
-        Some(Rational::zero())
-    } else if phase == rational(1, 2) {
-        Some(Rational::one())
-    } else if phase == rational(3, 2) {
-        Some(rational_integer(-1))
-    } else if phase == rational(1, 6) || phase == rational(5, 6) {
-        Some(rational(1, 2))
-    } else if phase == rational(7, 6) || phase == rational(11, 6) {
-        Some(rational(-1, 2))
-    } else {
-        None
+#[derive(Clone, Copy)]
+struct RationalParts {
+    numerator: i64,
+    denominator: i64,
+}
+
+#[derive(Clone, Copy)]
+struct RationalSpecialAngleEntry {
+    phase: RationalParts,
+    value: RationalParts,
+}
+
+#[derive(Clone, Copy)]
+struct RadicalTermParts {
+    coefficient: RationalParts,
+    radicand: i64,
+}
+
+#[derive(Clone, Copy)]
+struct RadicalSpecialAngleEntry {
+    phase: RationalParts,
+    rational: RationalParts,
+    radicals: &'static [RadicalTermParts],
+}
+
+const SQRT_2_OVER_2: [RadicalTermParts; 1] = [radical_term_parts(1, 2, 2)];
+const NEG_SQRT_2_OVER_2: [RadicalTermParts; 1] = [radical_term_parts(-1, 2, 2)];
+const SQRT_3_OVER_2: [RadicalTermParts; 1] = [radical_term_parts(1, 2, 3)];
+const NEG_SQRT_3_OVER_2: [RadicalTermParts; 1] = [radical_term_parts(-1, 2, 3)];
+const SQRT_3: [RadicalTermParts; 1] = [radical_term_parts(1, 1, 3)];
+const NEG_SQRT_3: [RadicalTermParts; 1] = [radical_term_parts(-1, 1, 3)];
+const SQRT_3_OVER_3: [RadicalTermParts; 1] = [radical_term_parts(1, 3, 3)];
+const NEG_SQRT_3_OVER_3: [RadicalTermParts; 1] = [radical_term_parts(-1, 3, 3)];
+const SQRT_6_MINUS_SQRT_2_OVER_4: [RadicalTermParts; 2] =
+    [radical_term_parts(-1, 4, 2), radical_term_parts(1, 4, 6)];
+const SQRT_2_PLUS_SQRT_6_OVER_4: [RadicalTermParts; 2] =
+    [radical_term_parts(1, 4, 2), radical_term_parts(1, 4, 6)];
+const SQRT_2_MINUS_SQRT_6_OVER_4: [RadicalTermParts; 2] =
+    [radical_term_parts(1, 4, 2), radical_term_parts(-1, 4, 6)];
+const NEG_SQRT_2_MINUS_SQRT_6_OVER_4: [RadicalTermParts; 2] =
+    [radical_term_parts(-1, 4, 2), radical_term_parts(-1, 4, 6)];
+
+const SINE_RATIONAL_SPECIAL_ANGLES: &[RationalSpecialAngleEntry] = &[
+    rational_angle_entry(0, 1, 0, 1),
+    rational_angle_entry(1, 1, 0, 1),
+    rational_angle_entry(1, 2, 1, 1),
+    rational_angle_entry(3, 2, -1, 1),
+    rational_angle_entry(1, 6, 1, 2),
+    rational_angle_entry(5, 6, 1, 2),
+    rational_angle_entry(7, 6, -1, 2),
+    rational_angle_entry(11, 6, -1, 2),
+];
+
+const COSINE_RATIONAL_SPECIAL_ANGLES: &[RationalSpecialAngleEntry] = &[
+    rational_angle_entry(0, 1, 1, 1),
+    rational_angle_entry(1, 1, -1, 1),
+    rational_angle_entry(1, 2, 0, 1),
+    rational_angle_entry(3, 2, 0, 1),
+    rational_angle_entry(1, 3, 1, 2),
+    rational_angle_entry(5, 3, 1, 2),
+    rational_angle_entry(2, 3, -1, 2),
+    rational_angle_entry(4, 3, -1, 2),
+];
+
+const TANGENT_RATIONAL_SPECIAL_ANGLES: &[RationalSpecialAngleEntry] = &[
+    rational_angle_entry(0, 1, 0, 1),
+    rational_angle_entry(1, 4, 1, 1),
+    rational_angle_entry(3, 4, -1, 1),
+];
+
+const TANGENT_POLE_PHASES: &[RationalParts] = &[rational_parts(1, 2)];
+
+const SINE_RADICAL_SPECIAL_ANGLES: &[RadicalSpecialAngleEntry] = &[
+    radical_angle_entry(1, 4, 0, 1, &SQRT_2_OVER_2),
+    radical_angle_entry(3, 4, 0, 1, &SQRT_2_OVER_2),
+    radical_angle_entry(5, 4, 0, 1, &NEG_SQRT_2_OVER_2),
+    radical_angle_entry(7, 4, 0, 1, &NEG_SQRT_2_OVER_2),
+    radical_angle_entry(1, 3, 0, 1, &SQRT_3_OVER_2),
+    radical_angle_entry(2, 3, 0, 1, &SQRT_3_OVER_2),
+    radical_angle_entry(4, 3, 0, 1, &NEG_SQRT_3_OVER_2),
+    radical_angle_entry(5, 3, 0, 1, &NEG_SQRT_3_OVER_2),
+    radical_angle_entry(1, 12, 0, 1, &SQRT_6_MINUS_SQRT_2_OVER_4),
+    radical_angle_entry(11, 12, 0, 1, &SQRT_6_MINUS_SQRT_2_OVER_4),
+    radical_angle_entry(5, 12, 0, 1, &SQRT_2_PLUS_SQRT_6_OVER_4),
+    radical_angle_entry(7, 12, 0, 1, &SQRT_2_PLUS_SQRT_6_OVER_4),
+    radical_angle_entry(13, 12, 0, 1, &SQRT_2_MINUS_SQRT_6_OVER_4),
+    radical_angle_entry(23, 12, 0, 1, &SQRT_2_MINUS_SQRT_6_OVER_4),
+    radical_angle_entry(17, 12, 0, 1, &NEG_SQRT_2_MINUS_SQRT_6_OVER_4),
+    radical_angle_entry(19, 12, 0, 1, &NEG_SQRT_2_MINUS_SQRT_6_OVER_4),
+];
+
+const COSINE_RADICAL_SPECIAL_ANGLES: &[RadicalSpecialAngleEntry] = &[
+    radical_angle_entry(1, 4, 0, 1, &SQRT_2_OVER_2),
+    radical_angle_entry(7, 4, 0, 1, &SQRT_2_OVER_2),
+    radical_angle_entry(3, 4, 0, 1, &NEG_SQRT_2_OVER_2),
+    radical_angle_entry(5, 4, 0, 1, &NEG_SQRT_2_OVER_2),
+    radical_angle_entry(1, 6, 0, 1, &SQRT_3_OVER_2),
+    radical_angle_entry(11, 6, 0, 1, &SQRT_3_OVER_2),
+    radical_angle_entry(5, 6, 0, 1, &NEG_SQRT_3_OVER_2),
+    radical_angle_entry(7, 6, 0, 1, &NEG_SQRT_3_OVER_2),
+    radical_angle_entry(1, 12, 0, 1, &SQRT_2_PLUS_SQRT_6_OVER_4),
+    radical_angle_entry(23, 12, 0, 1, &SQRT_2_PLUS_SQRT_6_OVER_4),
+    radical_angle_entry(5, 12, 0, 1, &SQRT_6_MINUS_SQRT_2_OVER_4),
+    radical_angle_entry(19, 12, 0, 1, &SQRT_6_MINUS_SQRT_2_OVER_4),
+    radical_angle_entry(7, 12, 0, 1, &SQRT_2_MINUS_SQRT_6_OVER_4),
+    radical_angle_entry(17, 12, 0, 1, &SQRT_2_MINUS_SQRT_6_OVER_4),
+    radical_angle_entry(11, 12, 0, 1, &NEG_SQRT_2_MINUS_SQRT_6_OVER_4),
+    radical_angle_entry(13, 12, 0, 1, &NEG_SQRT_2_MINUS_SQRT_6_OVER_4),
+];
+
+const TANGENT_RADICAL_SPECIAL_ANGLES: &[RadicalSpecialAngleEntry] = &[
+    radical_angle_entry(1, 3, 0, 1, &SQRT_3),
+    radical_angle_entry(2, 3, 0, 1, &NEG_SQRT_3),
+    radical_angle_entry(1, 6, 0, 1, &SQRT_3_OVER_3),
+    radical_angle_entry(5, 6, 0, 1, &NEG_SQRT_3_OVER_3),
+    radical_angle_entry(1, 12, 2, 1, &NEG_SQRT_3),
+    radical_angle_entry(5, 12, 2, 1, &SQRT_3),
+    radical_angle_entry(7, 12, -2, 1, &NEG_SQRT_3),
+    radical_angle_entry(11, 12, -2, 1, &SQRT_3),
+];
+
+const fn rational_parts(numerator: i64, denominator: i64) -> RationalParts {
+    RationalParts {
+        numerator,
+        denominator,
     }
 }
 
-fn cosine_special_angle(coefficient: &Rational) -> Option<Rational> {
-    let phase = coefficient.modulo_integer(2);
-    if phase == rational(0, 1) {
-        Some(Rational::one())
-    } else if phase == rational(1, 1) {
-        Some(rational_integer(-1))
-    } else if phase == rational(1, 2) || phase == rational(3, 2) {
-        Some(Rational::zero())
-    } else if phase == rational(1, 3) || phase == rational(5, 3) {
-        Some(rational(1, 2))
-    } else if phase == rational(2, 3) || phase == rational(4, 3) {
-        Some(rational(-1, 2))
-    } else {
-        None
+const fn rational_angle_entry(
+    phase_numerator: i64,
+    phase_denominator: i64,
+    value_numerator: i64,
+    value_denominator: i64,
+) -> RationalSpecialAngleEntry {
+    RationalSpecialAngleEntry {
+        phase: rational_parts(phase_numerator, phase_denominator),
+        value: rational_parts(value_numerator, value_denominator),
     }
+}
+
+const fn radical_term_parts(
+    coefficient_numerator: i64,
+    coefficient_denominator: i64,
+    radicand: i64,
+) -> RadicalTermParts {
+    RadicalTermParts {
+        coefficient: rational_parts(coefficient_numerator, coefficient_denominator),
+        radicand,
+    }
+}
+
+const fn radical_angle_entry(
+    phase_numerator: i64,
+    phase_denominator: i64,
+    rational_numerator: i64,
+    rational_denominator: i64,
+    radicals: &'static [RadicalTermParts],
+) -> RadicalSpecialAngleEntry {
+    RadicalSpecialAngleEntry {
+        phase: rational_parts(phase_numerator, phase_denominator),
+        rational: rational_parts(rational_numerator, rational_denominator),
+        radicals,
+    }
+}
+
+fn sine_special_angle(coefficient: &Rational) -> Option<Rational> {
+    lookup_rational_special_angle(coefficient, 2, SINE_RATIONAL_SPECIAL_ANGLES)
+}
+
+fn cosine_special_angle(coefficient: &Rational) -> Option<Rational> {
+    lookup_rational_special_angle(coefficient, 2, COSINE_RATIONAL_SPECIAL_ANGLES)
 }
 
 fn tangent_special_angle(coefficient: &Rational) -> Result<Option<Rational>, EvaluationError> {
     let phase = coefficient.modulo_integer(1);
-    if phase == rational(1, 2) {
+    if phase_matches_any(&phase, TANGENT_POLE_PHASES) {
         Err(domain_error(DomainErrorKind::TangentPole))
-    } else if phase == rational(0, 1) {
-        Ok(Some(Rational::zero()))
-    } else if phase == rational(1, 4) {
-        Ok(Some(Rational::one()))
-    } else if phase == rational(3, 4) {
-        Ok(Some(rational_integer(-1)))
     } else {
-        Ok(None)
+        Ok(lookup_rational_phase(
+            &phase,
+            TANGENT_RATIONAL_SPECIAL_ANGLES,
+        ))
     }
 }
 
 fn sine_radical_special_angle(coefficient: &Rational) -> Option<RadicalReduction> {
-    let phase = coefficient.modulo_integer(2);
-    if phase == rational(1, 4) || phase == rational(3, 4) {
-        Some(special_angle_radical(simple_radical(rational(1, 2), 2)))
-    } else if phase == rational(5, 4) || phase == rational(7, 4) {
-        Some(special_angle_radical(simple_radical(rational(-1, 2), 2)))
-    } else if phase == rational(1, 3) || phase == rational(2, 3) {
-        Some(special_angle_radical(simple_radical(rational(1, 2), 3)))
-    } else if phase == rational(4, 3) || phase == rational(5, 3) {
-        Some(special_angle_radical(simple_radical(rational(-1, 2), 3)))
-    } else if phase == rational(1, 12) || phase == rational(11, 12) {
-        Some(twelfth_angle_radical_combination(
-            Rational::zero(),
-            rational(-1, 4),
-            rational(1, 4),
-        ))
-    } else if phase == rational(5, 12) || phase == rational(7, 12) {
-        Some(twelfth_angle_radical_combination(
-            Rational::zero(),
-            rational(1, 4),
-            rational(1, 4),
-        ))
-    } else if phase == rational(13, 12) || phase == rational(23, 12) {
-        Some(twelfth_angle_radical_combination(
-            Rational::zero(),
-            rational(1, 4),
-            rational(-1, 4),
-        ))
-    } else if phase == rational(17, 12) || phase == rational(19, 12) {
-        Some(twelfth_angle_radical_combination(
-            Rational::zero(),
-            rational(-1, 4),
-            rational(-1, 4),
-        ))
-    } else {
-        None
-    }
+    lookup_radical_special_angle(coefficient, 2, SINE_RADICAL_SPECIAL_ANGLES)
 }
 
 fn cosine_radical_special_angle(coefficient: &Rational) -> Option<RadicalReduction> {
-    let phase = coefficient.modulo_integer(2);
-    if phase == rational(1, 4) || phase == rational(7, 4) {
-        Some(special_angle_radical(simple_radical(rational(1, 2), 2)))
-    } else if phase == rational(3, 4) || phase == rational(5, 4) {
-        Some(special_angle_radical(simple_radical(rational(-1, 2), 2)))
-    } else if phase == rational(1, 6) || phase == rational(11, 6) {
-        Some(special_angle_radical(simple_radical(rational(1, 2), 3)))
-    } else if phase == rational(5, 6) || phase == rational(7, 6) {
-        Some(special_angle_radical(simple_radical(rational(-1, 2), 3)))
-    } else if phase == rational(1, 12) || phase == rational(23, 12) {
-        Some(twelfth_angle_radical_combination(
-            Rational::zero(),
-            rational(1, 4),
-            rational(1, 4),
-        ))
-    } else if phase == rational(5, 12) || phase == rational(19, 12) {
-        Some(twelfth_angle_radical_combination(
-            Rational::zero(),
-            rational(-1, 4),
-            rational(1, 4),
-        ))
-    } else if phase == rational(7, 12) || phase == rational(17, 12) {
-        Some(twelfth_angle_radical_combination(
-            Rational::zero(),
-            rational(1, 4),
-            rational(-1, 4),
-        ))
-    } else if phase == rational(11, 12) || phase == rational(13, 12) {
-        Some(twelfth_angle_radical_combination(
-            Rational::zero(),
-            rational(-1, 4),
-            rational(-1, 4),
-        ))
-    } else {
-        None
-    }
+    lookup_radical_special_angle(coefficient, 2, COSINE_RADICAL_SPECIAL_ANGLES)
 }
 
 fn tangent_radical_special_angle(
     coefficient: &Rational,
 ) -> Result<Option<RadicalReduction>, EvaluationError> {
     let phase = coefficient.modulo_integer(1);
-    if phase == rational(1, 2) {
+    if phase_matches_any(&phase, TANGENT_POLE_PHASES) {
         Err(domain_error(DomainErrorKind::TangentPole))
-    } else if phase == rational(1, 3) {
-        Ok(Some(special_angle_radical(simple_radical(
-            Rational::one(),
-            3,
-        ))))
-    } else if phase == rational(2, 3) {
-        Ok(Some(special_angle_radical(simple_radical(
-            rational_integer(-1),
-            3,
-        ))))
-    } else if phase == rational(1, 6) {
-        Ok(Some(special_angle_radical(simple_radical(
-            rational(1, 3),
-            3,
-        ))))
-    } else if phase == rational(5, 6) {
-        Ok(Some(special_angle_radical(simple_radical(
-            rational(-1, 3),
-            3,
-        ))))
-    } else if phase == rational(1, 12) {
-        Ok(Some(special_angle_linear_combination(
-            rational_integer(2),
-            vec![simple_radical(rational_integer(-1), 3)],
-        )))
-    } else if phase == rational(5, 12) {
-        Ok(Some(special_angle_linear_combination(
-            rational_integer(2),
-            vec![simple_radical(Rational::one(), 3)],
-        )))
-    } else if phase == rational(7, 12) {
-        Ok(Some(special_angle_linear_combination(
-            rational_integer(-2),
-            vec![simple_radical(rational_integer(-1), 3)],
-        )))
-    } else if phase == rational(11, 12) {
-        Ok(Some(special_angle_linear_combination(
-            rational_integer(-2),
-            vec![simple_radical(Rational::one(), 3)],
-        )))
     } else {
-        Ok(None)
+        Ok(lookup_radical_phase(&phase, TANGENT_RADICAL_SPECIAL_ANGLES))
     }
 }
 
-fn special_angle_radical(value: SimpleRadical) -> RadicalReduction {
-    RadicalReduction::Radical(RadicalEvaluation::special_angle(value))
+fn lookup_rational_special_angle(
+    coefficient: &Rational,
+    period: u32,
+    entries: &[RationalSpecialAngleEntry],
+) -> Option<Rational> {
+    let phase = coefficient.modulo_integer(period);
+    lookup_rational_phase(&phase, entries)
 }
 
-fn twelfth_angle_radical_combination(
-    rational: Rational,
-    sqrt_2_coefficient: Rational,
-    sqrt_6_coefficient: Rational,
-) -> RadicalReduction {
-    let radicals = vec![
-        simple_radical(sqrt_2_coefficient, 2),
-        simple_radical(sqrt_6_coefficient, 6),
-    ];
-    special_angle_linear_combination(rational, radicals)
+fn lookup_rational_phase(
+    phase: &Rational,
+    entries: &[RationalSpecialAngleEntry],
+) -> Option<Rational> {
+    entries
+        .iter()
+        .find(|entry| phase_matches(phase, entry.phase))
+        .map(|entry| rational_from_parts(entry.value))
+}
+
+fn lookup_radical_special_angle(
+    coefficient: &Rational,
+    period: u32,
+    entries: &[RadicalSpecialAngleEntry],
+) -> Option<RadicalReduction> {
+    let phase = coefficient.modulo_integer(period);
+    lookup_radical_phase(&phase, entries)
+}
+
+fn lookup_radical_phase(
+    phase: &Rational,
+    entries: &[RadicalSpecialAngleEntry],
+) -> Option<RadicalReduction> {
+    entries
+        .iter()
+        .find(|entry| phase_matches(phase, entry.phase))
+        .map(radical_reduction_from_parts)
+}
+
+fn phase_matches_any(phase: &Rational, entries: &[RationalParts]) -> bool {
+    entries.iter().any(|entry| phase_matches(phase, *entry))
+}
+
+fn phase_matches(phase: &Rational, expected: RationalParts) -> bool {
+    phase == &rational_from_parts(expected)
+}
+
+fn rational_from_parts(parts: RationalParts) -> Rational {
+    rational(parts.numerator, parts.denominator)
+}
+
+fn radical_reduction_from_parts(entry: &RadicalSpecialAngleEntry) -> RadicalReduction {
+    let radicals = entry
+        .radicals
+        .iter()
+        .map(|radical| simple_radical(rational_from_parts(radical.coefficient), radical.radicand))
+        .collect();
+    special_angle_linear_combination(rational_from_parts(entry.rational), radicals)
 }
 
 fn special_angle_linear_combination(
