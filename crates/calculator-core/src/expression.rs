@@ -1,9 +1,12 @@
 use alloc::{vec, vec::Vec};
 
 use crate::{
+    interval::{self, IntervalError},
     syntax::{SourceExpr, UnaryOperator},
     types::*,
 };
+
+const EVALUATION_INTERVAL_PRECISION_BITS: u32 = 128;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ExactExpressionDag {
@@ -55,6 +58,12 @@ pub(crate) fn evaluate_rational_dag(dag: &ExactExpressionDag) -> Result<Rational
     evaluate_node(dag, dag.root())
 }
 
+pub(crate) fn evaluate_interval_dag(
+    dag: &ExactExpressionDag,
+) -> Result<CertifiedInterval, IntervalError> {
+    evaluate_interval_node(dag, dag.root(), EVALUATION_INTERVAL_PRECISION_BITS)
+}
+
 fn evaluate_node(dag: &ExactExpressionDag, id: ExprId) -> Result<Rational, EvaluationError> {
     match dag.node(id) {
         ExpressionNode::Rational(id) => Ok(dag.rational(*id).clone()),
@@ -98,6 +107,60 @@ fn evaluate_node(dag: &ExactExpressionDag, id: ExprId) -> Result<Rational, Evalu
                 feature: UnsupportedFeature::FunctionEvaluation,
             },
         )),
+    }
+}
+
+fn evaluate_interval_node(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    match dag.node(id) {
+        ExpressionNode::Rational(id) => {
+            Ok(interval::from_rational(dag.rational(*id), precision_bits))
+        }
+        ExpressionNode::Constant(_) | ExpressionNode::Function { .. } => {
+            Err(IntervalError::UnsupportedExpression)
+        }
+        ExpressionNode::Add(list_id) => {
+            let mut total = interval::from_rational(&Rational::zero(), precision_bits);
+            for child in dag.list(*list_id) {
+                total = interval::add(
+                    &total,
+                    &evaluate_interval_node(dag, *child, precision_bits)?,
+                )?;
+            }
+            Ok(total)
+        }
+        ExpressionNode::Multiply(list_id) => {
+            let mut product = interval::from_rational(&Rational::one(), precision_bits);
+            for child in dag.list(*list_id) {
+                product = interval::multiply(
+                    &product,
+                    &evaluate_interval_node(dag, *child, precision_bits)?,
+                )?;
+            }
+            Ok(product)
+        }
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => interval::divide(
+            &evaluate_interval_node(dag, *numerator, precision_bits)?,
+            &evaluate_interval_node(dag, *denominator, precision_bits)?,
+            precision_bits,
+        ),
+        ExpressionNode::Power { base, exponent } => {
+            let exponent = evaluate_node(dag, *exponent)
+                .ok()
+                .and_then(|value| value.as_i64_if_integer())
+                .ok_or(IntervalError::UnsupportedExpression)?;
+            interval::pow_i64(
+                &evaluate_interval_node(dag, *base, precision_bits)?,
+                exponent,
+                precision_bits,
+            )
+        }
     }
 }
 

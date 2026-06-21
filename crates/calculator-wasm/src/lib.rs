@@ -701,8 +701,11 @@ mod tests {
                                 angle_unit: AngleUnitDto::Degree,
                                 power_semantics: PowerSemanticsDto::RealPrincipal,
                             },
-                            methods: vec![MethodTagDto::RationalReduction],
-                            internal_precision_bits: 0,
+                            methods: vec![
+                                MethodTagDto::RationalReduction,
+                                MethodTagDto::CertifiedIntervalEvaluation,
+                            ],
+                            internal_precision_bits: 128,
                             refinement_rounds: 0,
                             confirmed_significant_digits: 50,
                             assurance: AssuranceLevelDto::Exact,
