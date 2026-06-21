@@ -255,6 +255,18 @@ pub enum PrimitivePolynomialRootIsolationError {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RealAlgebraicConstructionError {
+    ConstantPolynomial,
+    InvalidInterval,
+    EndpointRoot,
+    NonIsolatingInterval,
+    RootIndexOverflow,
+    RootIndexNotFound,
+    RootCounting(PrimitivePolynomialRootCountingError),
+    RootIsolation(PrimitivePolynomialRootIsolationError),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrimitivePolynomialResultantError {
     ZeroPolynomial,
     DegreeOverflow,
@@ -262,9 +274,9 @@ pub enum PrimitivePolynomialResultantError {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RealAlgebraic {
-    pub minimal_polynomial: PrimitivePolynomial,
-    pub real_root_index: u32,
-    pub isolating_interval: RationalInterval,
+    pub(crate) minimal_polynomial: PrimitivePolynomial,
+    pub(crate) real_root_index: u32,
+    pub(crate) isolating_interval: RationalInterval,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

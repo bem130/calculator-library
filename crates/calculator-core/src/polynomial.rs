@@ -11,8 +11,65 @@ use crate::types::{
     PrimitivePolynomialFactorizationIncompleteReason, PrimitivePolynomialRationalRootFactorization,
     PrimitivePolynomialResultantError, PrimitivePolynomialRootCountingError,
     PrimitivePolynomialRootIsolationError, PrimitivePolynomialSign, PrimitiveSquareFreeFactor,
-    Rational, RationalInterval, SignedPrimitivePolynomial,
+    Rational, RationalInterval, RealAlgebraic, RealAlgebraicConstructionError,
+    SignedPrimitivePolynomial,
 };
+
+impl RealAlgebraic {
+    pub fn minimal_polynomial(&self) -> &PrimitivePolynomial {
+        &self.minimal_polynomial
+    }
+
+    pub fn real_root_index(&self) -> u32 {
+        self.real_root_index
+    }
+
+    pub fn isolating_interval(&self) -> &RationalInterval {
+        &self.isolating_interval
+    }
+
+    pub(crate) fn from_irreducible_polynomial(
+        minimal_polynomial: PrimitivePolynomial,
+        isolating_interval: RationalInterval,
+        max_root_isolation_steps: u32,
+    ) -> Result<Self, RealAlgebraicConstructionError> {
+        if !is_nonconstant(&minimal_polynomial) {
+            return Err(RealAlgebraicConstructionError::ConstantPolynomial);
+        }
+        if isolating_interval.lower.compare(&isolating_interval.upper) != Ordering::Less {
+            return Err(RealAlgebraicConstructionError::InvalidInterval);
+        }
+        if minimal_polynomial.evaluate_rational_sign(&isolating_interval.lower) == Sign::NoSign
+            || minimal_polynomial.evaluate_rational_sign(&isolating_interval.upper) == Sign::NoSign
+        {
+            return Err(RealAlgebraicConstructionError::EndpointRoot);
+        }
+        let root_count = minimal_polynomial
+            .distinct_real_root_count_in_interval(&isolating_interval)
+            .map_err(RealAlgebraicConstructionError::RootCounting)?;
+        if root_count != 1 {
+            return Err(RealAlgebraicConstructionError::NonIsolatingInterval);
+        }
+
+        let isolated_roots = minimal_polynomial
+            .isolate_real_roots(max_root_isolation_steps)
+            .map_err(RealAlgebraicConstructionError::RootIsolation)?;
+        let Some(root_index) = isolated_roots
+            .iter()
+            .position(|root| rational_intervals_overlap(root, &isolating_interval))
+        else {
+            return Err(RealAlgebraicConstructionError::RootIndexNotFound);
+        };
+        let real_root_index = u32::try_from(root_index)
+            .map_err(|_| RealAlgebraicConstructionError::RootIndexOverflow)?;
+
+        Ok(Self {
+            minimal_polynomial,
+            real_root_index,
+            isolating_interval,
+        })
+    }
+}
 
 impl PrimitivePolynomial {
     pub fn new(
@@ -646,6 +703,11 @@ fn rational_midpoint(lower: &Rational, upper: &Rational) -> Rational {
         .add(upper)
         .divide(&Rational::from_integer(Integer::from(2)))
         .expect("2 is non-zero")
+}
+
+fn rational_intervals_overlap(left: &RationalInterval, right: &RationalInterval) -> bool {
+    left.lower.compare(&right.upper) != Ordering::Greater
+        && right.lower.compare(&left.upper) != Ordering::Greater
 }
 
 impl PrimitivePolynomial {
@@ -1601,6 +1663,66 @@ mod tests {
         assert_eq!(
             zero.isolate_real_roots(32),
             Err(PrimitivePolynomialRootIsolationError::ZeroPolynomial)
+        );
+    }
+
+    #[test]
+    fn real_algebraic_constructor_computes_root_index_from_isolation() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-2, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        let algebraic = RealAlgebraic::from_irreducible_polynomial(
+            polynomial.clone(),
+            rational_interval(1, 1, 2, 1),
+            64,
+        )
+        .expect("positive square root interval isolates one root");
+
+        assert_eq!(algebraic.minimal_polynomial(), &polynomial);
+        assert_eq!(algebraic.real_root_index(), 1);
+        assert_eq!(
+            algebraic.isolating_interval(),
+            &rational_interval(1, 1, 2, 1)
+        );
+    }
+
+    #[test]
+    fn real_algebraic_constructor_rejects_invalid_isolation_data() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-2, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            RealAlgebraic::from_irreducible_polynomial(
+                PrimitivePolynomial::new(integers(&[1]))
+                    .expect("non-zero constant polynomial normalizes"),
+                rational_interval(0, 1, 1, 1),
+                64,
+            ),
+            Err(RealAlgebraicConstructionError::ConstantPolynomial)
+        );
+        assert_eq!(
+            RealAlgebraic::from_irreducible_polynomial(
+                polynomial.clone(),
+                rational_interval(2, 1, 1, 1),
+                64,
+            ),
+            Err(RealAlgebraicConstructionError::InvalidInterval)
+        );
+        assert_eq!(
+            RealAlgebraic::from_irreducible_polynomial(
+                PrimitivePolynomial::new(integers(&[-1, 1]))
+                    .expect("non-zero polynomial normalizes"),
+                rational_interval(1, 1, 2, 1),
+                64,
+            ),
+            Err(RealAlgebraicConstructionError::EndpointRoot)
+        );
+        assert_eq!(
+            RealAlgebraic::from_irreducible_polynomial(
+                polynomial,
+                rational_interval(-2, 1, 2, 1),
+                64,
+            ),
+            Err(RealAlgebraicConstructionError::NonIsolatingInterval)
         );
     }
 

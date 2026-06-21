@@ -586,11 +586,17 @@ fn rational_prime_root_algebraic(
     let [isolating_interval] = intervals.as_slice() else {
         return Err(invalid_algebraic_isolation_error());
     };
-    Ok(Some(RealAlgebraic {
-        minimal_polynomial: polynomial,
-        real_root_index: 0,
-        isolating_interval: isolating_interval.clone(),
-    }))
+    match RealAlgebraic::from_irreducible_polynomial(
+        polynomial,
+        isolating_interval.clone(),
+        limits.max_root_isolation_steps,
+    ) {
+        Ok(algebraic) => Ok(Some(algebraic)),
+        Err(RealAlgebraicConstructionError::RootIsolation(
+            PrimitivePolynomialRootIsolationError::StepLimitExceeded,
+        )) => Ok(None),
+        Err(_) => Err(invalid_algebraic_isolation_error()),
+    }
 }
 
 fn is_supported_minimal_prime_root_index(value: u32) -> bool {
