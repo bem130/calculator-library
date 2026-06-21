@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Setup Rust target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install package dependencies
+        run: corepack pnpm --dir packages/calculator install --frozen-lockfile
+
+      - name: Install example dependencies
+        run: corepack pnpm --dir examples/vanilla-web install --frozen-lockfile
+
+      - name: Check Rust formatting
+        run: cargo fmt --all --check
+
+      - name: Check Rust lints
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Check wasm target lints
+        run: cargo clippy -p calculator-wasm --target wasm32-unknown-unknown --all-features -- -D warnings
+
+      - name: Check core without default features
+        run: cargo check -p calculator-core --no-default-features
+
+      - name: Test core without default features
+        run: cargo test -p calculator-core --no-default-features
+
+      - name: Test Rust workspace
+        run: cargo test --workspace
+
+      - name: Test wasm package in Node
+        run: wasm-pack test --node crates/calculator-wasm
+
+      - name: Check generated TypeScript DTOs
+        run: cargo xtask check-generated
+
+      - name: Check forbidden floating-point usage
+        run: cargo xtask check-no-floats
+
+      - name: Check TypeScript package
+        run: corepack pnpm --dir packages/calculator run check
+
+      - name: Build vanilla web example
+        run: corepack pnpm --dir examples/vanilla-web run build
+
+      - name: Build Rust documentation
+        run: cargo doc --workspace --no-deps

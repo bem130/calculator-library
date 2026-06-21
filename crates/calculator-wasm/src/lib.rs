@@ -408,3 +408,88 @@ mod tests {
         assert_eq!(session.get_state_dto().source, "");
     }
 }
+
+#[cfg(all(test, target_arch = "wasm32"))]
+pub mod wasm_tests {
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    use super::{calculate_dto, SessionCore};
+    use crate::dto::*;
+
+    fn exact_only_request() -> CalculationRequestDto {
+        CalculationRequestDto {
+            parse: ParseSettingsDto {
+                grammar: GrammarProfileDto::Default,
+                implicit_multiplication: ImplicitMultiplicationPolicyDto::Enabled,
+                unicode_aliases: UnicodeAliasPolicyDto::MathematicalAliases,
+                percent: PercentParsePolicyDto::PostfixPercent,
+            },
+            semantics: SemanticSettingsDto {
+                domain: EvaluationDomainDto::Real,
+                angle_unit: AngleUnitDto::Radian,
+                power_semantics: PowerSemanticsDto::RealPrincipal,
+            },
+            exact_output: ExactOutputRequestDto::Include {
+                format: ExactFormatPreferenceDto::Auto,
+            },
+            scientific_output: ScientificOutputRequestDto::Omit,
+            enclosure_output: EnclosureOutputRequestDto::Omit,
+            limits: ResourceLimitRequestDto::Default,
+        }
+    }
+
+    fn exact_plain_text(result: ApiResultDto<CalculationOutcomeDto>) -> String {
+        let ApiResultDto::Ok {
+            value:
+                CalculationOutcomeDto::Complete {
+                    calculation:
+                        CalculationDto {
+                            exact: ExactOutputDto::Included { value },
+                            ..
+                        },
+                },
+        } = result
+        else {
+            panic!("expected exact successful calculation");
+        };
+        value.plain_text
+    }
+
+    #[wasm_bindgen_test]
+    fn wasm32_calculates_exact_rational_expression() {
+        let result = calculate_dto("0.1 + 0.2", exact_only_request());
+        assert_eq!(exact_plain_text(result), "3/10");
+    }
+
+    #[wasm_bindgen_test]
+    fn wasm32_session_dispatches_calculator_percent() {
+        let request = exact_only_request();
+        let mut session = SessionCore::new(InputPolicyDto {
+            calculation_request: request,
+            percent_policy: PercentPolicyDto::CalculatorPercent,
+        })
+        .expect("policy should be accepted");
+        for action in [
+            InputActionDto::Digit { value: 1 },
+            InputActionDto::Digit { value: 0 },
+            InputActionDto::Digit { value: 0 },
+            InputActionDto::BinaryOperator {
+                value: BinaryOperatorDto::Add,
+            },
+            InputActionDto::Digit { value: 1 },
+            InputActionDto::Digit { value: 0 },
+            InputActionDto::Percent,
+        ] {
+            session.dispatch_dto(action);
+        }
+
+        let SessionDispatchResultDto::Calculate {
+            source, request, ..
+        } = session.dispatch_dto(InputActionDto::Evaluate)
+        else {
+            panic!("expected calculate command");
+        };
+        assert_eq!(source, "100+((100)*(10)/100)");
+        assert_eq!(exact_plain_text(calculate_dto(&source, request)), "110");
+    }
+}
