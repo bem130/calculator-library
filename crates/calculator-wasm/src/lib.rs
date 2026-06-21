@@ -789,12 +789,55 @@ mod tests {
 
     #[test]
     fn wasm_dto_serializes_simple_radical_exact_output() {
-        for (source, expected, special_angle) in [
-            ("sqrt(72)", "6sqrt(2)", false),
-            ("sqrt(1/2)", "sqrt(2)/2", false),
-            ("2^(1/2)", "sqrt(2)", false),
-            ("sin(pi/4)", "sqrt(2)/2", true),
-            ("tan(pi/3)", "sqrt(3)", true),
+        for (source, expected, expected_representation, special_angle) in [
+            (
+                "sqrt(72)",
+                "6sqrt(2)",
+                ExactRepresentationKindDto::Radical,
+                false,
+            ),
+            (
+                "sqrt(1/2)",
+                "sqrt(2)/2",
+                ExactRepresentationKindDto::Radical,
+                false,
+            ),
+            (
+                "2^(1/2)",
+                "sqrt(2)",
+                ExactRepresentationKindDto::Radical,
+                false,
+            ),
+            (
+                "sqrt(2) * sqrt(2)",
+                "2",
+                ExactRepresentationKindDto::Integer,
+                false,
+            ),
+            (
+                "sqrt(2) * sqrt(3)",
+                "sqrt(6)",
+                ExactRepresentationKindDto::Radical,
+                false,
+            ),
+            (
+                "sin(pi/4) * cos(pi/4)",
+                "1/2",
+                ExactRepresentationKindDto::Rational,
+                true,
+            ),
+            (
+                "sin(pi/4)",
+                "sqrt(2)/2",
+                ExactRepresentationKindDto::Radical,
+                true,
+            ),
+            (
+                "tan(pi/3)",
+                "sqrt(3)",
+                ExactRepresentationKindDto::Radical,
+                true,
+            ),
         ] {
             let result = calculate_dto(source, exact_only_request());
             let ApiResultDto::Ok {
@@ -811,7 +854,7 @@ mod tests {
             else {
                 panic!("{source}: expected complete radical calculation");
             };
-            assert_eq!(exact.representation, ExactRepresentationKindDto::Radical);
+            assert_eq!(exact.representation, expected_representation);
             assert_eq!(exact.plain_text, expected, "{source}");
             assert!(metadata.methods.contains(&MethodTagDto::RadicalExtraction));
             assert_eq!(
@@ -1512,7 +1555,11 @@ pub mod wasm_tests {
             ("sqrt(72)", "6sqrt(2)"),
             ("sqrt(1/2)", "sqrt(2)/2"),
             ("2^(1/2)", "sqrt(2)"),
+            ("sqrt(2) * sqrt(2)", "2"),
+            ("sqrt(2) * sqrt(3)", "sqrt(6)"),
+            ("sqrt(8) / sqrt(2)", "2"),
             ("sin(pi/4)", "sqrt(2)/2"),
+            ("sin(pi/4) * cos(pi/4)", "1/2"),
             ("tan(pi/3)", "sqrt(3)"),
         ] {
             let result = calculate_dto(source, exact_only_request());

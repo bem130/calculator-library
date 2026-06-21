@@ -96,6 +96,7 @@ async function runBrowserChecks(url, origin) {
         await assertPiPartial(page);
         await assertRationalPiMultiplePartial(page);
         await assertSpecialAngles(page);
+        await assertSimpleRadicalAlgebra(page);
         await assertInitialExpLog(page);
         await assertRationalPowers(page);
 
@@ -270,6 +271,23 @@ async function assertSpecialAngles(page) {
     await page.fill("#expression", "asin(1/2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 30");
+    await waitForText(page, "#exact-kind", "INTEGER");
+}
+
+async function assertSimpleRadicalAlgebra(page) {
+    await page.fill("#expression", "sqrt(2)*sqrt(2)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 2");
+    await waitForText(page, "#exact-kind", "INTEGER");
+
+    await page.fill("#expression", "sqrt(2)*sqrt(3)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= sqrt(6)");
+    await waitForText(page, "#exact-kind", "RADICAL");
+
+    await page.fill("#expression", "sqrt(8)/sqrt(2)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 2");
     await waitForText(page, "#exact-kind", "INTEGER");
 }
 

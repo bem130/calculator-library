@@ -66,6 +66,18 @@
       "expectedExact": "6sqrt(2)"
     },
     {
+      "id": "radical_product_reduces_to_rational",
+      "source": "sqrt(2)*sqrt(2)",
+      "expectedParseTree": "multiply(sqrt(number(2)),sqrt(number(2)))",
+      "expectedExact": "2"
+    },
+    {
+      "id": "radical_quotient_reduces_to_rational",
+      "source": "sqrt(8)/sqrt(2)",
+      "expectedParseTree": "divide(sqrt(number(8)),sqrt(number(2)))",
+      "expectedExact": "2"
+    },
+    {
       "id": "radical_special_angle",
       "source": "sin(pi/4)",
       "expectedParseTree": "sin(divide(constant(pi),number(4)))",

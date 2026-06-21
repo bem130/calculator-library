@@ -131,13 +131,6 @@ pub(crate) struct RadicalEvaluation {
 }
 
 impl RadicalEvaluation {
-    fn direct(value: SimpleRadical) -> Self {
-        Self {
-            value,
-            used_special_angle: false,
-        }
-    }
-
     fn special_angle(value: SimpleRadical) -> Self {
         Self {
             value,
@@ -162,6 +155,29 @@ impl RadicalEvaluation {
 
     pub(crate) fn used_special_angle(&self) -> bool {
         self.used_special_angle
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum RadicalReduction {
+    Rational(RationalEvaluation),
+    Radical(RadicalEvaluation),
+}
+
+impl RadicalReduction {
+    fn rational(value: Rational, used_special_angle: bool) -> Self {
+        Self::Rational(RationalEvaluation::with_origin(value, used_special_angle))
+    }
+
+    fn radical(value: SimpleRadical, used_special_angle: bool) -> Self {
+        Self::Radical(RadicalEvaluation::with_origin(value, used_special_angle))
+    }
+
+    pub(crate) fn used_special_angle(&self) -> bool {
+        match self {
+            Self::Rational(value) => value.used_special_angle(),
+            Self::Radical(value) => value.used_special_angle(),
+        }
     }
 }
 
@@ -216,7 +232,7 @@ pub(crate) fn evaluate_rational_pi_multiple_dag(
 
 pub(crate) fn evaluate_radical_dag(
     dag: &ExactExpressionDag,
-) -> Result<Option<RadicalEvaluation>, EvaluationError> {
+) -> Result<Option<RadicalReduction>, EvaluationError> {
     evaluate_radical_node(dag, dag.root())
 }
 
@@ -400,7 +416,7 @@ fn evaluate_pi_coefficient(
 fn evaluate_radical_node(
     dag: &ExactExpressionDag,
     id: ExprId,
-) -> Result<Option<RadicalEvaluation>, EvaluationError> {
+) -> Result<Option<RadicalReduction>, EvaluationError> {
     match dag.node(id) {
         ExpressionNode::Add(list_id) => evaluate_radical_sum(dag, *list_id),
         ExpressionNode::Multiply(list_id) => evaluate_radical_product(dag, *list_id),
@@ -408,32 +424,24 @@ fn evaluate_radical_node(
             numerator,
             denominator,
         } => {
-            let Some(numerator) = evaluate_radical_node(dag, *numerator)? else {
+            let Some(numerator) = evaluate_radical_reduction(dag, *numerator)? else {
                 return Ok(None);
             };
-            let denominator = match evaluate_node(dag, *denominator) {
-                Ok(value) => value,
-                Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
-                Err(error) => return Err(error),
+            let Some(denominator) = evaluate_radical_reduction(dag, *denominator)? else {
+                return Ok(None);
             };
-            Ok(scale_radical(
-                numerator.value(),
-                &Rational::one()
-                    .divide(denominator.value())
-                    .map_err(arithmetic_error)?,
+            reduce_radical_quotient(
+                &numerator,
+                &denominator,
                 numerator.used_special_angle() || denominator.used_special_angle(),
-            ))
+            )
         }
         ExpressionNode::Function { function, argument } => match function {
             Function::Sqrt => {
-                let argument = evaluate_node(dag, *argument)?;
-                if argument.value().is_negative() {
-                    return Err(domain_error(DomainErrorKind::EvenRootOfNegative));
-                }
-                Ok(argument
-                    .value()
-                    .sqrt_as_simple_radical()
-                    .map(RadicalEvaluation::direct))
+                let Some(argument) = evaluate_radical_reduction(dag, *argument)? else {
+                    return Ok(None);
+                };
+                reduce_square_root(&argument, DomainErrorKind::EvenRootOfNegative)
             }
             Function::Sin | Function::Cos | Function::Tan => {
                 evaluate_radical_trigonometric_function(dag, *function, *argument)
@@ -451,37 +459,47 @@ fn evaluate_radical_node(
             if exponent.value() != &rational(1, 2) {
                 return Ok(None);
             }
-            let base = evaluate_node(dag, *base)?;
-            if base.value().is_negative() {
-                return Err(domain_error(DomainErrorKind::NonRealPower));
-            }
-            Ok(base
-                .value()
-                .sqrt_as_simple_radical()
-                .map(RadicalEvaluation::direct))
+            let Some(base) = evaluate_radical_reduction(dag, *base)? else {
+                return Ok(None);
+            };
+            reduce_square_root(&base, DomainErrorKind::NonRealPower)
         }
         ExpressionNode::Rational(_) | ExpressionNode::Constant(_) => Ok(None),
+    }
+}
+
+fn evaluate_radical_reduction(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+) -> Result<Option<RadicalReduction>, EvaluationError> {
+    match evaluate_node(dag, id) {
+        Ok(value) => Ok(Some(RadicalReduction::Rational(value))),
+        Err(error) if is_unsupported_exact_expression(&error) => evaluate_radical_node(dag, id),
+        Err(error) => Err(error),
     }
 }
 
 fn evaluate_radical_sum(
     dag: &ExactExpressionDag,
     list_id: ExprListId,
-) -> Result<Option<RadicalEvaluation>, EvaluationError> {
+) -> Result<Option<RadicalReduction>, EvaluationError> {
     let mut radicand = None;
+    let mut rational = Rational::zero();
     let mut coefficient = Rational::zero();
     let mut used_special_angle = false;
+    let mut saw_radical = false;
 
     for child in dag.list(list_id) {
-        match evaluate_node(dag, *child) {
-            Ok(value) if value.value().is_zero() => {
+        let Some(value) = evaluate_radical_reduction(dag, *child)? else {
+            return Ok(None);
+        };
+        match value {
+            RadicalReduction::Rational(value) => {
                 used_special_angle |= value.used_special_angle();
+                rational = rational.add(value.value());
             }
-            Ok(_) => return Ok(None),
-            Err(error) if is_unsupported_exact_expression(&error) => {
-                let Some(radical) = evaluate_radical_node(dag, *child)? else {
-                    return Ok(None);
-                };
+            RadicalReduction::Radical(radical) => {
+                saw_radical = true;
                 match &radicand {
                     Some(current) if current != &radical.value().radicand => return Ok(None),
                     None => radicand = Some(radical.value().radicand.clone()),
@@ -490,17 +508,25 @@ fn evaluate_radical_sum(
                 used_special_angle |= radical.used_special_angle();
                 coefficient = coefficient.add(&radical.value().coefficient);
             }
-            Err(error) => return Err(error),
         }
     }
 
+    if !saw_radical {
+        return Ok(None);
+    }
+    if coefficient.is_zero() {
+        return Ok(Some(RadicalReduction::rational(
+            rational,
+            used_special_angle,
+        )));
+    }
+    if !rational.is_zero() {
+        return Ok(None);
+    }
     let Some(radicand) = radicand else {
         return Ok(None);
     };
-    if coefficient.is_zero() {
-        return Ok(None);
-    }
-    Ok(Some(RadicalEvaluation::with_origin(
+    Ok(Some(RadicalReduction::radical(
         SimpleRadical {
             coefficient,
             radicand,
@@ -512,49 +538,42 @@ fn evaluate_radical_sum(
 fn evaluate_radical_product(
     dag: &ExactExpressionDag,
     list_id: ExprListId,
-) -> Result<Option<RadicalEvaluation>, EvaluationError> {
-    let mut scalar = Rational::one();
-    let mut radical = None;
+) -> Result<Option<RadicalReduction>, EvaluationError> {
+    let mut coefficient = Rational::one();
+    let mut radicand = Rational::one();
+    let mut saw_radical = false;
     let mut used_special_angle = false;
 
     for child in dag.list(list_id) {
-        match evaluate_node(dag, *child) {
-            Ok(value) => {
-                if value.value().is_zero() {
-                    return Ok(None);
-                }
+        let Some(value) = evaluate_radical_reduction(dag, *child)? else {
+            return Ok(None);
+        };
+        match value {
+            RadicalReduction::Rational(value) => {
                 used_special_angle |= value.used_special_angle();
-                scalar = scalar.multiply(value.value());
+                coefficient = coefficient.multiply(value.value());
             }
-            Err(error) if is_unsupported_exact_expression(&error) => {
-                let Some(value) = evaluate_radical_node(dag, *child)? else {
-                    return Ok(None);
-                };
-                if radical.is_some() {
-                    return Ok(None);
-                }
+            RadicalReduction::Radical(value) => {
+                saw_radical = true;
                 used_special_angle |= value.used_special_angle();
-                radical = Some(value);
+                coefficient = coefficient.multiply(&value.value().coefficient);
+                radicand =
+                    radicand.multiply(&rational_from_positive_integer(&value.value().radicand));
             }
-            Err(error) => return Err(error),
         }
     }
 
-    let Some(radical) = radical else {
+    if !saw_radical {
         return Ok(None);
-    };
-    Ok(scale_radical(
-        radical.value(),
-        &scalar,
-        used_special_angle || radical.used_special_angle(),
-    ))
+    }
+    reduce_radical_product(coefficient, radicand, used_special_angle)
 }
 
 fn evaluate_radical_trigonometric_function(
     dag: &ExactExpressionDag,
     function: Function,
     argument: ExprId,
-) -> Result<Option<RadicalEvaluation>, EvaluationError> {
+) -> Result<Option<RadicalReduction>, EvaluationError> {
     let Some(coefficient) = evaluate_pi_coefficient(dag, argument)? else {
         return Ok(None);
     };
@@ -564,25 +583,115 @@ fn evaluate_radical_trigonometric_function(
         Function::Tan => tangent_radical_special_angle(coefficient.coefficient())?,
         _ => unreachable!("only trigonometric functions are dispatched here"),
     };
-    Ok(value.map(RadicalEvaluation::special_angle))
+    Ok(value.map(|value| RadicalReduction::Radical(RadicalEvaluation::special_angle(value))))
 }
 
-fn scale_radical(
-    radical: &SimpleRadical,
-    scalar: &Rational,
-    used_special_angle: bool,
-) -> Option<RadicalEvaluation> {
-    let coefficient = radical.coefficient.multiply(scalar);
-    if coefficient.is_zero() {
-        return None;
+fn reduce_square_root(
+    value: &RadicalReduction,
+    negative_kind: DomainErrorKind,
+) -> Result<Option<RadicalReduction>, EvaluationError> {
+    match value {
+        RadicalReduction::Rational(value) => {
+            if value.value().is_negative() {
+                return Err(domain_error(negative_kind));
+            }
+            Ok(reduce_rational_square_root(
+                value.value(),
+                value.used_special_angle(),
+            ))
+        }
+        RadicalReduction::Radical(value) => {
+            if value.value().coefficient.is_negative() {
+                return Err(domain_error(negative_kind));
+            }
+            Ok(None)
+        }
     }
-    Some(RadicalEvaluation::with_origin(
+}
+
+fn reduce_rational_square_root(
+    value: &Rational,
+    used_special_angle: bool,
+) -> Option<RadicalReduction> {
+    if let Some(root) = value.sqrt_if_rational() {
+        return Some(RadicalReduction::rational(root, used_special_angle));
+    }
+    value
+        .sqrt_as_simple_radical()
+        .map(|value| RadicalReduction::radical(value, used_special_angle))
+}
+
+fn reduce_radical_quotient(
+    numerator: &RadicalReduction,
+    denominator: &RadicalReduction,
+    used_special_angle: bool,
+) -> Result<Option<RadicalReduction>, EvaluationError> {
+    let numerator = radical_components(numerator);
+    let denominator = radical_components(denominator);
+    let coefficient = numerator
+        .coefficient
+        .divide(&denominator.coefficient)
+        .map_err(arithmetic_error)?;
+    let radicand = numerator
+        .radicand
+        .divide(&denominator.radicand)
+        .map_err(arithmetic_error)?;
+    reduce_radical_product(coefficient, radicand, used_special_angle)
+}
+
+fn reduce_radical_product(
+    coefficient: Rational,
+    radicand: Rational,
+    used_special_angle: bool,
+) -> Result<Option<RadicalReduction>, EvaluationError> {
+    if coefficient.is_zero() {
+        return Ok(Some(RadicalReduction::rational(
+            Rational::zero(),
+            used_special_angle,
+        )));
+    }
+    if radicand.is_negative() || radicand.is_zero() {
+        return Err(domain_error(DomainErrorKind::EvenRootOfNegative));
+    }
+    if let Some(root) = radicand.sqrt_if_rational() {
+        return Ok(Some(RadicalReduction::rational(
+            coefficient.multiply(&root),
+            used_special_angle,
+        )));
+    }
+    let Some(radical) = radicand.sqrt_as_simple_radical() else {
+        return Ok(None);
+    };
+    Ok(Some(RadicalReduction::radical(
         SimpleRadical {
-            coefficient,
-            radicand: radical.radicand.clone(),
+            coefficient: coefficient.multiply(&radical.coefficient),
+            radicand: radical.radicand,
         },
         used_special_angle,
-    ))
+    )))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RadicalComponents {
+    coefficient: Rational,
+    radicand: Rational,
+}
+
+fn radical_components(value: &RadicalReduction) -> RadicalComponents {
+    match value {
+        RadicalReduction::Rational(value) => RadicalComponents {
+            coefficient: value.value().clone(),
+            radicand: Rational::one(),
+        },
+        RadicalReduction::Radical(value) => RadicalComponents {
+            coefficient: value.value().coefficient.clone(),
+            radicand: rational_from_positive_integer(&value.value().radicand),
+        },
+    }
+}
+
+fn rational_from_positive_integer(value: &PositiveInteger) -> Rational {
+    Rational::from_integer(value.inner.clone())
 }
 
 fn evaluate_power(
