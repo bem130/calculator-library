@@ -66,6 +66,12 @@ pub(crate) fn evaluate_interval_dag(
     evaluate_interval_node(dag, dag.root(), EVALUATION_INTERVAL_PRECISION_BITS)
 }
 
+pub(crate) fn evaluate_rational_pi_multiple_dag(
+    dag: &ExactExpressionDag,
+) -> Result<Option<Rational>, EvaluationError> {
+    evaluate_pi_coefficient(dag, dag.root())
+}
+
 fn evaluate_node(dag: &ExactExpressionDag, id: ExprId) -> Result<Rational, EvaluationError> {
     match dag.node(id) {
         ExpressionNode::Rational(id) => Ok(dag.rational(*id).clone()),
@@ -128,6 +134,73 @@ fn evaluate_node(dag: &ExactExpressionDag, id: ExprId) -> Result<Rational, Evalu
     }
 }
 
+fn evaluate_pi_coefficient(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+) -> Result<Option<Rational>, EvaluationError> {
+    match dag.node(id) {
+        ExpressionNode::Rational(id) => {
+            let value = dag.rational(*id);
+            Ok(value.is_zero().then(Rational::zero))
+        }
+        ExpressionNode::Constant(Constant::Pi) => Ok(Some(Rational::one())),
+        ExpressionNode::Constant(Constant::Euler) => Ok(None),
+        ExpressionNode::Add(list_id) => {
+            let mut total = Rational::zero();
+            for child in dag.list(*list_id) {
+                let Some(coefficient) = evaluate_pi_coefficient(dag, *child)? else {
+                    return Ok(None);
+                };
+                total = total.add(&coefficient);
+            }
+            Ok(Some(total))
+        }
+        ExpressionNode::Multiply(list_id) => {
+            let mut scalar = Rational::one();
+            let mut pi_coefficient = None;
+            for child in dag.list(*list_id) {
+                match evaluate_node(dag, *child) {
+                    Ok(value) => {
+                        if value.is_zero() {
+                            return Ok(Some(Rational::zero()));
+                        }
+                        scalar = scalar.multiply(&value);
+                    }
+                    Err(error) if is_unsupported_exact_expression(&error) => {
+                        let Some(coefficient) = evaluate_pi_coefficient(dag, *child)? else {
+                            return Ok(None);
+                        };
+                        if pi_coefficient.is_some() {
+                            return Ok(None);
+                        }
+                        pi_coefficient = Some(coefficient);
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            Ok(pi_coefficient.map(|coefficient| scalar.multiply(&coefficient)))
+        }
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => {
+            let Some(numerator) = evaluate_pi_coefficient(dag, *numerator)? else {
+                return Ok(None);
+            };
+            let denominator = match evaluate_node(dag, *denominator) {
+                Ok(value) => value,
+                Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+                Err(error) => return Err(error),
+            };
+            numerator
+                .divide(&denominator)
+                .map(Some)
+                .map_err(arithmetic_error)
+        }
+        ExpressionNode::Power { .. } | ExpressionNode::Function { .. } => Ok(None),
+    }
+}
+
 fn evaluate_power(
     dag: &ExactExpressionDag,
     base: ExprId,
@@ -136,7 +209,7 @@ fn evaluate_power(
     let base = evaluate_node(dag, base)?;
     let exponent = match evaluate_node(dag, exponent) {
         Ok(exponent) => exponent,
-        Err(error) if base.is_negative() && is_unsupported_exact_exponent(&error) => {
+        Err(error) if base.is_negative() && is_unsupported_exact_expression(&error) => {
             return Err(domain_error(DomainErrorKind::NonRealPower));
         }
         Err(error) => return Err(error),
@@ -144,7 +217,7 @@ fn evaluate_power(
     evaluate_rational_power(&base, &exponent)
 }
 
-fn is_unsupported_exact_exponent(error: &EvaluationError) -> bool {
+fn is_unsupported_exact_expression(error: &EvaluationError) -> bool {
     matches!(error, EvaluationError::UnsupportedFeature(_))
 }
 

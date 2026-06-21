@@ -94,6 +94,7 @@ async function runBrowserChecks(url, origin) {
 
         await assertIrrationalSqrtPartial(page);
         await assertPiPartial(page);
+        await assertRationalPiMultiplePartial(page);
         await assertInitialExpLog(page);
         await assertRationalPowers(page);
 
@@ -212,6 +213,7 @@ async function assertPiPartial(page) {
     await page.fill("#expression", "pi");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= pi");
+    await waitForText(page, "#exact-kind", "RATIONAL PI MULTIPLE");
     await waitForText(page, "#scientific-state", "PRECISION LIMIT");
     await waitForText(page, "#enclosure-state", "EXACT DYADIC");
 
@@ -224,6 +226,15 @@ async function assertPiPartial(page) {
         dyadicCompareWithRational(interval.upper, 22n, 7n) < 0,
         "pi upper bound is not below 22/7",
     );
+}
+
+async function assertRationalPiMultiplePartial(page) {
+    await page.fill("#expression", "pi/6");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= pi/6");
+    await waitForText(page, "#exact-kind", "RATIONAL PI MULTIPLE");
+    await waitForText(page, "#scientific-state", "PRECISION LIMIT");
+    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
 }
 
 async function assertIrrationalSqrtPartial(page) {

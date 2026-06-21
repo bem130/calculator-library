@@ -33,7 +33,7 @@
       "id": "implicit_multiplication_matches_division_precedence",
       "source": "2/3π",
       "expectedParseTree": "multiply[implicit](divide(number(2),number(3)),constant(pi))",
-      "expectedExact": "2/3π"
+      "expectedExact": "2pi/3"
     },
     {
       "id": "parenthesized_implicit_multiplication",
