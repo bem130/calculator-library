@@ -171,6 +171,14 @@ async function assertInitialExpLog(page) {
     await page.fill("#expression", "log(1)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 0");
+
+    await page.fill("#expression", "exp(log(2))");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 2");
+
+    await page.fill("#expression", "log(exp(2))");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 2");
 }
 
 async function assertPiPartial(page) {

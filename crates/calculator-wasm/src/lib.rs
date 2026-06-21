@@ -609,8 +609,15 @@ mod tests {
     }
 
     #[test]
-    fn wasm_dto_handles_initial_exp_log_identities() {
-        for (source, expected) in [("exp(0)", "1"), ("log(1)", "0")] {
+    fn wasm_dto_handles_exp_log_identities() {
+        for (source, expected) in [
+            ("exp(0)", "1"),
+            ("log(1)", "0"),
+            ("exp(log(2))", "2"),
+            ("exp(log(1/3))", "1/3"),
+            ("log(exp(2))", "2"),
+            ("log(exp(-2))", "-2"),
+        ] {
             let result = calculate_dto(source, exact_only_request());
             let ApiResultDto::Ok {
                 value:
@@ -626,6 +633,22 @@ mod tests {
                 panic!("{source}: expected complete exact calculation");
             };
             assert_eq!(exact.plain_text, expected);
+        }
+    }
+
+    #[test]
+    fn wasm_dto_rejects_exp_log_of_non_positive_values() {
+        for source in ["exp(log(0))", "exp(log(-1))"] {
+            assert_eq!(
+                calculate_dto(source, exact_only_request()),
+                ApiResultDto::Error {
+                    error: CalculatorErrorDto::Domain {
+                        code: DomainErrorCodeDto::LogarithmOfNonPositive,
+                        span: OptionalTextSpanDto::None,
+                    },
+                },
+                "{source}"
+            );
         }
     }
 
@@ -1027,6 +1050,13 @@ pub mod wasm_tests {
         value.plain_text
     }
 
+    fn calculator_error(source: &str, request: CalculationRequestDto) -> CalculatorErrorDto {
+        let ApiResultDto::Error { error } = calculate_dto(source, request) else {
+            panic!("expected calculator error");
+        };
+        error
+    }
+
     fn resource_limits() -> ResourceLimitsDto {
         ResourceLimitsDto {
             max_input_bytes: 1_001,
@@ -1080,6 +1110,33 @@ pub mod wasm_tests {
     fn wasm32_calculates_exact_rational_expression() {
         let result = calculate_dto("0.1 + 0.2", exact_only_request());
         assert_eq!(exact_plain_text(result), "3/10");
+    }
+
+    #[wasm_bindgen_test]
+    fn wasm32_calculates_guarded_exp_log_identities() {
+        for (source, expected) in [
+            ("exp(log(2))", "2"),
+            ("exp(log(1/3))", "1/3"),
+            ("log(exp(2))", "2"),
+            ("log(exp(-2))", "-2"),
+        ] {
+            let result = calculate_dto(source, exact_only_request());
+            assert_eq!(exact_plain_text(result), expected, "{source}");
+        }
+    }
+
+    #[wasm_bindgen_test]
+    fn wasm32_rejects_exp_log_of_non_positive_values() {
+        for source in ["exp(log(0))", "exp(log(-1))"] {
+            assert_eq!(
+                calculator_error(source, exact_only_request()),
+                CalculatorErrorDto::Domain {
+                    code: DomainErrorCodeDto::LogarithmOfNonPositive,
+                    span: OptionalTextSpanDto::None,
+                },
+                "{source}"
+            );
+        }
     }
 
     #[wasm_bindgen_test]

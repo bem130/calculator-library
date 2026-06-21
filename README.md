@@ -13,7 +13,7 @@ The implementation is following [doc/design.md](doc/design.md). The current work
 - Rational evaluation carries an internal exact-dyadic certified interval and can produce exact significant-digit scientific notation.
 - `sqrt` preserves perfect-square rational results exactly and returns a certified enclosure with `Partial` for irrational rational inputs such as `sqrt(2)`.
 - `e` and `pi` constants return certified enclosures with `Partial` until requested decimal digits are confirmed.
-- Initial `exp` / `log` identities such as `exp(0)` and `log(1)` are exact; `exp(1)` returns the certified enclosure for `e`.
+- `exp` / `log` identities are exact when proven over rational values, including `exp(0)`, `log(1)`, `exp(log(x))` for proven positive rational `x`, and `log(exp(x))` for rational `x`; `exp(1)` returns the certified enclosure for `e`.
 - `calculator-cli` evaluates exact expressions such as `0.1 + 0.2`.
 - `calculator-wasm` exposes DTO-based calculation through `wasm-bindgen`.
 - `packages/calculator` provides TypeScript facades for calculation and headless session dispatch over the Wasm module.
@@ -82,7 +82,8 @@ corepack pnpm --dir examples/vanilla-web run build
 The Pages workflow in [.github/workflows/pages.yml](.github/workflows/pages.yml) builds `examples/vanilla-web/dist` and deploys it from `main`.
 
 The example e2e test covers the public worker API path, MathML rendering,
-clipboard copy, worker cancellation, and rational scientific/enclosure output.
+clipboard copy, worker cancellation, rational scientific/enclosure output, and
+guarded `exp` / `log` identities.
 
 ## Verification
 

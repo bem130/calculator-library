@@ -119,36 +119,8 @@ fn evaluate_node(dag: &ExactExpressionDag, id: ExprId) -> Result<Rational, Evalu
                         },
                     ))
             }
-            Function::Exp => {
-                let argument = evaluate_node(dag, *argument)?;
-                if argument.is_zero() {
-                    Ok(Rational::one())
-                } else {
-                    Err(EvaluationError::UnsupportedFeature(
-                        UnsupportedFeatureError {
-                            feature: UnsupportedFeature::FunctionEvaluation,
-                        },
-                    ))
-                }
-            }
-            Function::Log => {
-                let argument = evaluate_node(dag, *argument)?;
-                if argument.is_negative() || argument.is_zero() {
-                    return Err(EvaluationError::Domain(DomainError {
-                        kind: DomainErrorKind::LogarithmOfNonPositive,
-                        span: None,
-                    }));
-                }
-                if argument == Rational::one() {
-                    Ok(Rational::zero())
-                } else {
-                    Err(EvaluationError::UnsupportedFeature(
-                        UnsupportedFeatureError {
-                            feature: UnsupportedFeature::FunctionEvaluation,
-                        },
-                    ))
-                }
-            }
+            Function::Exp => evaluate_exp_function(dag, *argument),
+            Function::Log => evaluate_log_function(dag, *argument),
             Function::Sin
             | Function::Cos
             | Function::Tan
@@ -161,6 +133,85 @@ fn evaluate_node(dag: &ExactExpressionDag, id: ExprId) -> Result<Rational, Evalu
             )),
         },
     }
+}
+
+fn evaluate_exp_function(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+) -> Result<Rational, EvaluationError> {
+    if let Some(value) = evaluate_exp_log_identity(dag, argument)? {
+        return Ok(value);
+    }
+    let argument = evaluate_node(dag, argument)?;
+    if argument.is_zero() {
+        Ok(Rational::one())
+    } else {
+        Err(unsupported_function_evaluation())
+    }
+}
+
+fn evaluate_log_function(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+) -> Result<Rational, EvaluationError> {
+    if let Some(value) = evaluate_log_exp_identity(dag, argument)? {
+        return Ok(value);
+    }
+    let argument = evaluate_node(dag, argument)?;
+    if argument.is_negative() || argument.is_zero() {
+        return Err(logarithm_of_non_positive_error());
+    }
+    if argument == Rational::one() {
+        Ok(Rational::zero())
+    } else {
+        Err(unsupported_function_evaluation())
+    }
+}
+
+fn evaluate_exp_log_identity(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+) -> Result<Option<Rational>, EvaluationError> {
+    let ExpressionNode::Function {
+        function: Function::Log,
+        argument,
+    } = dag.node(argument)
+    else {
+        return Ok(None);
+    };
+    let value = evaluate_node(dag, *argument)?;
+    if value.is_negative() || value.is_zero() {
+        Err(logarithm_of_non_positive_error())
+    } else {
+        Ok(Some(value))
+    }
+}
+
+fn evaluate_log_exp_identity(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+) -> Result<Option<Rational>, EvaluationError> {
+    let ExpressionNode::Function {
+        function: Function::Exp,
+        argument,
+    } = dag.node(argument)
+    else {
+        return Ok(None);
+    };
+    Ok(Some(evaluate_node(dag, *argument)?))
+}
+
+fn unsupported_function_evaluation() -> EvaluationError {
+    EvaluationError::UnsupportedFeature(UnsupportedFeatureError {
+        feature: UnsupportedFeature::FunctionEvaluation,
+    })
+}
+
+fn logarithm_of_non_positive_error() -> EvaluationError {
+    EvaluationError::Domain(DomainError {
+        kind: DomainErrorKind::LogarithmOfNonPositive,
+        span: None,
+    })
 }
 
 fn evaluate_interval_node(
