@@ -167,6 +167,13 @@ pub enum DecimalLiteralError {
     ExponentTooLarge,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RationalArithmeticError {
+    DivisionByZero,
+    ZeroToNegativePower,
+    ExponentTooLarge,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrimitivePolynomial {
     pub coefficients_low_to_high: Vec<Integer>,
@@ -892,6 +899,92 @@ impl Rational {
         Self::from_integer(Integer::one())
     }
 
+    pub fn is_zero(&self) -> bool {
+        self.numerator.is_zero()
+    }
+
+    pub fn negate(&self) -> Self {
+        Self::new(
+            Integer::from_bigint(-self.numerator.inner.clone()),
+            self.denominator.inner.clone(),
+        )
+        .expect("negating a canonical rational preserves a non-zero denominator")
+    }
+
+    pub fn add(&self, rhs: &Self) -> Self {
+        let numerator = (&self.numerator.inner * &rhs.denominator.inner.inner)
+            + (&rhs.numerator.inner * &self.denominator.inner.inner);
+        let denominator = &self.denominator.inner.inner * &rhs.denominator.inner.inner;
+        Self::new(
+            Integer::from_bigint(numerator),
+            Integer::from_bigint(denominator),
+        )
+        .expect("multiplying positive denominators cannot produce zero")
+    }
+
+    pub fn subtract(&self, rhs: &Self) -> Self {
+        self.add(&rhs.negate())
+    }
+
+    pub fn multiply(&self, rhs: &Self) -> Self {
+        let numerator = &self.numerator.inner * &rhs.numerator.inner;
+        let denominator = &self.denominator.inner.inner * &rhs.denominator.inner.inner;
+        Self::new(
+            Integer::from_bigint(numerator),
+            Integer::from_bigint(denominator),
+        )
+        .expect("multiplying positive denominators cannot produce zero")
+    }
+
+    pub fn divide(&self, rhs: &Self) -> Result<Self, RationalArithmeticError> {
+        if rhs.is_zero() {
+            return Err(RationalArithmeticError::DivisionByZero);
+        }
+        let numerator = &self.numerator.inner * &rhs.denominator.inner.inner;
+        let denominator = &self.denominator.inner.inner * &rhs.numerator.inner;
+        Self::new(
+            Integer::from_bigint(numerator),
+            Integer::from_bigint(denominator),
+        )
+        .map_err(|_| RationalArithmeticError::DivisionByZero)
+    }
+
+    pub fn percent(&self) -> Self {
+        self.divide(&Self::from_integer(Integer::from(100)))
+            .expect("100 is non-zero")
+    }
+
+    pub fn pow_i64(&self, exponent: i64) -> Result<Self, RationalArithmeticError> {
+        if exponent == 0 {
+            return Ok(Self::one());
+        }
+        if self.is_zero() && exponent < 0 {
+            return Err(RationalArithmeticError::ZeroToNegativePower);
+        }
+
+        let magnitude = exponent
+            .checked_abs()
+            .ok_or(RationalArithmeticError::ExponentTooLarge)?;
+        let magnitude =
+            u32::try_from(magnitude).map_err(|_| RationalArithmeticError::ExponentTooLarge)?;
+
+        let numerator = self.numerator.inner.pow(magnitude);
+        let denominator = self.denominator.inner.inner.pow(magnitude);
+        if exponent > 0 {
+            Self::new(
+                Integer::from_bigint(numerator),
+                Integer::from_bigint(denominator),
+            )
+            .map_err(|_| RationalArithmeticError::DivisionByZero)
+        } else {
+            Self::new(
+                Integer::from_bigint(denominator),
+                Integer::from_bigint(numerator),
+            )
+            .map_err(|_| RationalArithmeticError::DivisionByZero)
+        }
+    }
+
     pub fn from_decimal_literal(literal: &str) -> Result<Self, DecimalLiteralError> {
         if literal.is_empty() {
             return Err(DecimalLiteralError::Empty);
@@ -1139,5 +1232,47 @@ mod tests {
         let rational = Rational::from_decimal_literal("1.2e-3").unwrap();
         assert_eq!(rational.numerator.to_string(), "3");
         assert_eq!(rational.denominator.inner.to_string(), "2500");
+    }
+
+    #[test]
+    fn rational_arithmetic_preserves_canonical_form() {
+        let one_third = Rational::new(Integer::one(), Integer::from(3)).unwrap();
+        let one_sixth = Rational::new(Integer::one(), Integer::from(6)).unwrap();
+        let sum = one_third.add(&one_sixth);
+        assert_eq!(sum.numerator.to_string(), "1");
+        assert_eq!(sum.denominator.inner.to_string(), "2");
+
+        let product = Rational::new(Integer::from(2), Integer::from(3))
+            .unwrap()
+            .multiply(&Rational::new(Integer::from(9), Integer::from(4)).unwrap());
+        assert_eq!(product.numerator.to_string(), "3");
+        assert_eq!(product.denominator.inner.to_string(), "2");
+    }
+
+    #[test]
+    fn rational_division_rejects_zero() {
+        assert_eq!(
+            Rational::one().divide(&Rational::zero()),
+            Err(RationalArithmeticError::DivisionByZero)
+        );
+    }
+
+    #[test]
+    fn rational_integer_power_handles_negative_exponents() {
+        let value = Rational::new(Integer::from(2), Integer::from(3)).unwrap();
+        let squared = value.pow_i64(2).unwrap();
+        assert_eq!(squared.numerator.to_string(), "4");
+        assert_eq!(squared.denominator.inner.to_string(), "9");
+
+        let reciprocal = value.pow_i64(-2).unwrap();
+        assert_eq!(reciprocal.numerator.to_string(), "9");
+        assert_eq!(reciprocal.denominator.inner.to_string(), "4");
+    }
+
+    #[test]
+    fn rational_percent_is_exact() {
+        let value = Rational::from_integer(Integer::from(50)).percent();
+        assert_eq!(value.numerator.to_string(), "1");
+        assert_eq!(value.denominator.inner.to_string(), "2");
     }
 }
