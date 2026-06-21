@@ -92,6 +92,8 @@ async function runBrowserChecks(url, origin) {
         const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
         assert(clipboardText === "3/10", `clipboard text was ${JSON.stringify(clipboardText)}`);
 
+        await assertIrrationalSqrtPartial(page);
+
         await page.fill("#expression", "");
         await page.click('button[data-key="7"]');
         await page.click('button[data-key="+"]');
@@ -144,6 +146,25 @@ async function assertPhase2Outputs(page) {
     assert(
         dyadicCompareWithRational(interval.upper, 3n, 10n) >= 0,
         "certified enclosure upper bound is below 3/10",
+    );
+}
+
+async function assertIrrationalSqrtPartial(page) {
+    await page.fill("#expression", "sqrt(2)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= sqrt(2)");
+    await waitForText(page, "#scientific-state", "PRECISION LIMIT");
+    await waitForText(page, "#scientific-output", "Requested decimal digits are not confirmed.");
+    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+
+    const interval = parseExactDyadicInterval(await textContent(page, "#enclosure-output"));
+    assert(
+        dyadicSquareCompareWithRational(interval.lower, 2n, 1n) <= 0,
+        "sqrt(2) lower bound squared is above 2",
+    );
+    assert(
+        dyadicSquareCompareWithRational(interval.upper, 2n, 1n) >= 0,
+        "sqrt(2) upper bound squared is below 2",
     );
 }
 
@@ -297,6 +318,17 @@ function dyadicCompareWithRational(dyadic, numerator, denominator) {
         return 1;
     }
     return 0;
+}
+
+function dyadicSquareCompareWithRational(dyadic, numerator, denominator) {
+    return dyadicCompareWithRational(
+        {
+            coefficient: dyadic.coefficient * dyadic.coefficient,
+            exponentTwo: dyadic.exponentTwo * 2,
+        },
+        numerator,
+        denominator,
+    );
 }
 
 function assert(condition, message) {

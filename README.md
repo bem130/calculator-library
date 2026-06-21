@@ -11,6 +11,7 @@ The implementation is following [doc/design.md](doc/design.md). The current work
 
 - `calculator-core` parses and evaluates rational expressions without `f32` / `f64`.
 - Rational evaluation carries an internal exact-dyadic certified interval and can produce exact significant-digit scientific notation.
+- `sqrt` preserves perfect-square rational results exactly and returns a certified enclosure with `Partial` for irrational rational inputs such as `sqrt(2)`.
 - `calculator-cli` evaluates exact expressions such as `0.1 + 0.2`.
 - `calculator-wasm` exposes DTO-based calculation through `wasm-bindgen`.
 - `packages/calculator` provides TypeScript facades for calculation and headless session dispatch over the Wasm module.

@@ -4,10 +4,14 @@ use num_bigint::{BigInt, Sign};
 use num_integer::Integer as _;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
-use crate::types::{CertifiedInterval, ExactDyadic, Integer, Rational};
+use crate::types::{
+    ceil_sqrt_nonnegative, floor_sqrt_nonnegative, CertifiedInterval, DomainErrorKind, ExactDyadic,
+    Integer, Rational,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum IntervalError {
+    Domain(DomainErrorKind),
     InvalidBounds,
     UnsupportedExpression,
     ExponentTooLarge,
@@ -81,6 +85,23 @@ pub(crate) fn divide(
         numerator,
         &reciprocal_interval(denominator, precision_bits)?,
     )
+}
+
+pub(crate) fn sqrt(
+    value: &CertifiedInterval,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    if value.upper.coefficient.inner.sign() == Sign::Minus {
+        return Err(IntervalError::Domain(DomainErrorKind::EvenRootOfNegative));
+    }
+    if value.lower.coefficient.inner.sign() == Sign::Minus {
+        return Err(IntervalError::UnsupportedExpression);
+    }
+
+    Ok(CertifiedInterval {
+        lower: sqrt_dyadic_lower(&value.lower, precision_bits)?,
+        upper: sqrt_dyadic_upper(&value.upper, precision_bits)?,
+    })
 }
 
 pub(crate) fn pow_i64(
@@ -163,6 +184,58 @@ fn reciprocal_interval(
         .divide(&lower)
         .map_err(|_| IntervalError::DivisionByIntervalContainingZero)?;
     from_rational_bounds(&reciprocal_lower, &reciprocal_upper, precision_bits)
+}
+
+fn sqrt_dyadic_lower(
+    value: &ExactDyadic,
+    precision_bits: u32,
+) -> Result<ExactDyadic, IntervalError> {
+    let value = dyadic_to_rational(value)?;
+    sqrt_rational_lower(&value, precision_bits)
+}
+
+fn sqrt_dyadic_upper(
+    value: &ExactDyadic,
+    precision_bits: u32,
+) -> Result<ExactDyadic, IntervalError> {
+    let value = dyadic_to_rational(value)?;
+    sqrt_rational_upper(&value, precision_bits)
+}
+
+fn sqrt_rational_lower(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<ExactDyadic, IntervalError> {
+    if value.is_negative() {
+        return Err(IntervalError::Domain(DomainErrorKind::EvenRootOfNegative));
+    }
+    let scale_bits = precision_bits
+        .checked_mul(2)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let scaled_numerator = &value.numerator.inner << scale_bits;
+    let scaled = scaled_numerator.div_floor(&value.denominator.inner.inner);
+    Ok(normalize_dyadic(
+        floor_sqrt_nonnegative(&scaled),
+        -BigInt::from(precision_bits),
+    ))
+}
+
+fn sqrt_rational_upper(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<ExactDyadic, IntervalError> {
+    if value.is_negative() {
+        return Err(IntervalError::Domain(DomainErrorKind::EvenRootOfNegative));
+    }
+    let scale_bits = precision_bits
+        .checked_mul(2)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let scaled_numerator = &value.numerator.inner << scale_bits;
+    let scaled = scaled_numerator.div_ceil(&value.denominator.inner.inner);
+    Ok(normalize_dyadic(
+        ceil_sqrt_nonnegative(&scaled),
+        -BigInt::from(precision_bits),
+    ))
 }
 
 fn contains_zero(interval: &CertifiedInterval) -> bool {
@@ -306,6 +379,21 @@ mod tests {
         assert!(contains_rational(&multiply(&left, &right).unwrap(), &rational(3, 50)).unwrap());
         assert!(contains_rational(&divide(&left, &right, 24).unwrap(), &rational(3, 2)).unwrap());
         assert!(contains_rational(&pow_i64(&left, 2, 24).unwrap(), &rational(9, 100)).unwrap());
+    }
+
+    #[test]
+    fn sqrt_interval_contains_irrational_square_root() {
+        let interval = sqrt(&from_rational(&rational(2, 1), 32), 32).unwrap();
+        let squared = multiply(&interval, &interval).unwrap();
+        assert!(contains_rational(&squared, &rational(2, 1)).unwrap());
+    }
+
+    #[test]
+    fn sqrt_interval_rejects_negative_domain() {
+        assert_eq!(
+            sqrt(&from_rational(&rational(-1, 1), 16), 16),
+            Err(IntervalError::Domain(DomainErrorKind::EvenRootOfNegative))
+        );
     }
 
     #[test]

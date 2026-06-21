@@ -102,11 +102,36 @@ fn evaluate_node(dag: &ExactExpressionDag, id: ExprId) -> Result<Rational, Evalu
                 .pow_i64(exponent)
                 .map_err(arithmetic_error)
         }
-        ExpressionNode::Function { .. } => Err(EvaluationError::UnsupportedFeature(
-            UnsupportedFeatureError {
-                feature: UnsupportedFeature::FunctionEvaluation,
-            },
-        )),
+        ExpressionNode::Function { function, argument } => match function {
+            Function::Sqrt => {
+                let argument = evaluate_node(dag, *argument)?;
+                if argument.is_negative() {
+                    return Err(EvaluationError::Domain(DomainError {
+                        kind: DomainErrorKind::EvenRootOfNegative,
+                        span: None,
+                    }));
+                }
+                argument
+                    .sqrt_if_rational()
+                    .ok_or(EvaluationError::UnsupportedFeature(
+                        UnsupportedFeatureError {
+                            feature: UnsupportedFeature::FunctionEvaluation,
+                        },
+                    ))
+            }
+            Function::Sin
+            | Function::Cos
+            | Function::Tan
+            | Function::Asin
+            | Function::Acos
+            | Function::Atan
+            | Function::Exp
+            | Function::Log => Err(EvaluationError::UnsupportedFeature(
+                UnsupportedFeatureError {
+                    feature: UnsupportedFeature::FunctionEvaluation,
+                },
+            )),
+        },
     }
 }
 
@@ -119,9 +144,7 @@ fn evaluate_interval_node(
         ExpressionNode::Rational(id) => {
             Ok(interval::from_rational(dag.rational(*id), precision_bits))
         }
-        ExpressionNode::Constant(_) | ExpressionNode::Function { .. } => {
-            Err(IntervalError::UnsupportedExpression)
-        }
+        ExpressionNode::Constant(_) => Err(IntervalError::UnsupportedExpression),
         ExpressionNode::Add(list_id) => {
             let mut total = interval::from_rational(&Rational::zero(), precision_bits);
             for child in dag.list(*list_id) {
@@ -161,6 +184,20 @@ fn evaluate_interval_node(
                 precision_bits,
             )
         }
+        ExpressionNode::Function { function, argument } => match function {
+            Function::Sqrt => interval::sqrt(
+                &evaluate_interval_node(dag, *argument, precision_bits)?,
+                precision_bits,
+            ),
+            Function::Sin
+            | Function::Cos
+            | Function::Tan
+            | Function::Asin
+            | Function::Acos
+            | Function::Atan
+            | Function::Exp
+            | Function::Log => Err(IntervalError::UnsupportedExpression),
+        },
     }
 }
 
