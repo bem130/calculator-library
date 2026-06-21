@@ -582,6 +582,41 @@ impl PrimitivePolynomial {
         self.resultant_with_degree_limit(rhs, Some(max_resultant_degree))
     }
 
+    pub fn root_sum_resultant_bounded(
+        &self,
+        rhs: &Self,
+        max_resultant_degree: u32,
+    ) -> Result<Self, PrimitivePolynomialResultantError> {
+        let lhs_degree = self
+            .degree()
+            .ok_or(PrimitivePolynomialResultantError::ZeroPolynomial)?;
+        let rhs_degree = rhs
+            .degree()
+            .ok_or(PrimitivePolynomialResultantError::ZeroPolynomial)?;
+        if lhs_degree == 0 || rhs_degree == 0 {
+            return Err(PrimitivePolynomialResultantError::ConstantPolynomial);
+        }
+        let output_degree = lhs_degree
+            .checked_mul(rhs_degree)
+            .ok_or(PrimitivePolynomialResultantError::DegreeOverflow)?;
+        if output_degree > max_resultant_degree as usize {
+            return Err(PrimitivePolynomialResultantError::DegreeLimitExceeded);
+        }
+        let matrix_degree = lhs_degree
+            .checked_add(rhs_degree)
+            .ok_or(PrimitivePolynomialResultantError::DegreeOverflow)?;
+        if matrix_degree > max_resultant_degree as usize {
+            return Err(PrimitivePolynomialResultantError::DegreeLimitExceeded);
+        }
+
+        let mut samples = Vec::with_capacity(output_degree + 1);
+        for point in 0..=output_degree {
+            let shifted_rhs = rhs.compose_integer_minus_x(&BigInt::from(point))?;
+            samples.push(self.resultant_bounded(&shifted_rhs, max_resultant_degree)?);
+        }
+        interpolate_integer_polynomial_at_consecutive_integers(&samples)
+    }
+
     fn resultant_with_degree_limit(
         &self,
         rhs: &Self,
@@ -637,6 +672,33 @@ impl PrimitivePolynomial {
         }
 
         Ok(Integer::from_bigint(bareiss_determinant(matrix)))
+    }
+
+    fn compose_integer_minus_x(
+        &self,
+        shift: &BigInt,
+    ) -> Result<Self, PrimitivePolynomialResultantError> {
+        let coefficients = effective_coefficients(&self.coefficients_low_to_high);
+        if coefficients.is_empty() {
+            return Err(PrimitivePolynomialResultantError::ZeroPolynomial);
+        }
+        let degree = coefficients.len() - 1;
+        let mut composed = vec![BigInt::zero(); degree + 1];
+        for (source_degree, coefficient) in coefficients.iter().enumerate() {
+            for (target_degree, target_coefficient) in
+                composed.iter_mut().enumerate().take(source_degree + 1)
+            {
+                let mut term = coefficient.inner.clone();
+                term *= binomial_usize(source_degree, target_degree);
+                term *= pow_bigint_usize(shift, source_degree - target_degree);
+                if target_degree % 2 == 1 {
+                    term = -term;
+                }
+                *target_coefficient += term;
+            }
+        }
+        Self::new(composed.into_iter().map(Integer::from_bigint).collect())
+            .map_err(resultant_construction_error)
     }
 
     pub fn factor_rational_roots(
@@ -900,6 +962,63 @@ fn rational_midpoint(lower: &Rational, upper: &Rational) -> Rational {
 fn rational_intervals_overlap(left: &RationalInterval, right: &RationalInterval) -> bool {
     left.lower.compare(&right.upper) != Ordering::Greater
         && right.lower.compare(&left.upper) != Ordering::Greater
+}
+
+fn interpolate_integer_polynomial_at_consecutive_integers(
+    samples: &[Integer],
+) -> Result<PrimitivePolynomial, PrimitivePolynomialResultantError> {
+    if samples.is_empty() {
+        return Err(PrimitivePolynomialResultantError::ZeroPolynomial);
+    }
+
+    let mut coefficients = vec![Rational::zero(); samples.len()];
+    let mut differences = samples
+        .iter()
+        .map(|sample| sample.inner.clone())
+        .collect::<Vec<_>>();
+    let mut falling_factorial = vec![BigInt::one()];
+    let mut factorial = BigInt::one();
+
+    for order in 0..samples.len() {
+        let delta = differences
+            .first()
+            .expect("forward differences are non-empty")
+            .clone();
+        for (degree, falling_coefficient) in falling_factorial.iter().enumerate() {
+            let term = Rational::new(
+                Integer::from_bigint(&delta * falling_coefficient),
+                Integer::from_bigint(factorial.clone()),
+            )
+            .expect("factorial is positive");
+            coefficients[degree] = coefficients[degree].add(&term);
+        }
+
+        if order + 1 == samples.len() {
+            break;
+        }
+        differences = differences
+            .windows(2)
+            .map(|pair| &pair[1] - &pair[0])
+            .collect();
+
+        let root = BigInt::from(order);
+        let mut next_falling_factorial = vec![BigInt::zero(); falling_factorial.len() + 1];
+        for (degree, coefficient) in falling_factorial.iter().enumerate() {
+            next_falling_factorial[degree] -= coefficient * &root;
+            next_falling_factorial[degree + 1] += coefficient;
+        }
+        falling_factorial = next_falling_factorial;
+        factorial *= BigInt::from(order + 1);
+    }
+
+    let mut integer_coefficients = Vec::with_capacity(coefficients.len());
+    for coefficient in coefficients {
+        if !coefficient.is_integer() {
+            return Err(PrimitivePolynomialResultantError::NonIntegralInterpolation);
+        }
+        integer_coefficients.push(coefficient.numerator);
+    }
+    PrimitivePolynomial::new(integer_coefficients).map_err(resultant_construction_error)
 }
 
 fn isolate_away_from_zero(
@@ -2283,6 +2402,36 @@ mod tests {
         assert_eq!(
             polynomial.resultant_bounded(&x_minus_three, 2),
             Err(PrimitivePolynomialResultantError::DegreeLimitExceeded)
+        );
+    }
+
+    #[test]
+    fn root_sum_resultant_recovers_sum_elimination_polynomial() {
+        let square_root_two = PrimitivePolynomial::new(integers(&[-2, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        let square_root_three = PrimitivePolynomial::new(integers(&[-3, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            square_root_two
+                .root_sum_resultant_bounded(&square_root_three, 16)
+                .unwrap(),
+            PrimitivePolynomial::new(integers(&[1, 0, -10, 0, 1]))
+                .expect("root-sum resultant normalizes")
+        );
+        assert_eq!(
+            square_root_two.root_sum_resultant_bounded(&square_root_three, 3),
+            Err(PrimitivePolynomialResultantError::DegreeLimitExceeded)
+        );
+    }
+
+    #[test]
+    fn consecutive_integer_interpolation_recovers_integer_coefficients() {
+        let samples = integers(&[3, 6, 11]);
+        assert_eq!(
+            interpolate_integer_polynomial_at_consecutive_integers(&samples).unwrap(),
+            PrimitivePolynomial::new(integers(&[3, 2, 1]))
+                .expect("interpolated polynomial normalizes")
         );
     }
 
