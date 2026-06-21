@@ -1430,6 +1430,18 @@ mod tests {
             ("cos(pi/6)", "sqrt(3)/2"),
             ("tan(pi/3)", "sqrt(3)"),
             ("tan(pi/6)", "sqrt(3)/3"),
+            ("sin(pi/12)", "sqrt(6)/4 - sqrt(2)/4"),
+            ("cos(pi/12)", "sqrt(2)/4 + sqrt(6)/4"),
+            ("sin(5*pi/12)", "sqrt(2)/4 + sqrt(6)/4"),
+            ("cos(5*pi/12)", "sqrt(6)/4 - sqrt(2)/4"),
+            ("sin(-pi/12)", "sqrt(2)/4 - sqrt(6)/4"),
+            ("cos(7*pi/12)", "sqrt(2)/4 - sqrt(6)/4"),
+            ("sin(17*pi/12)", "-sqrt(2)/4 - sqrt(6)/4"),
+            ("cos(11*pi/12)", "-sqrt(2)/4 - sqrt(6)/4"),
+            ("tan(pi/12)", "2 - sqrt(3)"),
+            ("tan(5*pi/12)", "2 + sqrt(3)"),
+            ("tan(7*pi/12)", "-2 - sqrt(3)"),
+            ("tan(11*pi/12)", "-2 + sqrt(3)"),
             ("sin(pi/4) + cos(pi/4)", "sqrt(2)"),
             ("sin(pi/6) + sqrt(2)", "1/2 + sqrt(2)"),
             ("sqrt(3) + sqrt(2)", "sqrt(2) + sqrt(3)"),
@@ -1516,8 +1528,7 @@ mod tests {
     #[test]
     fn radical_linear_combinations_report_radical_representation() {
         let mut context = EvaluationContext::default();
-        let outcome =
-            calculate("sin(pi/6) + sqrt(2)", &exact_only_request(), &mut context).unwrap();
+        let outcome = calculate("tan(pi/12)", &exact_only_request(), &mut context).unwrap();
         let CalculationOutcome::Complete(calculation) = outcome else {
             panic!("expected complete calculation");
         };
@@ -1525,7 +1536,7 @@ mod tests {
             panic!("expected exact output");
         };
         assert_eq!(exact.representation, ExactRepresentationKind::Radical);
-        assert_eq!(exact.plain_text, "1/2 + sqrt(2)");
+        assert_eq!(exact.plain_text, "2 - sqrt(3)");
         assert_eq!(
             calculation.metadata.exact_representation,
             ExactRepresentationKind::Radical

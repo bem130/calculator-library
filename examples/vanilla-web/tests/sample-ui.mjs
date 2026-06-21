@@ -257,6 +257,16 @@ async function assertSpecialAngles(page) {
     await waitForText(page, "#exact-output", "= sqrt(2)/2");
     await waitForText(page, "#exact-kind", "RADICAL");
 
+    await page.fill("#expression", "sin(pi/12)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= sqrt(6)/4 - sqrt(2)/4");
+    await waitForText(page, "#exact-kind", "RADICAL");
+
+    await page.fill("#expression", "tan(pi/12)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 2 - sqrt(3)");
+    await waitForText(page, "#exact-kind", "RADICAL");
+
     await page.fill("#expression", "asin(1/2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= pi/6");
