@@ -674,13 +674,20 @@ mod tests {
                                 plain_text: String::from("3/10"),
                             },
                         },
-                        scientific: ScientificOutputDto::Unavailable {
-                            value: UnavailableScientificOutputDto {
+                        scientific: ScientificOutputDto::Included {
+                            value: ScientificPresentationDto {
+                                relation: ResultRelationDto::ApproximatelyEqual,
+                                significand: String::from(
+                                    "3.0000000000000000000000000000000000000000000000000",
+                                ),
+                                exponent_ten: String::from("-1"),
                                 requested_significant_digits: 50,
-                                confirmed_significant_digits: 0,
+                                confirmed_significant_digits: 50,
                                 rounding_mode: DecimalRoundingModeDto::NearestTiesToEven,
-                                reason: IncompleteReasonDto::ComputationLimit {
-                                    kind: ComputationLimitCodeDto::PrecisionBits,
+                                presentation: PresentationNodeDto::Text {
+                                    text: String::from(
+                                        "3.0000000000000000000000000000000000000000000000000e-1",
+                                    ),
                                 },
                             },
                         },
@@ -697,7 +704,7 @@ mod tests {
                             methods: vec![MethodTagDto::RationalReduction],
                             internal_precision_bits: 0,
                             refinement_rounds: 0,
-                            confirmed_significant_digits: 0,
+                            confirmed_significant_digits: 50,
                             assurance: AssuranceLevelDto::Exact,
                             protocol_version: ProtocolVersionDto { major: 1, minor: 0 },
                         },
