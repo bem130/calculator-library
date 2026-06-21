@@ -193,6 +193,11 @@ pub enum PrimitivePolynomialConstructionError {
     ZeroPolynomial,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrimitivePolynomialDivisionError {
+    ZeroDivisor,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrimitivePolynomial {
     pub coefficients_low_to_high: Vec<Integer>,
