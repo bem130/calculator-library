@@ -131,6 +131,52 @@ impl RealAlgebraic {
         )
         .map(Some)
     }
+
+    pub(crate) fn reciprocal_bounded(
+        &self,
+        max_polynomial_coefficient_bits: u32,
+        max_root_isolation_steps: u32,
+    ) -> Result<Option<Self>, RealAlgebraicConstructionError> {
+        let Some(source_interval) = isolate_away_from_zero(
+            &self.minimal_polynomial,
+            &self.isolating_interval,
+            max_root_isolation_steps,
+        )?
+        else {
+            return Ok(None);
+        };
+        let minimal_polynomial = self
+            .minimal_polynomial
+            .reciprocal_roots()
+            .map_err(RealAlgebraicConstructionError::PolynomialConstruction)?;
+        if minimal_polynomial.max_coefficient_bits() > u64::from(max_polynomial_coefficient_bits) {
+            return Ok(None);
+        }
+        let one = Rational::one();
+        let first = one
+            .divide(&source_interval.lower)
+            .expect("interval excludes zero");
+        let second = one
+            .divide(&source_interval.upper)
+            .expect("interval excludes zero");
+        let isolating_interval = if first.compare(&second) == Ordering::Greater {
+            RationalInterval {
+                lower: second,
+                upper: first,
+            }
+        } else {
+            RationalInterval {
+                lower: first,
+                upper: second,
+            }
+        };
+        Self::from_irreducible_polynomial(
+            minimal_polynomial,
+            isolating_interval,
+            max_root_isolation_steps,
+        )
+        .map(Some)
+    }
 }
 
 impl PrimitivePolynomial {
@@ -270,6 +316,14 @@ impl PrimitivePolynomial {
             })
             .collect();
         Self::new(scaled)
+    }
+
+    pub fn reciprocal_roots(&self) -> Result<Self, PrimitivePolynomialConstructionError> {
+        let coefficients = effective_coefficients(&self.coefficients_low_to_high);
+        if coefficients.is_empty() {
+            return Err(PrimitivePolynomialConstructionError::ZeroPolynomial);
+        }
+        Self::new(coefficients.iter().rev().cloned().collect())
     }
 
     pub fn derivative(&self) -> Result<Self, PrimitivePolynomialConstructionError> {
@@ -848,6 +902,71 @@ fn rational_intervals_overlap(left: &RationalInterval, right: &RationalInterval)
         && right.lower.compare(&left.upper) != Ordering::Greater
 }
 
+fn isolate_away_from_zero(
+    polynomial: &PrimitivePolynomial,
+    interval: &RationalInterval,
+    max_steps: u32,
+) -> Result<Option<RationalInterval>, RealAlgebraicConstructionError> {
+    let zero = Rational::zero();
+    if interval.lower.compare(&zero) == Ordering::Greater
+        || interval.upper.compare(&zero) == Ordering::Less
+    {
+        return Ok(Some(interval.clone()));
+    }
+    if polynomial.evaluate_rational_sign(&zero) == Sign::NoSign {
+        return Ok(None);
+    }
+
+    let mut current = interval.clone();
+    let mut steps = 0;
+    loop {
+        if current.lower.compare(&zero) == Ordering::Greater
+            || current.upper.compare(&zero) == Ordering::Less
+        {
+            return Ok(Some(current));
+        }
+        if steps >= max_steps {
+            return Err(RealAlgebraicConstructionError::RootIsolation(
+                PrimitivePolynomialRootIsolationError::StepLimitExceeded,
+            ));
+        }
+        let split = if current.lower.compare(&zero) == Ordering::Less
+            && current.upper.compare(&zero) == Ordering::Greater
+        {
+            consume_root_isolation_step(&mut steps, max_steps)
+                .map_err(RealAlgebraicConstructionError::RootIsolation)?;
+            zero.clone()
+        } else {
+            polynomial
+                .non_root_split(&current, &mut steps, max_steps)
+                .map_err(RealAlgebraicConstructionError::RootIsolation)?
+        };
+        let left = RationalInterval {
+            lower: current.lower.clone(),
+            upper: split.clone(),
+        };
+        let right = RationalInterval {
+            lower: split,
+            upper: current.upper.clone(),
+        };
+        let left_count = polynomial
+            .distinct_real_root_count_in_interval(&left)
+            .map_err(RealAlgebraicConstructionError::RootCounting)?;
+        if left_count == 1 {
+            current = left;
+            continue;
+        }
+        let right_count = polynomial
+            .distinct_real_root_count_in_interval(&right)
+            .map_err(RealAlgebraicConstructionError::RootCounting)?;
+        if right_count == 1 {
+            current = right;
+            continue;
+        }
+        return Ok(None);
+    }
+}
+
 impl PrimitivePolynomial {
     fn non_root_split(
         &self,
@@ -1385,6 +1504,25 @@ mod tests {
                 .unwrap(),
             PrimitivePolynomial::new(integers(&[2, 0, 0, 1]))
                 .expect("scaled polynomial normalizes")
+        );
+    }
+
+    #[test]
+    fn reciprocal_roots_reverses_minimal_polynomial() {
+        let square_root_two = PrimitivePolynomial::new(integers(&[-2, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        assert_eq!(
+            square_root_two.reciprocal_roots().unwrap(),
+            PrimitivePolynomial::new(integers(&[-1, 0, 2]))
+                .expect("reciprocal polynomial normalizes")
+        );
+
+        let cube_root_two = PrimitivePolynomial::new(integers(&[-2, 0, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        assert_eq!(
+            cube_root_two.reciprocal_roots().unwrap(),
+            PrimitivePolynomial::new(integers(&[-1, 0, 0, 2]))
+                .expect("reciprocal polynomial normalizes")
         );
     }
 
@@ -2016,6 +2154,57 @@ mod tests {
         assert_eq!(
             algebraic.scale_rational_bounded(&rational(-1, 1), 1, 64),
             Ok(None)
+        );
+    }
+
+    #[test]
+    fn real_algebraic_reciprocal_reverses_polynomial_and_interval() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-2, 0, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        let algebraic = RealAlgebraic::from_irreducible_polynomial(
+            polynomial,
+            rational_interval(1, 1, 2, 1),
+            64,
+        )
+        .expect("cube root interval isolates one root");
+
+        let reciprocal = algebraic
+            .reciprocal_bounded(1_000_000, 64)
+            .unwrap()
+            .expect("reciprocal polynomial remains within coefficient limit");
+
+        assert_eq!(
+            reciprocal.minimal_polynomial(),
+            &PrimitivePolynomial::new(integers(&[-1, 0, 0, 2]))
+                .expect("reciprocal polynomial normalizes")
+        );
+        assert_eq!(reciprocal.real_root_index(), 0);
+        assert_eq!(
+            reciprocal.isolating_interval(),
+            &rational_interval(1, 2, 1, 1)
+        );
+        assert_eq!(algebraic.reciprocal_bounded(1, 64), Ok(None));
+    }
+
+    #[test]
+    fn real_algebraic_reciprocal_refines_interval_away_from_zero() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-2, 0, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        let algebraic = RealAlgebraic::from_irreducible_polynomial(
+            polynomial,
+            rational_interval(0, 1, 2, 1),
+            64,
+        )
+        .expect("cube root interval isolates one root");
+
+        let reciprocal = algebraic
+            .reciprocal_bounded(1_000_000, 64)
+            .unwrap()
+            .expect("reciprocal refines away from zero");
+
+        assert_eq!(
+            reciprocal.isolating_interval(),
+            &rational_interval(1, 2, 1, 1)
         );
     }
 

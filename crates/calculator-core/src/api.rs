@@ -1963,6 +1963,15 @@ mod tests {
                     Integer::from(4),
                 ],
             ),
+            (
+                "1/2^(1/3)+1",
+                vec![
+                    Integer::from(-3),
+                    Integer::from(6),
+                    Integer::from(-6),
+                    Integer::from(2),
+                ],
+            ),
         ];
 
         for (source, coefficients) in cases {
