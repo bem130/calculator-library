@@ -420,6 +420,317 @@ mod dto_conformance {
 }
 
 #[cfg(test)]
+mod dto_differential {
+    use crate::dto::*;
+
+    #[derive(Clone, Copy, Debug)]
+    pub enum RequestProfile {
+        ExactOnly,
+        DegreeExactOnly,
+        ScientificWithEnclosure,
+        CyclotomicOrderLimit,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    pub enum ExpectedOutcome {
+        Complete {
+            representation: ExactRepresentationKindDto,
+            plain_text: &'static str,
+            methods: &'static [MethodTagDto],
+        },
+        Partial {
+            representation: ExactRepresentationKindDto,
+            plain_text: &'static str,
+            methods: &'static [MethodTagDto],
+        },
+        DomainError {
+            code: DomainErrorCodeDto,
+        },
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    pub struct Case {
+        pub id: &'static str,
+        pub source: &'static str,
+        pub request: RequestProfile,
+        pub expected: ExpectedOutcome,
+    }
+
+    pub const CASES: &[Case] = &[
+        Case {
+            id: "exact-rational-addition",
+            source: "0.1 + 0.2",
+            request: RequestProfile::ExactOnly,
+            expected: ExpectedOutcome::Complete {
+                representation: ExactRepresentationKindDto::Rational,
+                plain_text: "3/10",
+                methods: &[
+                    MethodTagDto::RationalReduction,
+                    MethodTagDto::CertifiedIntervalEvaluation,
+                ],
+            },
+        },
+        Case {
+            id: "rational-pi-multiple",
+            source: "3*pi/4",
+            request: RequestProfile::ExactOnly,
+            expected: ExpectedOutcome::Complete {
+                representation: ExactRepresentationKindDto::RationalPiMultiple,
+                plain_text: "3pi/4",
+                methods: &[
+                    MethodTagDto::SymbolicRetention,
+                    MethodTagDto::CertifiedIntervalEvaluation,
+                ],
+            },
+        },
+        Case {
+            id: "degree-special-angle",
+            source: "sin(30)",
+            request: RequestProfile::DegreeExactOnly,
+            expected: ExpectedOutcome::Complete {
+                representation: ExactRepresentationKindDto::Rational,
+                plain_text: "1/2",
+                methods: &[
+                    MethodTagDto::RationalReduction,
+                    MethodTagDto::SpecialAngle,
+                    MethodTagDto::CertifiedIntervalEvaluation,
+                ],
+            },
+        },
+        Case {
+            id: "radical-linear-combination",
+            source: "sin(pi/12)",
+            request: RequestProfile::ExactOnly,
+            expected: ExpectedOutcome::Complete {
+                representation: ExactRepresentationKindDto::Radical,
+                plain_text: "sqrt(6)/4 - sqrt(2)/4",
+                methods: &[
+                    MethodTagDto::RadicalExtraction,
+                    MethodTagDto::SpecialAngle,
+                    MethodTagDto::CertifiedIntervalEvaluation,
+                ],
+            },
+        },
+        Case {
+            id: "real-algebraic-rational-power",
+            source: "2^(1/3)",
+            request: RequestProfile::ExactOnly,
+            expected: ExpectedOutcome::Complete {
+                representation: ExactRepresentationKindDto::RealAlgebraic,
+                plain_text: "2^(1/3)",
+                methods: &[
+                    MethodTagDto::AlgebraicMinimalPolynomial,
+                    MethodTagDto::AlgebraicRootIsolation,
+                    MethodTagDto::CertifiedIntervalEvaluation,
+                ],
+            },
+        },
+        Case {
+            id: "cyclotomic-real-algebraic",
+            source: "sin(pi/5)",
+            request: RequestProfile::ExactOnly,
+            expected: ExpectedOutcome::Complete {
+                representation: ExactRepresentationKindDto::RealAlgebraic,
+                plain_text: "sin(pi/5)",
+                methods: &[
+                    MethodTagDto::AlgebraicMinimalPolynomial,
+                    MethodTagDto::AlgebraicRootIsolation,
+                    MethodTagDto::CertifiedIntervalEvaluation,
+                    MethodTagDto::CyclotomicReduction,
+                ],
+            },
+        },
+        Case {
+            id: "symbolic-cyclotomic-limit-fallback",
+            source: "sin(pi/5)",
+            request: RequestProfile::CyclotomicOrderLimit,
+            expected: ExpectedOutcome::Complete {
+                representation: ExactRepresentationKindDto::GeneralSymbolic,
+                plain_text: "sin(pi/5)",
+                methods: &[
+                    MethodTagDto::SymbolicRetention,
+                    MethodTagDto::CertifiedIntervalEvaluation,
+                ],
+            },
+        },
+        Case {
+            id: "partial-real-algebraic-with-enclosure",
+            source: "2^(1/3)",
+            request: RequestProfile::ScientificWithEnclosure,
+            expected: ExpectedOutcome::Partial {
+                representation: ExactRepresentationKindDto::RealAlgebraic,
+                plain_text: "2^(1/3)",
+                methods: &[
+                    MethodTagDto::AlgebraicMinimalPolynomial,
+                    MethodTagDto::AlgebraicRootIsolation,
+                    MethodTagDto::CertifiedIntervalEvaluation,
+                ],
+            },
+        },
+        Case {
+            id: "domain-tangent-pole",
+            source: "tan(pi/2)",
+            request: RequestProfile::ExactOnly,
+            expected: ExpectedOutcome::DomainError {
+                code: DomainErrorCodeDto::TangentPole,
+            },
+        },
+    ];
+
+    pub fn request(profile: RequestProfile) -> CalculationRequestDto {
+        let mut request = exact_only_request();
+        match profile {
+            RequestProfile::ExactOnly => {}
+            RequestProfile::DegreeExactOnly => {
+                request.semantics.angle_unit = AngleUnitDto::Degree;
+            }
+            RequestProfile::ScientificWithEnclosure => {
+                request.scientific_output = ScientificOutputRequestDto::Include {
+                    significant_digits: 50,
+                    rounding_mode: DecimalRoundingModeDto::NearestTiesToEven,
+                };
+                request.enclosure_output = EnclosureOutputRequestDto::Include {
+                    format: EnclosureFormatDto::ExactDyadic,
+                };
+            }
+            RequestProfile::CyclotomicOrderLimit => {
+                request.limits = ResourceLimitRequestDto::Custom {
+                    value: ResourceLimitsDto {
+                        max_cyclotomic_order: 4,
+                        ..default_resource_limits()
+                    },
+                };
+            }
+        }
+        request
+    }
+
+    pub fn assert_result(case: &Case, result: &ApiResultDto<CalculationOutcomeDto>) {
+        match (&case.expected, result) {
+            (
+                ExpectedOutcome::Complete {
+                    representation,
+                    plain_text,
+                    methods,
+                },
+                ApiResultDto::Ok {
+                    value: CalculationOutcomeDto::Complete { calculation },
+                },
+            ) => assert_calculation(case.id, calculation, *representation, plain_text, methods),
+            (
+                ExpectedOutcome::Partial {
+                    representation,
+                    plain_text,
+                    methods,
+                },
+                ApiResultDto::Ok {
+                    value:
+                        CalculationOutcomeDto::Partial {
+                            calculation,
+                            reason,
+                            certified_enclosure,
+                        },
+                },
+            ) => {
+                assert_eq!(
+                    reason,
+                    &IncompleteReasonDto::PrecisionLimit {
+                        requested_digits: 50,
+                        confirmed_digits: 0,
+                    },
+                    "{}",
+                    case.id
+                );
+                let EnclosureOutputDto::Included { value: enclosure } = &calculation.enclosure
+                else {
+                    panic!("{}: expected requested enclosure output", case.id);
+                };
+                assert_eq!(certified_enclosure, enclosure, "{}", case.id);
+                assert_calculation(case.id, calculation, *representation, plain_text, methods);
+            }
+            (
+                ExpectedOutcome::DomainError { code },
+                ApiResultDto::Error {
+                    error:
+                        CalculatorErrorDto::Domain {
+                            code: actual_code, ..
+                        },
+                },
+            ) => assert_eq!(actual_code, code, "{}", case.id),
+            _ => panic!("{}: unexpected result: {result:?}", case.id),
+        }
+    }
+
+    fn assert_calculation(
+        id: &str,
+        calculation: &CalculationDto,
+        representation: ExactRepresentationKindDto,
+        plain_text: &str,
+        methods: &[MethodTagDto],
+    ) {
+        let ExactOutputDto::Included { value: exact } = &calculation.exact else {
+            panic!("{id}: expected exact output");
+        };
+        assert_eq!(exact.representation, representation, "{id}");
+        assert_eq!(exact.plain_text, plain_text, "{id}");
+        assert_eq!(
+            calculation.metadata.exact_representation, representation,
+            "{id}"
+        );
+        for method in methods {
+            assert!(
+                calculation.metadata.methods.contains(method),
+                "{id}: missing method {method:?}"
+            );
+        }
+    }
+
+    fn exact_only_request() -> CalculationRequestDto {
+        CalculationRequestDto {
+            parse: ParseSettingsDto {
+                grammar: GrammarProfileDto::Default,
+                implicit_multiplication: ImplicitMultiplicationPolicyDto::Enabled,
+                unicode_aliases: UnicodeAliasPolicyDto::MathematicalAliases,
+                percent: PercentParsePolicyDto::PostfixPercent,
+            },
+            semantics: SemanticSettingsDto {
+                domain: EvaluationDomainDto::Real,
+                angle_unit: AngleUnitDto::Radian,
+                power_semantics: PowerSemanticsDto::RealPrincipal,
+            },
+            exact_output: ExactOutputRequestDto::Include {
+                format: ExactFormatPreferenceDto::Auto,
+            },
+            scientific_output: ScientificOutputRequestDto::Omit,
+            enclosure_output: EnclosureOutputRequestDto::Omit,
+            limits: ResourceLimitRequestDto::Default,
+        }
+    }
+
+    fn default_resource_limits() -> ResourceLimitsDto {
+        ResourceLimitsDto {
+            max_input_bytes: 16 * 1024,
+            max_source_ast_nodes: 16 * 1024,
+            max_source_depth: 512,
+            max_expression_nodes: 64 * 1024,
+            max_integer_bits: 1_000_000,
+            max_cyclotomic_order: 128,
+            max_algebraic_degree: 64,
+            max_polynomial_coefficient_bits: 1_000_000,
+            max_resultant_degree: 128,
+            max_factorization_work: 100_000,
+            max_root_isolation_steps: 100_000,
+            max_rewrite_steps: 100_000,
+            max_precision_bits: 1_000_000,
+            max_refinement_rounds: 256,
+            max_logical_work_units: String::from("10000000"),
+            max_presentation_nodes: 64 * 1024,
+            max_output_bytes: 1024 * 1024,
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::dto::*;
@@ -1399,6 +1710,15 @@ mod tests {
     }
 
     #[test]
+    fn native_representative_dto_cases_match_shared_contract() {
+        for case in dto_differential::CASES {
+            let request = dto_differential::request(case.request);
+            let result = calculate_dto(case.source, request);
+            dto_differential::assert_result(case, &result);
+        }
+    }
+
+    #[test]
     fn wasm_dto_accepts_camel_case_scientific_request_fields() {
         let request: CalculationRequestDto = serde_json::from_value(serde_json::json!({
             "parse": {
@@ -1589,7 +1909,7 @@ pub mod wasm_tests {
     use wasm_bindgen::JsValue;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    use super::{calculate, calculate_dto, dto_conformance, SessionCore};
+    use super::{calculate, calculate_dto, dto_conformance, dto_differential, SessionCore};
     use crate::dto::*;
 
     fn exact_only_request() -> CalculationRequestDto {
@@ -2077,6 +2397,32 @@ pub mod wasm_tests {
                     |error| panic!("{}: failed to deserialize wasm result: {error:?}", case.id),
                 );
             assert_eq!(actual, case.expected_result, "{}", case.id);
+        }
+    }
+
+    #[wasm_bindgen_test]
+    fn wasm32_representative_dto_cases_match_shared_contract() {
+        for case in dto_differential::CASES {
+            let request = dto_differential::request(case.request);
+            let result = calculate_dto(case.source, request);
+            dto_differential::assert_result(case, &result);
+        }
+    }
+
+    #[wasm_bindgen_test]
+    fn wasm32_js_and_rust_dto_paths_match_representative_cases() {
+        for case in dto_differential::CASES {
+            let request = dto_differential::request(case.request);
+            let direct = calculate_dto(case.source, request.clone());
+            let js_request = serde_wasm_bindgen::to_value(&request).unwrap_or_else(|error| {
+                panic!("{}: failed to serialize request: {error:?}", case.id)
+            });
+            let from_js: ApiResultDto<CalculationOutcomeDto> =
+                serde_wasm_bindgen::from_value(calculate(case.source, js_request)).unwrap_or_else(
+                    |error| panic!("{}: failed to deserialize wasm result: {error:?}", case.id),
+                );
+            assert_eq!(from_js, direct, "{}", case.id);
+            dto_differential::assert_result(case, &from_js);
         }
     }
 }
