@@ -520,15 +520,31 @@ fn evaluate_real_algebraic_node(
     id: ExprId,
     limits: &ResourceLimits,
 ) -> Result<Option<RealAlgebraic>, EvaluationError> {
-    let ExpressionNode::Power { base, exponent } = dag.node(id) else {
-        return Ok(None);
-    };
-    let base = match evaluate_node(dag, *base) {
+    match dag.node(id) {
+        ExpressionNode::Power { base, exponent } => {
+            evaluate_real_algebraic_power(dag, *base, *exponent, limits)
+        }
+        ExpressionNode::Add(list_id) => evaluate_real_algebraic_sum(dag, *list_id, limits),
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::Multiply(_)
+        | ExpressionNode::Divide { .. }
+        | ExpressionNode::Function { .. } => Ok(None),
+    }
+}
+
+fn evaluate_real_algebraic_power(
+    dag: &ExactExpressionDag,
+    base: ExprId,
+    exponent: ExprId,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraic>, EvaluationError> {
+    let base = match evaluate_node(dag, base) {
         Ok(value) => value,
         Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
         Err(error) => return Err(error),
     };
-    let exponent = match evaluate_node(dag, *exponent) {
+    let exponent = match evaluate_node(dag, exponent) {
         Ok(value) => value,
         Err(error) if base.value().is_negative() && is_unsupported_exact_expression(&error) => {
             return Err(domain_error(DomainErrorKind::NonRealPower));
@@ -537,6 +553,49 @@ fn evaluate_real_algebraic_node(
         Err(error) => return Err(error),
     };
     rational_prime_root_algebraic(base.value(), exponent.value(), limits)
+}
+
+fn evaluate_real_algebraic_sum(
+    dag: &ExactExpressionDag,
+    list_id: ExprListId,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraic>, EvaluationError> {
+    let mut rational = Rational::zero();
+    let mut algebraic = None;
+    for child in dag.list(list_id) {
+        match evaluate_node(dag, *child) {
+            Ok(value) => {
+                rational = rational.add(value.value());
+            }
+            Err(error) if is_unsupported_exact_expression(&error) => {
+                let Some(value) = evaluate_real_algebraic_node(dag, *child, limits)? else {
+                    return Ok(None);
+                };
+                if algebraic.replace(value).is_some() {
+                    return Ok(None);
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    let Some(algebraic) = algebraic else {
+        return Ok(None);
+    };
+    if rational.is_zero() {
+        return Ok(Some(algebraic));
+    }
+    match algebraic.add_rational_bounded(
+        &rational,
+        limits.max_polynomial_coefficient_bits,
+        limits.max_root_isolation_steps,
+    ) {
+        Ok(value) => Ok(value),
+        Err(RealAlgebraicConstructionError::RootIsolation(
+            PrimitivePolynomialRootIsolationError::StepLimitExceeded,
+        )) => Ok(None),
+        Err(error) => Err(real_algebraic_construction_error(error)),
+    }
 }
 
 fn rational_prime_root_algebraic(
@@ -595,7 +654,7 @@ fn rational_prime_root_algebraic(
         Err(RealAlgebraicConstructionError::RootIsolation(
             PrimitivePolynomialRootIsolationError::StepLimitExceeded,
         )) => Ok(None),
-        Err(_) => Err(invalid_algebraic_isolation_error()),
+        Err(error) => Err(real_algebraic_construction_error(error)),
     }
 }
 
@@ -1616,6 +1675,20 @@ fn invalid_algebraic_isolation_error() -> EvaluationError {
     EvaluationError::InternalInvariant(InternalInvariantError {
         code: InternalInvariantCode::InvalidAlgebraicIsolation,
     })
+}
+
+fn real_algebraic_construction_error(error: RealAlgebraicConstructionError) -> EvaluationError {
+    match error {
+        RealAlgebraicConstructionError::RootCounting(
+            PrimitivePolynomialRootCountingError::CountOverflow,
+        )
+        | RealAlgebraicConstructionError::RootIsolation(
+            PrimitivePolynomialRootIsolationError::CountOverflow,
+        ) => EvaluationError::ComputationLimit(ComputationLimitError {
+            kind: ComputationLimitKind::RootIsolationSteps,
+        }),
+        _ => invalid_algebraic_isolation_error(),
+    }
 }
 
 fn evaluate_interval_node(
