@@ -5,6 +5,7 @@ extern crate alloc;
 
 mod api;
 mod session;
+mod syntax;
 mod types;
 
 pub use api::{calculate, evaluate, parse, present};

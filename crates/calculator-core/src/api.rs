@@ -40,9 +40,11 @@ pub fn parse(source: &str, settings: &ParseSettings) -> Result<ParsedExpression,
         });
     }
 
+    let root = crate::syntax::parse_source(source, settings)?;
     Ok(ParsedExpression {
         source: String::from(source),
         settings: *settings,
+        root,
     })
 }
 

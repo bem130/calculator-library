@@ -260,6 +260,7 @@ pub enum ResultRelation {
 pub struct ParsedExpression {
     pub(crate) source: String,
     pub(crate) settings: ParseSettings,
+    pub(crate) root: crate::syntax::SourceExpr,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
