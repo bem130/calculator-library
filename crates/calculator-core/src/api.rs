@@ -269,12 +269,11 @@ fn rational_pi_enclosure(
     dag: &ExactExpressionDag,
     value: &PiCoefficientEvaluation,
 ) -> Result<CertifiedInterval, interval::IntervalError> {
-    evaluate_interval_dag(dag).or_else(|error| match error {
-        interval::IntervalError::UnsupportedExpression => interval::multiply(
+    recover_unsupported_interval(evaluate_interval_dag(dag), || {
+        interval::multiply(
             &interval::from_rational(value.coefficient(), 128),
             &interval::constant(Constant::Pi, 128)?,
-        ),
-        error => Err(error),
+        )
     })
 }
 
@@ -282,13 +281,12 @@ fn real_algebraic_enclosure(
     dag: &ExactExpressionDag,
     value: &RealAlgebraic,
 ) -> Result<CertifiedInterval, interval::IntervalError> {
-    evaluate_interval_dag(dag).or_else(|error| match error {
-        interval::IntervalError::UnsupportedExpression => interval::from_rational_bounds(
+    recover_unsupported_interval(evaluate_interval_dag(dag), || {
+        interval::from_rational_bounds(
             &value.isolating_interval().lower,
             &value.isolating_interval().upper,
             128,
-        ),
-        error => Err(error),
+        )
     })
 }
 
@@ -308,14 +306,11 @@ fn radical_enclosure(
     dag: &ExactExpressionDag,
     value: &RadicalEvaluation,
 ) -> Result<CertifiedInterval, interval::IntervalError> {
-    evaluate_interval_dag(dag).or_else(|error| match error {
-        interval::IntervalError::UnsupportedExpression => {
-            let coefficient = interval::from_rational(&value.value().coefficient, 128);
-            let radicand = Rational::from_integer(value.value().radicand.inner.clone());
-            let radical = interval::sqrt(&interval::from_rational(&radicand, 128), 128)?;
-            interval::multiply(&coefficient, &radical)
-        }
-        error => Err(error),
+    recover_unsupported_interval(evaluate_interval_dag(dag), || {
+        let coefficient = interval::from_rational(&value.value().coefficient, 128);
+        let radicand = Rational::from_integer(value.value().radicand.inner.clone());
+        let radical = interval::sqrt(&interval::from_rational(&radicand, 128), 128)?;
+        interval::multiply(&coefficient, &radical)
     })
 }
 
@@ -323,19 +318,29 @@ fn radical_linear_combination_enclosure(
     dag: &ExactExpressionDag,
     value: &RadicalLinearCombinationEvaluation,
 ) -> Result<CertifiedInterval, interval::IntervalError> {
-    evaluate_interval_dag(dag).or_else(|error| match error {
-        interval::IntervalError::UnsupportedExpression => {
-            let mut total = interval::from_rational(&value.value().rational, 128);
-            for radical in &value.value().radicals {
-                let coefficient = interval::from_rational(&radical.coefficient, 128);
-                let radicand = Rational::from_integer(radical.radicand.inner.clone());
-                let radical = interval::sqrt(&interval::from_rational(&radicand, 128), 128)?;
-                let term = interval::multiply(&coefficient, &radical)?;
-                total = interval::add(&total, &term)?;
-            }
-            Ok(total)
+    recover_unsupported_interval(evaluate_interval_dag(dag), || {
+        let mut total = interval::from_rational(&value.value().rational, 128);
+        for radical in &value.value().radicals {
+            let coefficient = interval::from_rational(&radical.coefficient, 128);
+            let radicand = Rational::from_integer(radical.radicand.inner.clone());
+            let radical = interval::sqrt(&interval::from_rational(&radicand, 128), 128)?;
+            let term = interval::multiply(&coefficient, &radical)?;
+            total = interval::add(&total, &term)?;
         }
-        error => Err(error),
+        Ok(total)
+    })
+}
+
+fn recover_unsupported_interval(
+    result: Result<CertifiedInterval, interval::IntervalError>,
+    fallback: impl FnOnce() -> Result<CertifiedInterval, interval::IntervalError>,
+) -> Result<CertifiedInterval, interval::IntervalError> {
+    result.or_else(|error| match error {
+        interval::IntervalError::UnsupportedExpression => fallback(),
+        error @ interval::IntervalError::Domain(_) => Err(error),
+        error @ interval::IntervalError::InvalidBounds => Err(error),
+        error @ interval::IntervalError::ExponentTooLarge => Err(error),
+        error @ interval::IntervalError::DivisionByIntervalContainingZero => Err(error),
     })
 }
 

@@ -312,24 +312,23 @@ impl Parser<'_> {
             let Some(next) = self.peek() else {
                 return Ok(expr);
             };
-            let (op, implicit) = match next.kind {
-                TokenKind::Star => (BinaryOperator::Multiply, false),
-                TokenKind::Slash => (BinaryOperator::Divide, false),
-                _ if starts_primary(&next.kind) => {
-                    if self.settings.implicit_multiplication
-                        == ImplicitMultiplicationPolicy::Disabled
-                    {
-                        return Err(ParseError {
-                            kind: ParseErrorKind::ImplicitMultiplicationDisabled,
-                            span: next.span,
-                            expected: vec![ExpectedToken {
-                                kind: ExpectedTokenKind::Operator,
-                            }],
-                        });
-                    }
-                    (BinaryOperator::Multiply, true)
+            let (op, implicit) = if next.kind == TokenKind::Star {
+                (BinaryOperator::Multiply, false)
+            } else if next.kind == TokenKind::Slash {
+                (BinaryOperator::Divide, false)
+            } else if starts_primary(&next.kind) {
+                if self.settings.implicit_multiplication == ImplicitMultiplicationPolicy::Disabled {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ImplicitMultiplicationDisabled,
+                        span: next.span,
+                        expected: vec![ExpectedToken {
+                            kind: ExpectedTokenKind::Operator,
+                        }],
+                    });
                 }
-                _ => return Ok(expr),
+                (BinaryOperator::Multiply, true)
+            } else {
+                return Ok(expr);
             };
             if !implicit {
                 self.advance();
@@ -370,7 +369,15 @@ impl Parser<'_> {
                     expr: Box::new(expr),
                 })
             }
-            _ => self.parse_percent(),
+            TokenKind::Number(_)
+            | TokenKind::Constant(_)
+            | TokenKind::Function(_)
+            | TokenKind::Star
+            | TokenKind::Slash
+            | TokenKind::Caret
+            | TokenKind::Percent
+            | TokenKind::OpenParen
+            | TokenKind::CloseParen => self.parse_percent(),
         }
     }
 
@@ -455,7 +462,13 @@ impl Parser<'_> {
                 self.advance();
                 Ok(with_span(expr, union(token.span, close_span)))
             }
-            _ => Err(ParseError {
+            TokenKind::Plus
+            | TokenKind::Minus
+            | TokenKind::Star
+            | TokenKind::Slash
+            | TokenKind::Caret
+            | TokenKind::Percent
+            | TokenKind::CloseParen => Err(ParseError {
                 kind: ParseErrorKind::UnexpectedToken,
                 span: token.span,
                 expected: vec![ExpectedToken {
