@@ -115,69 +115,52 @@ impl RealAlgebraic {
             ) => return Ok(None),
             Err(error) => return Err(RealAlgebraicConstructionError::PolynomialResultant(error)),
         };
-        if candidate_polynomial.max_coefficient_bits() > u64::from(max_polynomial_coefficient_bits)
-        {
-            return Ok(None);
-        }
-
-        let factorization = candidate_polynomial
-            .factor_bounded(max_factorization_work)
-            .map_err(RealAlgebraicConstructionError::PolynomialConstruction)?;
-        if factorization.incomplete_reason.is_some() || factorization.residual.is_some() {
-            return Ok(None);
-        }
-
-        let mut lhs_interval = self.isolating_interval.clone();
-        let mut rhs_interval = rhs.isolating_interval.clone();
-        let mut refinement_steps = 0;
-        loop {
-            let sum_interval = add_intervals(&lhs_interval, &rhs_interval);
-            match select_single_factor_in_interval(
-                &factorization,
-                &sum_interval,
+        construct_binary_algebraic_result(
+            self,
+            rhs,
+            candidate_polynomial,
+            BinaryIntervalOperation::Add,
+            BinaryAlgebraicLimits {
                 max_algebraic_degree,
                 max_polynomial_coefficient_bits,
-            )? {
-                FactorSelection::Selected(minimal_polynomial) => {
-                    return Self::from_irreducible_polynomial(
-                        minimal_polynomial,
-                        sum_interval,
-                        max_root_isolation_steps,
-                    )
-                    .map(Some);
-                }
-                FactorSelection::Ambiguous => {}
-                FactorSelection::LimitExceeded => return Ok(None),
-            }
-
-            if refinement_steps >= max_root_isolation_steps {
-                return Ok(None);
-            }
-            let Some(refined_lhs) = refine_isolating_interval(
-                &self.minimal_polynomial,
-                &lhs_interval,
-                &mut refinement_steps,
+                max_factorization_work,
                 max_root_isolation_steps,
-            )?
-            else {
-                return Ok(None);
-            };
-            lhs_interval = refined_lhs;
+            },
+        )
+    }
 
-            if refinement_steps >= max_root_isolation_steps {
-                return Ok(None);
-            }
-            let Some(refined_rhs) = refine_isolating_interval(
-                &rhs.minimal_polynomial,
-                &rhs_interval,
-                &mut refinement_steps,
+    pub(crate) fn multiply_bounded(
+        &self,
+        rhs: &Self,
+        max_algebraic_degree: u32,
+        max_polynomial_coefficient_bits: u32,
+        max_resultant_degree: u32,
+        max_factorization_work: u32,
+        max_root_isolation_steps: u32,
+    ) -> Result<Option<Self>, RealAlgebraicConstructionError> {
+        let candidate_polynomial = match self
+            .minimal_polynomial
+            .root_product_resultant_bounded(&rhs.minimal_polynomial, max_resultant_degree)
+        {
+            Ok(polynomial) => polynomial,
+            Err(
+                PrimitivePolynomialResultantError::DegreeLimitExceeded
+                | PrimitivePolynomialResultantError::DegreeOverflow,
+            ) => return Ok(None),
+            Err(error) => return Err(RealAlgebraicConstructionError::PolynomialResultant(error)),
+        };
+        construct_binary_algebraic_result(
+            self,
+            rhs,
+            candidate_polynomial,
+            BinaryIntervalOperation::Multiply,
+            BinaryAlgebraicLimits {
+                max_algebraic_degree,
+                max_polynomial_coefficient_bits,
+                max_factorization_work,
                 max_root_isolation_steps,
-            )?
-            else {
-                return Ok(None);
-            };
-            rhs_interval = refined_rhs;
-        }
+            },
+        )
     }
 
     pub(crate) fn scale_rational_bounded(
@@ -1262,6 +1245,94 @@ enum FactorSelection {
     LimitExceeded,
 }
 
+#[derive(Clone, Copy)]
+enum BinaryIntervalOperation {
+    Add,
+    Multiply,
+}
+
+#[derive(Clone, Copy)]
+struct BinaryAlgebraicLimits {
+    max_algebraic_degree: u32,
+    max_polynomial_coefficient_bits: u32,
+    max_factorization_work: u32,
+    max_root_isolation_steps: u32,
+}
+
+fn construct_binary_algebraic_result(
+    lhs: &RealAlgebraic,
+    rhs: &RealAlgebraic,
+    candidate_polynomial: PrimitivePolynomial,
+    interval_operation: BinaryIntervalOperation,
+    limits: BinaryAlgebraicLimits,
+) -> Result<Option<RealAlgebraic>, RealAlgebraicConstructionError> {
+    if candidate_polynomial.max_coefficient_bits()
+        > u64::from(limits.max_polynomial_coefficient_bits)
+    {
+        return Ok(None);
+    }
+
+    let factorization = candidate_polynomial
+        .factor_bounded(limits.max_factorization_work)
+        .map_err(RealAlgebraicConstructionError::PolynomialConstruction)?;
+    if factorization.incomplete_reason.is_some() || factorization.residual.is_some() {
+        return Ok(None);
+    }
+
+    let mut lhs_interval = lhs.isolating_interval.clone();
+    let mut rhs_interval = rhs.isolating_interval.clone();
+    let mut refinement_steps = 0;
+    loop {
+        let result_interval =
+            binary_result_interval(&lhs_interval, &rhs_interval, interval_operation);
+        match select_single_factor_in_interval(
+            &factorization,
+            &result_interval,
+            limits.max_algebraic_degree,
+            limits.max_polynomial_coefficient_bits,
+        )? {
+            FactorSelection::Selected(minimal_polynomial) => {
+                return RealAlgebraic::from_irreducible_polynomial(
+                    minimal_polynomial,
+                    result_interval,
+                    limits.max_root_isolation_steps,
+                )
+                .map(Some);
+            }
+            FactorSelection::Ambiguous => {}
+            FactorSelection::LimitExceeded => return Ok(None),
+        }
+
+        if refinement_steps >= limits.max_root_isolation_steps {
+            return Ok(None);
+        }
+        let Some(refined_lhs) = refine_isolating_interval(
+            &lhs.minimal_polynomial,
+            &lhs_interval,
+            &mut refinement_steps,
+            limits.max_root_isolation_steps,
+        )?
+        else {
+            return Ok(None);
+        };
+        lhs_interval = refined_lhs;
+
+        if refinement_steps >= limits.max_root_isolation_steps {
+            return Ok(None);
+        }
+        let Some(refined_rhs) = refine_isolating_interval(
+            &rhs.minimal_polynomial,
+            &rhs_interval,
+            &mut refinement_steps,
+            limits.max_root_isolation_steps,
+        )?
+        else {
+            return Ok(None);
+        };
+        rhs_interval = refined_rhs;
+    }
+}
+
 fn select_single_factor_in_interval(
     factorization: &PrimitivePolynomialFactorization,
     interval: &RationalInterval,
@@ -1341,6 +1412,37 @@ fn add_intervals(lhs: &RationalInterval, rhs: &RationalInterval) -> RationalInte
     RationalInterval {
         lower: lhs.lower.add(&rhs.lower),
         upper: lhs.upper.add(&rhs.upper),
+    }
+}
+
+fn multiply_intervals(lhs: &RationalInterval, rhs: &RationalInterval) -> RationalInterval {
+    let products = [
+        lhs.lower.multiply(&rhs.lower),
+        lhs.lower.multiply(&rhs.upper),
+        lhs.upper.multiply(&rhs.lower),
+        lhs.upper.multiply(&rhs.upper),
+    ];
+    let mut lower = products[0].clone();
+    let mut upper = products[0].clone();
+    for product in products.iter().skip(1) {
+        if product.compare(&lower) == Ordering::Less {
+            lower = product.clone();
+        }
+        if product.compare(&upper) == Ordering::Greater {
+            upper = product.clone();
+        }
+    }
+    RationalInterval { lower, upper }
+}
+
+fn binary_result_interval(
+    lhs: &RationalInterval,
+    rhs: &RationalInterval,
+    operation: BinaryIntervalOperation,
+) -> RationalInterval {
+    match operation {
+        BinaryIntervalOperation::Add => add_intervals(lhs, rhs),
+        BinaryIntervalOperation::Multiply => multiply_intervals(lhs, rhs),
     }
 }
 
@@ -2846,6 +2948,61 @@ mod tests {
         );
         assert_eq!(sum.real_root_index(), 2);
         assert_isolates_one_root(sum.minimal_polynomial(), sum.isolating_interval());
+    }
+
+    #[test]
+    fn real_algebraic_multiply_bounded_selects_product_factor() {
+        let square_root_two = RealAlgebraic::from_irreducible_polynomial(
+            PrimitivePolynomial::new(integers(&[-2, 0, 1]))
+                .expect("non-zero polynomial normalizes"),
+            rational_interval(1, 1, 2, 1),
+            64,
+        )
+        .expect("positive square root interval isolates one root");
+        let square_root_three = RealAlgebraic::from_irreducible_polynomial(
+            PrimitivePolynomial::new(integers(&[-3, 0, 1]))
+                .expect("non-zero polynomial normalizes"),
+            rational_interval(1, 1, 2, 1),
+            64,
+        )
+        .expect("positive square root interval isolates one root");
+
+        let product = square_root_two
+            .multiply_bounded(&square_root_three, 64, 1_000_000, 64, 10_000, 64)
+            .unwrap()
+            .expect("product factor is selected from bounded resultant factorization");
+
+        assert_eq!(
+            product.minimal_polynomial(),
+            &PrimitivePolynomial::new(integers(&[-6, 0, 1]))
+                .expect("minimal polynomial normalizes")
+        );
+        assert_eq!(product.real_root_index(), 1);
+        assert_isolates_one_root(product.minimal_polynomial(), product.isolating_interval());
+    }
+
+    #[test]
+    fn real_algebraic_multiply_bounded_handles_repeated_factor_product() {
+        let cube_root_two = RealAlgebraic::from_irreducible_polynomial(
+            PrimitivePolynomial::new(integers(&[-2, 0, 0, 1]))
+                .expect("non-zero polynomial normalizes"),
+            rational_interval(1, 1, 2, 1),
+            64,
+        )
+        .expect("positive cube root interval isolates one root");
+
+        let product = cube_root_two
+            .multiply_bounded(&cube_root_two, 64, 1_000_000, 128, 100_000, 64)
+            .unwrap()
+            .expect("repeated factor product is selected from bounded resultant factorization");
+
+        assert_eq!(
+            product.minimal_polynomial(),
+            &PrimitivePolynomial::new(integers(&[-4, 0, 0, 1]))
+                .expect("minimal polynomial normalizes")
+        );
+        assert_eq!(product.real_root_index(), 0);
+        assert_isolates_one_root(product.minimal_polynomial(), product.isolating_interval());
     }
 
     #[test]
