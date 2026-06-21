@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@bem130/exact-calculator':
-        specifier: file:../../packages/calculator
-        version: file:../../packages/calculator
+        specifier: link:../../packages/calculator
+        version: link:../../packages/calculator
     devDependencies:
       playwright:
         specifier: ^1.61.0
@@ -23,9 +23,6 @@ importers:
         version: 7.3.5
 
 packages:
-
-  '@bem130/exact-calculator@file:../../packages/calculator':
-    resolution: {directory: ../../packages/calculator, type: directory}
 
   '@esbuild/aix-ppc64@0.27.7':
     resolution: {integrity: sha512-EKX3Qwmhz1eMdEJokhALr0YiD0lhQNwDqkPYyPhiSwKrh7/4KRjQc04sZ8db+5DVVnZ1LmbNDI1uAMPEUBnQPg==}
@@ -420,8 +417,6 @@ packages:
         optional: true
 
 snapshots:
-
-  '@bem130/exact-calculator@file:../../packages/calculator': {}
 
   '@esbuild/aix-ppc64@0.27.7':
     optional: true

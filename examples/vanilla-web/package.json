@@ -10,7 +10,7 @@
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
-    "@bem130/exact-calculator": "file:../../packages/calculator"
+    "@bem130/exact-calculator": "link:../../packages/calculator"
   },
   "devDependencies": {
     "playwright": "^1.61.0",

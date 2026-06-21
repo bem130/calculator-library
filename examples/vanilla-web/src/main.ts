@@ -1,6 +1,8 @@
 import {
     createCalculator,
+    createSession,
     defaultCalculationRequest,
+    defaultInputPolicy,
     exactOnlyCalculationRequest,
     renderMathMl,
     renderPlainText,
@@ -9,8 +11,12 @@ import {
     type CalculationOutcome,
     type CalculationRequest,
     type CalculatorErrorDto,
+    type CalculatorSession,
     type DecimalRoundingMode,
     type ExactFormatPreference,
+    type InputActionDto,
+    type InputPolicyDto,
+    type SessionDispatchResult,
 } from "@bem130/exact-calculator";
 import "./styles.css";
 
@@ -28,6 +34,7 @@ type CalculatorState = {
     busy: boolean;
     result: ApiResult<CalculationOutcome>;
     copied: boolean;
+    sessionSynced: boolean;
 };
 
 const state: CalculatorState = {
@@ -48,13 +55,16 @@ const state: CalculatorState = {
         },
     },
     copied: false,
+    sessionSynced: false,
 };
 
 const assetBaseUrl = new URL(import.meta.env.BASE_URL, window.location.href);
-const calculator = createCalculator({
+const wasmOptions = {
     wasmGlueUrl: new URL("wasm/calculator_wasm.js", assetBaseUrl),
     wasmModuleUrl: new URL("wasm/calculator_wasm_bg.wasm", assetBaseUrl),
-});
+};
+const calculator = createCalculator(wasmOptions);
+let activeSession: CalculatorSession | null = null;
 const app = document.querySelector<HTMLDivElement>("#app");
 
 if (app === null) {
@@ -230,50 +240,65 @@ keypad.innerHTML = keys
 
 expressionInput.addEventListener("input", () => {
     state.expression = expressionInput.value;
+    state.sessionSynced = false;
 });
-calculateButton.addEventListener("click", () => void calculate());
+calculateButton.addEventListener("click", () => void calculateFromSession());
 copyButton.addEventListener("click", () => void copyPlainText());
 includeExact.addEventListener("change", () => {
     state.includeExact = includeExact.checked;
+    state.sessionSynced = false;
 });
 includeScientific.addEventListener("change", () => {
     state.includeScientific = includeScientific.checked;
+    state.sessionSynced = false;
 });
 includeEnclosure.addEventListener("change", () => {
     state.includeEnclosure = includeEnclosure.checked;
+    state.sessionSynced = false;
 });
 exactFormat.addEventListener("change", () => {
     state.exactFormat = exactFormat.value as ExactFormatPreference;
+    state.sessionSynced = false;
 });
 digits.addEventListener("change", () => {
     state.significantDigits = clamp(Number.parseInt(digits.value, 10), 1, 200);
     digits.value = String(state.significantDigits);
+    state.sessionSynced = false;
 });
 rounding.addEventListener("change", () => {
     state.roundingMode = rounding.value as DecimalRoundingMode;
+    state.sessionSynced = false;
 });
 for (const button of document.querySelectorAll<HTMLButtonElement>("[data-angle]")) {
     button.addEventListener("click", () => {
         state.angleUnit = button.dataset.angle as AngleUnit;
+        state.sessionSynced = false;
         syncControls();
     });
 }
 for (const button of keypad.querySelectorAll<HTMLButtonElement>("[data-key]")) {
-    button.addEventListener("click", () => {
-        insertText(button.dataset.key ?? "");
-    });
+    button.addEventListener("click", () => void dispatchKey(button.dataset.key ?? ""));
 }
 window.addEventListener("keydown", (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
         event.preventDefault();
-        void calculate();
+        void calculateFromSession();
     }
 });
 
 syncControls();
-void calculate();
+void calculateFromSession();
 
-async function calculate(): Promise<void> {
+async function calculateFromSession(): Promise<void> {
+    try {
+        const session = await sessionForCurrentExpression();
+        await handleDispatchResult(session.dispatch({ tag: "evaluate" }));
+    } catch {
+        await calculateDirectly();
+    }
+}
+
+async function calculateDirectly(): Promise<void> {
     state.busy = true;
     state.copied = false;
     renderStatus();
@@ -282,6 +307,38 @@ async function calculate(): Promise<void> {
     state.busy = false;
     renderResult();
     renderStatus();
+}
+
+async function dispatchKey(key: string): Promise<void> {
+    const action = keyAction(key);
+    if (action === null) {
+        return;
+    }
+    const session = await sessionForCurrentExpression();
+    await handleDispatchResult(session.dispatch(action));
+    expressionInput.focus();
+    expressionInput.setSelectionRange(expressionInput.value.length, expressionInput.value.length);
+}
+
+async function handleDispatchResult(result: SessionDispatchResult): Promise<void> {
+    state.expression = result.state.source;
+    state.sessionSynced = true;
+    syncControls();
+    if (result.tag === "inputError") {
+        statusOutput.textContent = formatLabel(result.error.code);
+        return;
+    }
+    if (result.tag === "calculate") {
+        state.busy = true;
+        state.copied = false;
+        renderStatus();
+        const calculation = (await calculator).calculate(result.source, result.request);
+        state.result = calculation;
+        activeSession?.applyResult(calculation);
+        state.busy = false;
+        renderResult();
+        renderStatus();
+    }
 }
 
 async function copyPlainText(): Promise<void> {
@@ -323,6 +380,119 @@ function buildRequest(): CalculationRequest {
             }
             : exactOnlyCalculationRequest.enclosureOutput,
     };
+}
+
+function buildInputPolicy(): InputPolicyDto {
+    return {
+        ...defaultInputPolicy,
+        calculationRequest: buildRequest(),
+    };
+}
+
+async function sessionForCurrentExpression(): Promise<CalculatorSession> {
+    if (activeSession !== null && state.sessionSynced) {
+        return activeSession;
+    }
+    const session = await createSession(buildInputPolicy(), wasmOptions);
+    for (const action of actionsForExpression(state.expression)) {
+        const result = session.dispatch(action);
+        if (result.tag === "inputError") {
+            throw new Error(result.error.code);
+        }
+    }
+    activeSession = session;
+    state.sessionSynced = true;
+    state.expression = session.getState().source;
+    syncControls();
+    return session;
+}
+
+function actionsForExpression(source: string): InputActionDto[] {
+    const actions: InputActionDto[] = [];
+    let cursor = 0;
+    const functions = [
+        ["asin(", "asin"],
+        ["acos(", "acos"],
+        ["atan(", "atan"],
+        ["sqrt(", "sqrt"],
+        ["sin(", "sin"],
+        ["cos(", "cos"],
+        ["tan(", "tan"],
+        ["exp(", "exp"],
+        ["log(", "log"],
+    ] as const;
+
+    while (cursor < source.length) {
+        const ch = source[cursor];
+        if (ch === undefined) {
+            break;
+        }
+        if (/\s/u.test(ch)) {
+            cursor += 1;
+            continue;
+        }
+        const functionMatch = functions.find(([token]) => source.startsWith(token, cursor));
+        if (functionMatch !== undefined) {
+            actions.push({ tag: "function", value: functionMatch[1] });
+            cursor += functionMatch[0].length;
+            continue;
+        }
+        if (source.startsWith("pi", cursor)) {
+            actions.push({ tag: "constant", value: "pi" });
+            cursor += 2;
+            continue;
+        }
+        if (source.startsWith("Ans", cursor)) {
+            actions.push({ tag: "constant", value: "ans" });
+            cursor += 3;
+            continue;
+        }
+        const action = keyAction(ch);
+        if (action === null) {
+            throw new Error(`unsupported session token: ${ch}`);
+        }
+        actions.push(action);
+        cursor += 1;
+    }
+    return actions;
+}
+
+function keyAction(key: string): InputActionDto | null {
+    if (/^[0-9]$/u.test(key)) {
+        return { tag: "digit", value: Number.parseInt(key, 10) };
+    }
+    switch (key) {
+        case ".":
+            return { tag: "decimalPoint" };
+        case "+":
+            return { tag: "binaryOperator", value: "add" };
+        case "-":
+            return { tag: "binaryOperator", value: "subtract" };
+        case "*":
+            return { tag: "binaryOperator", value: "multiply" };
+        case "/":
+            return { tag: "binaryOperator", value: "divide" };
+        case "^":
+            return { tag: "binaryOperator", value: "power" };
+        case "%":
+            return { tag: "percent" };
+        case "(":
+            return { tag: "openParenthesis" };
+        case ")":
+            return { tag: "closeParenthesis" };
+        case "pi":
+            return { tag: "constant", value: "pi" };
+        case "e":
+            return { tag: "constant", value: "e" };
+        case "sin(":
+            return { tag: "function", value: "sin" };
+        case "cos(":
+            return { tag: "function", value: "cos" };
+        case "sqrt(":
+            return { tag: "function", value: "sqrt" };
+        default:
+            return null;
+    }
 }
 
 function renderResult(): void {
@@ -406,18 +576,6 @@ function syncControls(): void {
     for (const button of document.querySelectorAll<HTMLButtonElement>("[data-angle]")) {
         button.dataset.active = String(button.dataset.angle === state.angleUnit);
     }
-}
-
-function insertText(text: string): void {
-    const start = expressionInput.selectionStart;
-    const end = expressionInput.selectionEnd;
-    const before = state.expression.slice(0, start);
-    const after = state.expression.slice(end);
-    state.expression = `${before}${text}${after}`;
-    syncControls();
-    const cursor = start + text.length;
-    expressionInput.focus();
-    expressionInput.setSelectionRange(cursor, cursor);
 }
 
 function currentPlainText(): string {
