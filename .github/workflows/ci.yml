@@ -32,6 +32,9 @@ jobs:
       - name: Install wasm-pack
         run: cargo install wasm-pack --locked
 
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
       - name: Enable Corepack
         run: corepack enable
 
@@ -67,6 +70,14 @@ jobs:
 
       - name: Check forbidden floating-point usage
         run: cargo xtask check-no-floats
+
+      - name: Check dependency policy
+        run: cargo deny check
+
+      - name: Verify generated TypeScript DTO regeneration
+        run: |
+          cargo xtask generate-types
+          git diff --exit-code
 
       - name: Check TypeScript package
         run: corepack pnpm --dir packages/calculator run check
