@@ -17,6 +17,9 @@ concurrency:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    env:
+      CARGO_HTTP_MULTIPLEXING: "false"
+      CARGO_NET_RETRY: "10"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
