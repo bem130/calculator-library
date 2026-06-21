@@ -58,6 +58,18 @@
       "source": "tan(pi/2)",
       "expectedParseTree": "tan(divide(constant(pi),number(2)))",
       "expectedError": "domain.tangentPole"
+    },
+    {
+      "id": "inverse_trigonometric_known_value",
+      "source": "asin(1/2)",
+      "expectedParseTree": "asin(divide(number(1),number(2)))",
+      "expectedExact": "pi/6"
+    },
+    {
+      "id": "inverse_trigonometric_out_of_range",
+      "source": "acos(-2)",
+      "expectedParseTree": "acos(negate(number(2)))",
+      "expectedError": "domain.inverseTrigonometricOutOfRange"
     }
   ],
   "parseErrorCases": [

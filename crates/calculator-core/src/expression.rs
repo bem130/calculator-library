@@ -1,4 +1,5 @@
 use alloc::{vec, vec::Vec};
+use core::cmp::Ordering;
 
 use num_traits::ToPrimitive;
 
@@ -16,11 +17,16 @@ pub(crate) struct ExactExpressionDag {
     nodes: Vec<ExpressionNode>,
     lists: Vec<Vec<ExprId>>,
     rationals: Vec<Rational>,
+    semantics: SemanticSettings,
 }
 
 impl ExactExpressionDag {
     pub(crate) fn root(&self) -> ExprId {
         self.root
+    }
+
+    pub(crate) fn semantics(&self) -> SemanticSettings {
+        self.semantics
     }
 
     fn node(&self, id: ExprId) -> &ExpressionNode {
@@ -77,6 +83,47 @@ impl RationalEvaluation {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PiCoefficientEvaluation {
+    coefficient: Rational,
+    used_special_angle: bool,
+}
+
+impl PiCoefficientEvaluation {
+    fn direct(coefficient: Rational) -> Self {
+        Self {
+            coefficient,
+            used_special_angle: false,
+        }
+    }
+
+    fn special_angle(coefficient: Rational) -> Self {
+        Self {
+            coefficient,
+            used_special_angle: true,
+        }
+    }
+
+    fn with_origin(coefficient: Rational, used_special_angle: bool) -> Self {
+        Self {
+            coefficient,
+            used_special_angle,
+        }
+    }
+
+    pub(crate) fn coefficient(&self) -> &Rational {
+        &self.coefficient
+    }
+
+    pub(crate) fn into_coefficient(self) -> Rational {
+        self.coefficient
+    }
+
+    pub(crate) fn used_special_angle(&self) -> bool {
+        self.used_special_angle
+    }
+}
+
 #[derive(Default)]
 struct DagBuilder {
     nodes: Vec<ExpressionNode>,
@@ -99,6 +146,7 @@ pub(crate) fn lower_source_expression(
         nodes: builder.nodes,
         lists: builder.lists,
         rationals: builder.rationals,
+        semantics,
     })
 }
 
@@ -121,7 +169,7 @@ pub(crate) fn evaluate_interval_dag(
 
 pub(crate) fn evaluate_rational_pi_multiple_dag(
     dag: &ExactExpressionDag,
-) -> Result<Option<Rational>, EvaluationError> {
+) -> Result<Option<PiCoefficientEvaluation>, EvaluationError> {
     evaluate_pi_coefficient(dag, dag.root())
 }
 
@@ -193,11 +241,9 @@ fn evaluate_node(
             Function::Sin | Function::Cos | Function::Tan => {
                 evaluate_trigonometric_function(dag, *function, *argument)
             }
-            Function::Asin | Function::Acos | Function::Atan => Err(
-                EvaluationError::UnsupportedFeature(UnsupportedFeatureError {
-                    feature: UnsupportedFeature::FunctionEvaluation,
-                }),
-            ),
+            Function::Asin | Function::Acos | Function::Atan => {
+                evaluate_inverse_trigonometric_function(dag, *function, *argument)
+            }
         },
     }
 }
@@ -205,33 +251,47 @@ fn evaluate_node(
 fn evaluate_pi_coefficient(
     dag: &ExactExpressionDag,
     id: ExprId,
-) -> Result<Option<Rational>, EvaluationError> {
+) -> Result<Option<PiCoefficientEvaluation>, EvaluationError> {
     match dag.node(id) {
         ExpressionNode::Rational(id) => {
             let value = dag.rational(*id);
-            Ok(value.is_zero().then(Rational::zero))
+            Ok(value
+                .is_zero()
+                .then(|| PiCoefficientEvaluation::direct(Rational::zero())))
         }
-        ExpressionNode::Constant(Constant::Pi) => Ok(Some(Rational::one())),
+        ExpressionNode::Constant(Constant::Pi) => {
+            Ok(Some(PiCoefficientEvaluation::direct(Rational::one())))
+        }
         ExpressionNode::Constant(Constant::Euler) => Ok(None),
         ExpressionNode::Add(list_id) => {
             let mut total = Rational::zero();
+            let mut used_special_angle = false;
             for child in dag.list(*list_id) {
                 let Some(coefficient) = evaluate_pi_coefficient(dag, *child)? else {
                     return Ok(None);
                 };
-                total = total.add(&coefficient);
+                used_special_angle |= coefficient.used_special_angle();
+                total = total.add(coefficient.coefficient());
             }
-            Ok(Some(total))
+            Ok(Some(PiCoefficientEvaluation::with_origin(
+                total,
+                used_special_angle,
+            )))
         }
         ExpressionNode::Multiply(list_id) => {
             let mut scalar = Rational::one();
             let mut pi_coefficient = None;
+            let mut used_special_angle = false;
             for child in dag.list(*list_id) {
                 match evaluate_node(dag, *child) {
                     Ok(value) => {
                         if value.value().is_zero() {
-                            return Ok(Some(Rational::zero()));
+                            return Ok(Some(PiCoefficientEvaluation::with_origin(
+                                Rational::zero(),
+                                value.used_special_angle(),
+                            )));
                         }
+                        used_special_angle |= value.used_special_angle();
                         scalar = scalar.multiply(value.value());
                     }
                     Err(error) if is_unsupported_exact_expression(&error) => {
@@ -241,12 +301,18 @@ fn evaluate_pi_coefficient(
                         if pi_coefficient.is_some() {
                             return Ok(None);
                         }
+                        used_special_angle |= coefficient.used_special_angle();
                         pi_coefficient = Some(coefficient);
                     }
                     Err(error) => return Err(error),
                 }
             }
-            Ok(pi_coefficient.map(|coefficient| scalar.multiply(&coefficient)))
+            Ok(pi_coefficient.map(|coefficient| {
+                PiCoefficientEvaluation::with_origin(
+                    scalar.multiply(coefficient.coefficient()),
+                    used_special_angle,
+                )
+            }))
         }
         ExpressionNode::Divide {
             numerator,
@@ -260,12 +326,27 @@ fn evaluate_pi_coefficient(
                 Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
                 Err(error) => return Err(error),
             };
+            let used_special_angle = numerator.used_special_angle();
             numerator
+                .coefficient()
                 .divide(&denominator)
-                .map(Some)
+                .map(|coefficient| {
+                    Some(PiCoefficientEvaluation::with_origin(
+                        coefficient,
+                        used_special_angle,
+                    ))
+                })
                 .map_err(arithmetic_error)
         }
-        ExpressionNode::Power { .. } | ExpressionNode::Function { .. } => Ok(None),
+        ExpressionNode::Function { function, argument } => match function {
+            Function::Asin | Function::Acos | Function::Atan
+                if dag.semantics().angle_unit == AngleUnit::Radian =>
+            {
+                evaluate_inverse_trig_pi_coefficient(dag, *function, *argument)
+            }
+            _ => Ok(None),
+        },
+        ExpressionNode::Power { .. } => Ok(None),
     }
 }
 
@@ -413,12 +494,12 @@ fn evaluate_trigonometric_function(
 ) -> Result<RationalEvaluation, EvaluationError> {
     let coefficient = match evaluate_pi_coefficient(dag, argument)? {
         Some(coefficient) => coefficient,
-        None => rational_zero_as_pi_coefficient(dag, argument)?,
+        None => PiCoefficientEvaluation::direct(rational_zero_as_pi_coefficient(dag, argument)?),
     };
     let value = match function {
-        Function::Sin => sine_special_angle(&coefficient),
-        Function::Cos => cosine_special_angle(&coefficient),
-        Function::Tan => tangent_special_angle(&coefficient)?,
+        Function::Sin => sine_special_angle(coefficient.coefficient()),
+        Function::Cos => cosine_special_angle(coefficient.coefficient()),
+        Function::Tan => tangent_special_angle(coefficient.coefficient())?,
         _ => unreachable!("only trigonometric functions are dispatched here"),
     }
     .ok_or_else(unsupported_function_evaluation)?;
@@ -485,6 +566,105 @@ fn tangent_special_angle(coefficient: &Rational) -> Result<Option<Rational>, Eva
         Ok(Some(rational_integer(-1)))
     } else {
         Ok(None)
+    }
+}
+
+fn evaluate_inverse_trigonometric_function(
+    dag: &ExactExpressionDag,
+    function: Function,
+    argument: ExprId,
+) -> Result<RationalEvaluation, EvaluationError> {
+    let Some(coefficient) = evaluate_inverse_trig_pi_coefficient(dag, function, argument)? else {
+        return Err(unsupported_function_evaluation());
+    };
+    match dag.semantics().angle_unit {
+        AngleUnit::Radian if coefficient.coefficient().is_zero() => {
+            Ok(RationalEvaluation::special_angle(Rational::zero()))
+        }
+        AngleUnit::Radian => Err(unsupported_function_evaluation()),
+        AngleUnit::Degree => Ok(RationalEvaluation::special_angle(
+            coefficient.coefficient().multiply(&rational_integer(180)),
+        )),
+        AngleUnit::Gradian => Ok(RationalEvaluation::special_angle(
+            coefficient.coefficient().multiply(&rational_integer(200)),
+        )),
+    }
+}
+
+fn evaluate_inverse_trig_pi_coefficient(
+    dag: &ExactExpressionDag,
+    function: Function,
+    argument: ExprId,
+) -> Result<Option<PiCoefficientEvaluation>, EvaluationError> {
+    let argument = match evaluate_node(dag, argument) {
+        Ok(value) => value,
+        Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let coefficient = match function {
+        Function::Asin => asin_known_pi_coefficient(argument.value())?,
+        Function::Acos => acos_known_pi_coefficient(argument.value())?,
+        Function::Atan => atan_known_pi_coefficient(argument.value()),
+        _ => unreachable!("only inverse trigonometric functions are dispatched here"),
+    };
+    Ok(coefficient.map(PiCoefficientEvaluation::special_angle))
+}
+
+fn asin_known_pi_coefficient(argument: &Rational) -> Result<Option<Rational>, EvaluationError> {
+    ensure_inverse_sine_cosine_domain(argument)?;
+    if *argument == rational_integer(-1) {
+        Ok(Some(rational(-1, 2)))
+    } else if *argument == rational(-1, 2) {
+        Ok(Some(rational(-1, 6)))
+    } else if argument.is_zero() {
+        Ok(Some(Rational::zero()))
+    } else if *argument == rational(1, 2) {
+        Ok(Some(rational(1, 6)))
+    } else if *argument == Rational::one() {
+        Ok(Some(rational(1, 2)))
+    } else {
+        Ok(None)
+    }
+}
+
+fn acos_known_pi_coefficient(argument: &Rational) -> Result<Option<Rational>, EvaluationError> {
+    ensure_inverse_sine_cosine_domain(argument)?;
+    if *argument == rational_integer(-1) {
+        Ok(Some(Rational::one()))
+    } else if *argument == rational(-1, 2) {
+        Ok(Some(rational(2, 3)))
+    } else if argument.is_zero() {
+        Ok(Some(rational(1, 2)))
+    } else if *argument == rational(1, 2) {
+        Ok(Some(rational(1, 3)))
+    } else if *argument == Rational::one() {
+        Ok(Some(Rational::zero()))
+    } else {
+        Ok(None)
+    }
+}
+
+fn atan_known_pi_coefficient(argument: &Rational) -> Option<Rational> {
+    if *argument == rational_integer(-1) {
+        Some(rational(-1, 4))
+    } else if argument.is_zero() {
+        Some(Rational::zero())
+    } else if *argument == Rational::one() {
+        Some(rational(1, 4))
+    } else {
+        None
+    }
+}
+
+fn ensure_inverse_sine_cosine_domain(argument: &Rational) -> Result<(), EvaluationError> {
+    if argument.compare(&rational_integer(-1)) == Ordering::Less
+        || argument.compare(&Rational::one()) == Ordering::Greater
+    {
+        Err(domain_error(
+            DomainErrorKind::InverseTrigonometricOutOfRange,
+        ))
+    } else {
+        Ok(())
     }
 }
 
