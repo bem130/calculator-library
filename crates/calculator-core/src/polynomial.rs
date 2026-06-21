@@ -401,6 +401,22 @@ impl PrimitivePolynomial {
     }
 
     pub fn resultant(&self, rhs: &Self) -> Result<Integer, PrimitivePolynomialResultantError> {
+        self.resultant_with_degree_limit(rhs, None)
+    }
+
+    pub fn resultant_bounded(
+        &self,
+        rhs: &Self,
+        max_resultant_degree: u32,
+    ) -> Result<Integer, PrimitivePolynomialResultantError> {
+        self.resultant_with_degree_limit(rhs, Some(max_resultant_degree))
+    }
+
+    fn resultant_with_degree_limit(
+        &self,
+        rhs: &Self,
+        max_resultant_degree: Option<u32>,
+    ) -> Result<Integer, PrimitivePolynomialResultantError> {
         let lhs = Self::new(effective_coefficients(&self.coefficients_low_to_high).to_vec())
             .map_err(resultant_construction_error)?;
         let rhs = Self::new(effective_coefficients(&rhs.coefficients_low_to_high).to_vec())
@@ -409,6 +425,15 @@ impl PrimitivePolynomial {
         let rhs_coefficients = effective_coefficients(&rhs.coefficients_low_to_high);
         let lhs_degree = lhs_coefficients.len() - 1;
         let rhs_degree = rhs_coefficients.len() - 1;
+        let matrix_size = lhs_degree
+            .checked_add(rhs_degree)
+            .ok_or(PrimitivePolynomialResultantError::DegreeOverflow)?;
+        if let Some(max_resultant_degree) = max_resultant_degree {
+            let max_resultant_degree = max_resultant_degree as usize;
+            if matrix_size > max_resultant_degree {
+                return Err(PrimitivePolynomialResultantError::DegreeLimitExceeded);
+            }
+        }
 
         if lhs_degree == 0 && rhs_degree == 0 {
             return Ok(Integer::one());
@@ -426,9 +451,6 @@ impl PrimitivePolynomial {
             )));
         }
 
-        let matrix_size = lhs_degree
-            .checked_add(rhs_degree)
-            .ok_or(PrimitivePolynomialResultantError::DegreeOverflow)?;
         let mut matrix = vec![vec![BigInt::zero(); matrix_size]; matrix_size];
         let lhs_high_to_low = reversed_bigint_coefficients(lhs_coefficients);
         let rhs_high_to_low = reversed_bigint_coefficients(rhs_coefficients);
@@ -1812,6 +1834,23 @@ mod tests {
         );
         assert_eq!(constant.resultant(&polynomial).unwrap(), Integer::one());
         assert_eq!(polynomial.resultant(&constant).unwrap(), Integer::one());
+    }
+
+    #[test]
+    fn resultant_bounded_enforces_matrix_degree_before_computing() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-2, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        let x_minus_three =
+            PrimitivePolynomial::new(integers(&[-3, 1])).expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            polynomial.resultant_bounded(&x_minus_three, 3).unwrap(),
+            Integer::from(7)
+        );
+        assert_eq!(
+            polynomial.resultant_bounded(&x_minus_three, 2),
+            Err(PrimitivePolynomialResultantError::DegreeLimitExceeded)
+        );
     }
 
     #[test]

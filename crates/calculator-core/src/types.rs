@@ -270,6 +270,7 @@ pub(crate) enum RealAlgebraicConstructionError {
 pub enum PrimitivePolynomialResultantError {
     ZeroPolynomial,
     DegreeOverflow,
+    DegreeLimitExceeded,
 }
 
 #[derive(Clone, Debug)]
