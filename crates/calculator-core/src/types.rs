@@ -268,6 +268,8 @@ pub(crate) enum RealAlgebraicConstructionError {
     EndpointRoot,
     NonIsolatingInterval,
     PolynomialConstruction(PrimitivePolynomialConstructionError),
+    PolynomialResultant(PrimitivePolynomialResultantError),
+    NoMatchingPolynomialFactor,
     RootIndexOverflow,
     RootIndexNotFound,
     RootCounting(PrimitivePolynomialRootCountingError),

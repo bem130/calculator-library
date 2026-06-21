@@ -574,9 +574,15 @@ fn evaluate_real_algebraic_sum(
                 let Some(value) = evaluate_real_algebraic_node(dag, *child, limits)? else {
                     return Ok(None);
                 };
-                if algebraic.replace(value).is_some() {
-                    return Ok(None);
-                }
+                algebraic = match algebraic {
+                    Some(current) => {
+                        let Some(sum) = add_real_algebraics(current, value, limits)? else {
+                            return Ok(None);
+                        };
+                        Some(sum)
+                    }
+                    None => Some(value),
+                };
             }
             Err(error) => return Err(error),
         }
@@ -591,6 +597,27 @@ fn evaluate_real_algebraic_sum(
     match algebraic.add_rational_bounded(
         &rational,
         limits.max_polynomial_coefficient_bits,
+        limits.max_root_isolation_steps,
+    ) {
+        Ok(value) => Ok(value),
+        Err(RealAlgebraicConstructionError::RootIsolation(
+            PrimitivePolynomialRootIsolationError::StepLimitExceeded,
+        )) => Ok(None),
+        Err(error) => Err(real_algebraic_construction_error(error)),
+    }
+}
+
+fn add_real_algebraics(
+    lhs: RealAlgebraic,
+    rhs: RealAlgebraic,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraic>, EvaluationError> {
+    match lhs.add_bounded(
+        &rhs,
+        limits.max_algebraic_degree,
+        limits.max_polynomial_coefficient_bits,
+        limits.max_resultant_degree,
+        limits.max_factorization_work,
         limits.max_root_isolation_steps,
     ) {
         Ok(value) => Ok(value),

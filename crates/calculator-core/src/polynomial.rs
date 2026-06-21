@@ -95,6 +95,91 @@ impl RealAlgebraic {
         .map(Some)
     }
 
+    pub(crate) fn add_bounded(
+        &self,
+        rhs: &Self,
+        max_algebraic_degree: u32,
+        max_polynomial_coefficient_bits: u32,
+        max_resultant_degree: u32,
+        max_factorization_work: u32,
+        max_root_isolation_steps: u32,
+    ) -> Result<Option<Self>, RealAlgebraicConstructionError> {
+        let candidate_polynomial = match self
+            .minimal_polynomial
+            .root_sum_resultant_bounded(&rhs.minimal_polynomial, max_resultant_degree)
+        {
+            Ok(polynomial) => polynomial,
+            Err(
+                PrimitivePolynomialResultantError::DegreeLimitExceeded
+                | PrimitivePolynomialResultantError::DegreeOverflow,
+            ) => return Ok(None),
+            Err(error) => return Err(RealAlgebraicConstructionError::PolynomialResultant(error)),
+        };
+        if candidate_polynomial.max_coefficient_bits() > u64::from(max_polynomial_coefficient_bits)
+        {
+            return Ok(None);
+        }
+
+        let factorization = candidate_polynomial
+            .factor_bounded(max_factorization_work)
+            .map_err(RealAlgebraicConstructionError::PolynomialConstruction)?;
+        if factorization.incomplete_reason.is_some() || factorization.residual.is_some() {
+            return Ok(None);
+        }
+
+        let mut lhs_interval = self.isolating_interval.clone();
+        let mut rhs_interval = rhs.isolating_interval.clone();
+        let mut refinement_steps = 0;
+        loop {
+            let sum_interval = add_intervals(&lhs_interval, &rhs_interval);
+            match select_single_factor_in_interval(
+                &factorization,
+                &sum_interval,
+                max_algebraic_degree,
+                max_polynomial_coefficient_bits,
+            )? {
+                FactorSelection::Selected(minimal_polynomial) => {
+                    return Self::from_irreducible_polynomial(
+                        minimal_polynomial,
+                        sum_interval,
+                        max_root_isolation_steps,
+                    )
+                    .map(Some);
+                }
+                FactorSelection::Ambiguous => {}
+                FactorSelection::LimitExceeded => return Ok(None),
+            }
+
+            if refinement_steps >= max_root_isolation_steps {
+                return Ok(None);
+            }
+            let Some(refined_lhs) = refine_isolating_interval(
+                &self.minimal_polynomial,
+                &lhs_interval,
+                &mut refinement_steps,
+                max_root_isolation_steps,
+            )?
+            else {
+                return Ok(None);
+            };
+            lhs_interval = refined_lhs;
+
+            if refinement_steps >= max_root_isolation_steps {
+                return Ok(None);
+            }
+            let Some(refined_rhs) = refine_isolating_interval(
+                &rhs.minimal_polynomial,
+                &rhs_interval,
+                &mut refinement_steps,
+                max_root_isolation_steps,
+            )?
+            else {
+                return Ok(None);
+            };
+            rhs_interval = refined_rhs;
+        }
+    }
+
     pub(crate) fn scale_rational_bounded(
         &self,
         scalar: &Rational,
@@ -1139,6 +1224,94 @@ fn interpolate_integer_polynomial_at_points(
     PrimitivePolynomial::new(integer_coefficients).ok()
 }
 
+enum FactorSelection {
+    Selected(PrimitivePolynomial),
+    Ambiguous,
+    LimitExceeded,
+}
+
+fn select_single_factor_in_interval(
+    factorization: &PrimitivePolynomialFactorization,
+    interval: &RationalInterval,
+    max_algebraic_degree: u32,
+    max_polynomial_coefficient_bits: u32,
+) -> Result<FactorSelection, RealAlgebraicConstructionError> {
+    let mut selected = None;
+    for factor in &factorization.factors {
+        if factor.factor.evaluate_rational_sign(&interval.lower) == Sign::NoSign
+            || factor.factor.evaluate_rational_sign(&interval.upper) == Sign::NoSign
+        {
+            return Ok(FactorSelection::Ambiguous);
+        }
+
+        let root_count = factor
+            .factor
+            .distinct_real_root_count_in_interval(interval)
+            .map_err(RealAlgebraicConstructionError::RootCounting)?;
+        if root_count == 0 {
+            continue;
+        }
+        if root_count > 1 || selected.is_some() {
+            return Ok(FactorSelection::Ambiguous);
+        }
+
+        let degree = factor
+            .factor
+            .degree()
+            .ok_or(RealAlgebraicConstructionError::NoMatchingPolynomialFactor)?;
+        if degree > max_algebraic_degree as usize
+            || factor.factor.max_coefficient_bits() > u64::from(max_polynomial_coefficient_bits)
+        {
+            return Ok(FactorSelection::LimitExceeded);
+        }
+        selected = Some(factor.factor.clone());
+    }
+
+    selected
+        .map(FactorSelection::Selected)
+        .ok_or(RealAlgebraicConstructionError::NoMatchingPolynomialFactor)
+}
+
+fn refine_isolating_interval(
+    polynomial: &PrimitivePolynomial,
+    interval: &RationalInterval,
+    steps: &mut u32,
+    max_steps: u32,
+) -> Result<Option<RationalInterval>, RealAlgebraicConstructionError> {
+    let split = polynomial
+        .non_root_split(interval, steps, max_steps)
+        .map_err(RealAlgebraicConstructionError::RootIsolation)?;
+    let left = RationalInterval {
+        lower: interval.lower.clone(),
+        upper: split.clone(),
+    };
+    let right = RationalInterval {
+        lower: split,
+        upper: interval.upper.clone(),
+    };
+
+    let left_count = polynomial
+        .distinct_real_root_count_in_interval(&left)
+        .map_err(RealAlgebraicConstructionError::RootCounting)?;
+    if left_count == 1 {
+        return Ok(Some(left));
+    }
+    let right_count = polynomial
+        .distinct_real_root_count_in_interval(&right)
+        .map_err(RealAlgebraicConstructionError::RootCounting)?;
+    if right_count == 1 {
+        return Ok(Some(right));
+    }
+    Ok(None)
+}
+
+fn add_intervals(lhs: &RationalInterval, rhs: &RationalInterval) -> RationalInterval {
+    RationalInterval {
+        lower: lhs.lower.add(&rhs.lower),
+        upper: lhs.upper.add(&rhs.upper),
+    }
+}
+
 fn isolate_away_from_zero(
     polynomial: &PrimitivePolynomial,
     interval: &RationalInterval,
@@ -1458,7 +1631,11 @@ fn enumerate_kronecker_values(
     max_work: u32,
 ) -> Result<Option<PrimitivePolynomial>, PrimitivePolynomialFactorizationIncompleteReason> {
     if selected_values.len() == value_choices.len() {
-        consume_factorization_work(work, max_work)?;
+        consume_factorization_work_units(
+            work,
+            max_work,
+            interpolation_candidate_work_units(points.len()),
+        )?;
         let Some(candidate) = interpolate_integer_polynomial_at_points(points, selected_values)
         else {
             return Ok(None);
@@ -1491,6 +1668,11 @@ fn enumerate_kronecker_values(
         selected_values.pop();
     }
     Ok(None)
+}
+
+fn interpolation_candidate_work_units(point_count: usize) -> u32 {
+    let units = point_count.saturating_mul(point_count);
+    u32::try_from(units).unwrap_or(u32::MAX)
 }
 
 fn signed_divisors_bounded(
@@ -1535,10 +1717,27 @@ fn consume_factorization_work(
     work: &mut u32,
     max_work: u32,
 ) -> Result<(), PrimitivePolynomialFactorizationIncompleteReason> {
+    consume_factorization_work_units(work, max_work, 1)
+}
+
+fn consume_factorization_work_units(
+    work: &mut u32,
+    max_work: u32,
+    units: u32,
+) -> Result<(), PrimitivePolynomialFactorizationIncompleteReason> {
+    if units == 0 {
+        return Ok(());
+    }
     if *work >= max_work {
         return Err(PrimitivePolynomialFactorizationIncompleteReason::WorkLimitExceeded);
     }
-    *work += 1;
+    let Some(next_work) = work.checked_add(units) else {
+        return Err(PrimitivePolynomialFactorizationIncompleteReason::WorkLimitExceeded);
+    };
+    if next_work > max_work {
+        return Err(PrimitivePolynomialFactorizationIncompleteReason::WorkLimitExceeded);
+    }
+    *work = next_work;
     Ok(())
 }
 
@@ -2502,6 +2701,62 @@ mod tests {
             algebraic.add_rational_bounded(&rational(1, 1), 1, 64),
             Ok(None)
         );
+    }
+
+    #[test]
+    fn real_algebraic_add_bounded_selects_factor_from_repeated_resultant() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-2, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        let algebraic = RealAlgebraic::from_irreducible_polynomial(
+            polynomial,
+            rational_interval(1, 1, 2, 1),
+            64,
+        )
+        .expect("positive square root interval isolates one root");
+
+        let sum = algebraic
+            .add_bounded(&algebraic, 64, 1_000_000, 64, 10_000, 64)
+            .unwrap()
+            .expect("sum factor is selected from bounded resultant factorization");
+
+        assert_eq!(
+            sum.minimal_polynomial(),
+            &PrimitivePolynomial::new(integers(&[-8, 0, 1]))
+                .expect("minimal polynomial normalizes")
+        );
+        assert_eq!(sum.real_root_index(), 1);
+        assert_isolates_one_root(sum.minimal_polynomial(), sum.isolating_interval());
+    }
+
+    #[test]
+    fn real_algebraic_add_bounded_recovers_root_sum_polynomial() {
+        let square_root_two = RealAlgebraic::from_irreducible_polynomial(
+            PrimitivePolynomial::new(integers(&[-2, 0, 1]))
+                .expect("non-zero polynomial normalizes"),
+            rational_interval(1, 1, 2, 1),
+            64,
+        )
+        .expect("positive square root interval isolates one root");
+        let square_root_three = RealAlgebraic::from_irreducible_polynomial(
+            PrimitivePolynomial::new(integers(&[-3, 0, 1]))
+                .expect("non-zero polynomial normalizes"),
+            rational_interval(1, 1, 2, 1),
+            64,
+        )
+        .expect("positive square root interval isolates one root");
+
+        let sum = square_root_two
+            .add_bounded(&square_root_three, 64, 1_000_000, 64, 10_000, 64)
+            .unwrap()
+            .expect("root-sum polynomial remains within limits");
+
+        assert_eq!(
+            sum.minimal_polynomial(),
+            &PrimitivePolynomial::new(integers(&[1, 0, -10, 0, 1]))
+                .expect("minimal polynomial normalizes")
+        );
+        assert_eq!(sum.real_root_index(), 2);
+        assert_isolates_one_root(sum.minimal_polynomial(), sum.isolating_interval());
     }
 
     #[test]
