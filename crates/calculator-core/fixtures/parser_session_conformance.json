@@ -46,6 +46,18 @@
       "source": "100 + 10%",
       "expectedParseTree": "add(number(100),percent(number(10)))",
       "expectedExact": "1001/10"
+    },
+    {
+      "id": "radian_special_angle_sine",
+      "source": "sin(pi/6)",
+      "expectedParseTree": "sin(divide(constant(pi),number(6)))",
+      "expectedExact": "1/2"
+    },
+    {
+      "id": "radian_tangent_pole",
+      "source": "tan(pi/2)",
+      "expectedParseTree": "tan(divide(constant(pi),number(2)))",
+      "expectedError": "domain.tangentPole"
     }
   ],
   "parseErrorCases": [

@@ -746,6 +746,73 @@ mod tests {
     }
 
     #[test]
+    fn wasm_dto_serializes_rational_special_angle_exact_output() {
+        for (source, expected) in [
+            ("sin(pi/6)", "1/2"),
+            ("cos(pi/3)", "1/2"),
+            ("tan(pi/4)", "1"),
+        ] {
+            let result = calculate_dto(source, exact_only_request());
+            let ApiResultDto::Ok {
+                value:
+                    CalculationOutcomeDto::Complete {
+                        calculation:
+                            CalculationDto {
+                                exact: ExactOutputDto::Included { value: exact },
+                                metadata,
+                                ..
+                            },
+                    },
+            } = result
+            else {
+                panic!("{source}: expected complete special angle calculation");
+            };
+            let expected_representation = if expected.contains('/') {
+                ExactRepresentationKindDto::Rational
+            } else {
+                ExactRepresentationKindDto::Integer
+            };
+            assert_eq!(exact.representation, expected_representation);
+            assert_eq!(exact.plain_text, expected, "{source}");
+            assert!(metadata.methods.contains(&MethodTagDto::SpecialAngle));
+        }
+
+        let mut degree_request = exact_only_request();
+        degree_request.semantics.angle_unit = AngleUnitDto::Degree;
+        let result = calculate_dto("sin(30)", degree_request);
+        let ApiResultDto::Ok {
+            value:
+                CalculationOutcomeDto::Complete {
+                    calculation:
+                        CalculationDto {
+                            exact: ExactOutputDto::Included { value: exact },
+                            metadata,
+                            ..
+                        },
+                },
+        } = result
+        else {
+            panic!("expected degree special angle calculation");
+        };
+        assert_eq!(exact.plain_text, "1/2");
+        assert_eq!(metadata.semantic_settings.angle_unit, AngleUnitDto::Degree);
+        assert!(metadata.methods.contains(&MethodTagDto::SpecialAngle));
+    }
+
+    #[test]
+    fn wasm_dto_reports_tangent_pole_error_code() {
+        assert_eq!(
+            calculate_dto("tan(pi/2)", exact_only_request()),
+            ApiResultDto::Error {
+                error: CalculatorErrorDto::Domain {
+                    code: DomainErrorCodeDto::TangentPole,
+                    span: OptionalTextSpanDto::None,
+                },
+            }
+        );
+    }
+
+    #[test]
     fn wasm_dto_serializes_partial_rational_pi_multiple_with_certified_enclosure() {
         let mut request = exact_only_request();
         request.scientific_output = ScientificOutputRequestDto::Include {
@@ -1326,6 +1393,36 @@ pub mod wasm_tests {
             let result = calculate_dto(source, exact_only_request());
             assert_eq!(exact_plain_text(result), expected, "{source}");
         }
+    }
+
+    #[wasm_bindgen_test]
+    fn wasm32_calculates_rational_special_angle_exact_output() {
+        for (source, expected) in [
+            ("sin(pi/6)", "1/2"),
+            ("cos(pi/3)", "1/2"),
+            ("tan(pi/4)", "1"),
+        ] {
+            let result = calculate_dto(source, exact_only_request());
+            assert_eq!(exact_plain_text(result), expected, "{source}");
+        }
+
+        let mut degree_request = exact_only_request();
+        degree_request.semantics.angle_unit = AngleUnitDto::Degree;
+        assert_eq!(
+            exact_plain_text(calculate_dto("sin(30)", degree_request)),
+            "1/2"
+        );
+    }
+
+    #[wasm_bindgen_test]
+    fn wasm32_reports_tangent_pole_error_code() {
+        assert_eq!(
+            calculator_error("tan(pi/2)", exact_only_request()),
+            CalculatorErrorDto::Domain {
+                code: DomainErrorCodeDto::TangentPole,
+                span: OptionalTextSpanDto::None,
+            }
+        );
     }
 
     #[wasm_bindgen_test]

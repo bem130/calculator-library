@@ -976,6 +976,17 @@ impl Rational {
             .expect("100 is non-zero")
     }
 
+    pub(crate) fn modulo_integer(&self, period: u32) -> Self {
+        debug_assert!(period > 0);
+        let modulus = &self.denominator.inner.inner * BigInt::from(period);
+        let remainder = self.numerator.inner.mod_floor(&modulus);
+        Self::new(
+            Integer::from_bigint(remainder),
+            self.denominator.inner.clone(),
+        )
+        .expect("positive period modulo preserves a non-zero denominator")
+    }
+
     pub(crate) fn sqrt_if_rational(&self) -> Option<Self> {
         if self.is_negative() {
             return None;
@@ -1437,5 +1448,14 @@ mod tests {
         let value = Rational::from_integer(Integer::from(50)).percent();
         assert_eq!(value.numerator.to_string(), "1");
         assert_eq!(value.denominator.inner.to_string(), "2");
+    }
+
+    #[test]
+    fn rational_modulo_integer_uses_nonnegative_remainder() {
+        let value = Rational::new(Integer::from(-11), Integer::from(6)).unwrap();
+        assert_eq!(value.modulo_integer(2).to_string(), "1/6");
+
+        let value = Rational::new(Integer::from(7), Integer::from(4)).unwrap();
+        assert_eq!(value.modulo_integer(1).to_string(), "3/4");
     }
 }
