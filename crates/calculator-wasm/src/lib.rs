@@ -738,42 +738,44 @@ mod tests {
 
     #[test]
     fn wasm_dto_serializes_affine_real_algebraic_expression() {
-        let mut request = exact_only_request();
-        request.scientific_output = ScientificOutputRequestDto::Include {
-            significant_digits: 50,
-            rounding_mode: DecimalRoundingModeDto::NearestTiesToEven,
-        };
-        let result = calculate_dto("1-2^(1/3)", request);
-        let ApiResultDto::Ok {
-            value:
-                CalculationOutcomeDto::Partial {
-                    calculation:
-                        CalculationDto {
-                            exact: ExactOutputDto::Included { value: exact },
-                            metadata,
-                            ..
-                        },
-                    ..
-                },
-        } = result
-        else {
-            panic!("expected partial affine real algebraic calculation");
-        };
-        assert_eq!(
-            exact.representation,
-            ExactRepresentationKindDto::RealAlgebraic
-        );
-        assert_eq!(exact.plain_text, "1-2^(1/3)");
-        assert_eq!(
-            metadata.exact_representation,
-            ExactRepresentationKindDto::RealAlgebraic
-        );
-        assert!(metadata
-            .methods
-            .contains(&MethodTagDto::AlgebraicMinimalPolynomial));
-        assert!(metadata
-            .methods
-            .contains(&MethodTagDto::AlgebraicRootIsolation));
+        for source in ["1-2^(1/3)", "2^(1/3)/2+1"] {
+            let mut request = exact_only_request();
+            request.scientific_output = ScientificOutputRequestDto::Include {
+                significant_digits: 50,
+                rounding_mode: DecimalRoundingModeDto::NearestTiesToEven,
+            };
+            let result = calculate_dto(source, request);
+            let ApiResultDto::Ok {
+                value:
+                    CalculationOutcomeDto::Partial {
+                        calculation:
+                            CalculationDto {
+                                exact: ExactOutputDto::Included { value: exact },
+                                metadata,
+                                ..
+                            },
+                        ..
+                    },
+            } = result
+            else {
+                panic!("{source}: expected partial affine real algebraic calculation");
+            };
+            assert_eq!(
+                exact.representation,
+                ExactRepresentationKindDto::RealAlgebraic
+            );
+            assert_eq!(exact.plain_text, source);
+            assert_eq!(
+                metadata.exact_representation,
+                ExactRepresentationKindDto::RealAlgebraic
+            );
+            assert!(metadata
+                .methods
+                .contains(&MethodTagDto::AlgebraicMinimalPolynomial));
+            assert!(metadata
+                .methods
+                .contains(&MethodTagDto::AlgebraicRootIsolation));
+        }
     }
 
     #[test]
