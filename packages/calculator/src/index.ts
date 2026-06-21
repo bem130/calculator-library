@@ -2,19 +2,28 @@ export type {
     ApiResult,
     Calculation,
     CalculationOutcome,
-    CalculatorErrorDto,
-    ProtocolVersion,
-} from "./generated/dto";
-export type {
-    Calculator,
     CalculationRequest,
+    CalculatorErrorDto,
+    CertifiedIntervalPresentation,
     DecimalRoundingMode,
     EnclosureOutputRequest,
     ExactOutputRequest,
     ParseSettings,
+    PresentationNodeDto,
+    ProtocolVersion,
     ScientificOutputRequest,
     SemanticSettings,
+} from "./generated/dto";
+export type {
+    Calculator,
+    CalculatorWasmModule,
+    CreateCalculatorOptions,
 } from "./direct";
 
-export { createCalculator } from "./direct";
+export {
+    createCalculator,
+    createCalculatorFromWasmModule,
+    defaultCalculationRequest,
+    exactOnlyCalculationRequest,
+} from "./direct";
 export { renderMathMl, renderPlainText } from "./presentation";

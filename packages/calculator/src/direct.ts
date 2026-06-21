@@ -1,74 +1,18 @@
-import type { ApiResult, CalculationOutcome } from "./generated/dto";
+import type {
+    ApiResult,
+    CalculationOutcome,
+    CalculationRequest,
+} from "./generated/dto";
 
-export type CalculationRequest = {
-    readonly parse: ParseSettings;
-    readonly semantics: SemanticSettings;
-    readonly exactOutput: ExactOutputRequest;
-    readonly scientificOutput: ScientificOutputRequest;
-    readonly enclosureOutput: EnclosureOutputRequest;
-    readonly limits: ResourceLimitRequest;
+export type CalculatorWasmModule = {
+    readonly calculate: (
+        source: string,
+        request: CalculationRequest,
+    ) => ApiResult<CalculationOutcome>;
 };
 
-export type ParseSettings = {
-    readonly grammar: "default";
-    readonly implicitMultiplication: "enabled" | "disabled";
-    readonly unicodeAliases: "mathematicalAliases" | "asciiOnly";
-    readonly percent: "postfixPercent" | "rejectPercent";
-};
-
-export type SemanticSettings = {
-    readonly domain: "real";
-    readonly angleUnit: "radian" | "degree" | "gradian";
-    readonly powerSemantics: "realPrincipal";
-};
-
-export type ExactOutputRequest =
-    | {
-        readonly tag: "omit";
-    }
-    | {
-        readonly tag: "include";
-        readonly format: "auto" | "rational" | "finiteDecimal" | "mixedFraction" | "symbolic";
-    };
-
-export type ScientificOutputRequest =
-    | {
-        readonly tag: "omit";
-    }
-    | {
-        readonly tag: "include";
-        readonly significantDigits: number;
-        readonly roundingMode: DecimalRoundingMode;
-    };
-
-export type DecimalRoundingMode =
-    | "nearestTiesToEven"
-    | "nearestTiesAwayFromZero"
-    | "towardPositiveInfinity"
-    | "towardNegativeInfinity"
-    | "towardZero"
-    | "awayFromZero";
-
-export type EnclosureOutputRequest =
-    | {
-        readonly tag: "omit";
-    }
-    | {
-        readonly tag: "include";
-        readonly format: "exactDyadic";
-    };
-
-export type ResourceLimitRequest =
-    | {
-        readonly tag: "default";
-    }
-    | {
-        readonly tag: "custom";
-        readonly value: ResourceLimits;
-    };
-
-export type ResourceLimits = {
-    readonly maxLogicalWorkUnits: string;
+export type CreateCalculatorOptions = {
+    readonly module?: CalculatorWasmModule;
 };
 
 export interface Calculator {
@@ -78,9 +22,25 @@ export interface Calculator {
     ): ApiResult<CalculationOutcome>;
 }
 
-export async function createCalculator(): Promise<Calculator> {
+export function createCalculatorFromWasmModule(
+    module: CalculatorWasmModule,
+): Calculator {
     return {
-        calculate: (_source, _request) => ({
+        calculate(source, request) {
+            return module.calculate(source, request);
+        },
+    };
+}
+
+export async function createCalculator(
+    options: CreateCalculatorOptions = {},
+): Promise<Calculator> {
+    if (options.module !== undefined) {
+        return createCalculatorFromWasmModule(options.module);
+    }
+
+    return {
+        calculate: () => ({
             tag: "error",
             error: {
                 tag: "unsupportedFeature",
@@ -89,3 +49,43 @@ export async function createCalculator(): Promise<Calculator> {
         }),
     };
 }
+
+export const exactOnlyCalculationRequest: CalculationRequest = {
+    parse: {
+        grammar: "default",
+        implicitMultiplication: "enabled",
+        unicodeAliases: "mathematicalAliases",
+        percent: "postfixPercent",
+    },
+    semantics: {
+        domain: "real",
+        angleUnit: "radian",
+        powerSemantics: "realPrincipal",
+    },
+    exactOutput: {
+        tag: "include",
+        format: "auto",
+    },
+    scientificOutput: {
+        tag: "omit",
+    },
+    enclosureOutput: {
+        tag: "omit",
+    },
+    limits: {
+        tag: "default",
+    },
+};
+
+export const defaultCalculationRequest: CalculationRequest = {
+    ...exactOnlyCalculationRequest,
+    scientificOutput: {
+        tag: "include",
+        significantDigits: 50,
+        roundingMode: "nearestTiesToEven",
+    },
+    enclosureOutput: {
+        tag: "include",
+        format: "exactDyadic",
+    },
+};

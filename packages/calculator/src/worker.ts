@@ -1,5 +1,9 @@
 import type { ApiResult, CalculationOutcome } from "./generated/dto";
-import type { CalculationRequest } from "./direct";
+import {
+    createCalculator,
+    type CalculationRequest,
+    type CreateCalculatorOptions,
+} from "./index";
 
 export interface WorkerCalculator {
     calculate(
@@ -24,9 +28,12 @@ export type AbortSignalOption =
         readonly signal: AbortSignal;
     };
 
-export async function createWorkerCalculator(): Promise<WorkerCalculator> {
+export async function createWorkerCalculator(
+    options: CreateCalculatorOptions = {},
+): Promise<WorkerCalculator> {
+    const calculator = await createCalculator(options);
     return {
-        async calculate(_source, _request, options) {
+        async calculate(source, request, options) {
             if (options.signal.tag === "abortSignal" && options.signal.signal.aborted) {
                 return {
                     tag: "error",
@@ -36,13 +43,7 @@ export async function createWorkerCalculator(): Promise<WorkerCalculator> {
                     },
                 };
             }
-            return {
-                tag: "error",
-                error: {
-                    tag: "unsupportedFeature",
-                    code: "evaluationEngine",
-                },
-            };
+            return calculator.calculate(source, request);
         },
         terminate() {
             return;
