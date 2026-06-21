@@ -2162,11 +2162,8 @@ impl DagBuilder {
     fn lower(&mut self, expression: &SourceExpr) -> Result<ExprId, EvaluationError> {
         match expression {
             SourceExpr::Number { literal, .. } => {
-                let rational = Rational::from_decimal_literal(literal).map_err(|_| {
-                    EvaluationError::InternalInvariant(InternalInvariantError {
-                        code: InternalInvariantCode::InvalidParsedNumberLiteral,
-                    })
-                })?;
+                let rational = Rational::from_decimal_literal(literal)
+                    .map_err(decimal_literal_error_to_evaluation_error)?;
                 Ok(self.push_rational(rational))
             }
             SourceExpr::Constant { constant, .. } => {
@@ -2284,6 +2281,21 @@ impl DagBuilder {
         let id = ExprId(self.nodes.len() as u32);
         self.nodes.push(node);
         id
+    }
+}
+
+fn decimal_literal_error_to_evaluation_error(error: DecimalLiteralError) -> EvaluationError {
+    match error {
+        DecimalLiteralError::InvalidExponent | DecimalLiteralError::ExponentTooLarge => {
+            EvaluationError::InputLimit(InputLimitError {
+                kind: InputLimitErrorKind::IntegerTooLarge,
+            })
+        }
+        DecimalLiteralError::Empty | DecimalLiteralError::InvalidDigit => {
+            EvaluationError::InternalInvariant(InternalInvariantError {
+                code: InternalInvariantCode::InvalidParsedNumberLiteral,
+            })
+        }
     }
 }
 

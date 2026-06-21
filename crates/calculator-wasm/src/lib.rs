@@ -846,6 +846,19 @@ mod tests {
     }
 
     #[test]
+    fn wasm_dto_reports_huge_decimal_exponent_as_input_limit() {
+        let result = calculate_dto("1e999999999999999999999999", exact_only_request());
+        assert_eq!(
+            result,
+            ApiResultDto::Error {
+                error: CalculatorErrorDto::InputLimit {
+                    code: InputLimitErrorCodeDto::IntegerTooLarge,
+                },
+            }
+        );
+    }
+
+    #[test]
     fn wasm_dto_reports_rational_power_domain_error_codes() {
         for (source, code) in [
             ("0^0", DomainErrorCodeDto::IndeterminateZeroToZero),

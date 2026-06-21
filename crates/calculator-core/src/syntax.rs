@@ -38,6 +38,11 @@ pub(crate) enum SourceExpr {
     },
 }
 
+pub(crate) struct SourceExprStats {
+    pub nodes: u32,
+    pub depth: u32,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum UnaryOperator {
     Plus,
@@ -539,6 +544,33 @@ impl Parser<'_> {
 }
 
 impl SourceExpr {
+    pub(crate) fn stats(&self) -> Option<SourceExprStats> {
+        let mut stack = vec![(self, 1_u32)];
+        let mut nodes = 0_u32;
+        let mut depth = 0_u32;
+
+        while let Some((expr, current_depth)) = stack.pop() {
+            nodes = nodes.checked_add(1)?;
+            depth = depth.max(current_depth);
+            let child_depth = current_depth.checked_add(1)?;
+            match expr {
+                Self::Number { .. } | Self::Constant { .. } => {}
+                Self::Unary { expr, .. } | Self::Percent { expr, .. } => {
+                    stack.push((expr, child_depth));
+                }
+                Self::Binary { left, right, .. } => {
+                    stack.push((left, child_depth));
+                    stack.push((right, child_depth));
+                }
+                Self::Function { argument, .. } => {
+                    stack.push((argument, child_depth));
+                }
+            }
+        }
+
+        Some(SourceExprStats { nodes, depth })
+    }
+
     fn span(&self) -> ByteSpan {
         match self {
             Self::Number { span, .. }
