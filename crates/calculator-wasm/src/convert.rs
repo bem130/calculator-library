@@ -1543,3 +1543,31 @@ fn optional_span_to_utf16(source: &str, span: &core::OptionalTextSpan) -> Option
         },
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn utf8_offsets_convert_to_utf16_code_units() {
+        let source = "π𝄞x";
+        assert_eq!(utf8_to_utf16_units(source, 0), 0);
+        assert_eq!(utf8_to_utf16_units(source, "π".len() as u32), 1);
+        assert_eq!(utf8_to_utf16_units(source, "π𝄞".len() as u32), 3);
+        assert_eq!(utf8_to_utf16_units(source, source.len() as u32), 4);
+    }
+
+    #[test]
+    fn optional_span_to_utf16_converts_utf8_byte_span() {
+        let span = core::OptionalTextSpan::Some(core::ByteSpan {
+            start: "π".len() as u32,
+            end: "π𝄞".len() as u32,
+        });
+        assert_eq!(
+            optional_span_to_utf16("π𝄞x", &span),
+            OptionalTextSpanDto::Some {
+                value: TextSpanDto { start: 1, end: 3 },
+            }
+        );
+    }
+}

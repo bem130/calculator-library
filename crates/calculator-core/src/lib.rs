@@ -9,6 +9,9 @@ mod session;
 mod syntax;
 mod types;
 
+#[cfg(test)]
+mod conformance_tests;
+
 pub use api::{calculate, evaluate, parse, present};
 pub use session::{apply_calculation_result, reduce_input};
 pub use types::*;
