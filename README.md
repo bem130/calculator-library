@@ -78,6 +78,9 @@ corepack pnpm --dir examples/vanilla-web run build
 
 The Pages workflow in [.github/workflows/pages.yml](.github/workflows/pages.yml) builds `examples/vanilla-web/dist` and deploys it from `main`.
 
+The example e2e test covers the public worker API path, MathML rendering,
+clipboard copy, worker cancellation, and rational scientific/enclosure output.
+
 ## Verification
 
 Common local checks:
