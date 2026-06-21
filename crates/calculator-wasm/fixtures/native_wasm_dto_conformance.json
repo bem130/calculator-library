@@ -1,0 +1,129 @@
+{
+  "cases": [
+    {
+      "id": "exact-rational-addition",
+      "source": "0.1 + 0.2",
+      "request": {
+        "parse": {
+          "grammar": "default",
+          "implicitMultiplication": "enabled",
+          "unicodeAliases": "mathematicalAliases",
+          "percent": "postfixPercent"
+        },
+        "semantics": {
+          "domain": "real",
+          "angleUnit": "radian",
+          "powerSemantics": "realPrincipal"
+        },
+        "exactOutput": {
+          "tag": "include",
+          "format": "auto"
+        },
+        "scientificOutput": {
+          "tag": "omit"
+        },
+        "enclosureOutput": {
+          "tag": "omit"
+        },
+        "limits": {
+          "tag": "default"
+        }
+      },
+      "expectedResult": {
+        "tag": "ok",
+        "value": {
+          "tag": "complete",
+          "calculation": {
+            "exact": {
+              "tag": "included",
+              "value": {
+                "relation": "exactEqual",
+                "representation": "rational",
+                "presentation": {
+                  "tag": "fraction",
+                  "numerator": {
+                    "tag": "text",
+                    "text": "3"
+                  },
+                  "denominator": {
+                    "tag": "text",
+                    "text": "10"
+                  }
+                },
+                "plainText": "3/10"
+              }
+            },
+            "scientific": {
+              "tag": "omitted"
+            },
+            "enclosure": {
+              "tag": "omitted"
+            },
+            "metadata": {
+              "exactRepresentation": "rational",
+              "simplificationStatus": {
+                "tag": "fullySimplifiedWithinLimits"
+              },
+              "semanticSettings": {
+                "domain": "real",
+                "angleUnit": "radian",
+                "powerSemantics": "realPrincipal"
+              },
+              "methods": [
+                "rationalReduction"
+              ],
+              "internalPrecisionBits": 0,
+              "refinementRounds": 0,
+              "confirmedSignificantDigits": 0,
+              "assurance": "exact",
+              "protocolVersion": {
+                "major": 1,
+                "minor": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "domain-division-by-zero",
+      "source": "1 / 0",
+      "request": {
+        "parse": {
+          "grammar": "default",
+          "implicitMultiplication": "enabled",
+          "unicodeAliases": "mathematicalAliases",
+          "percent": "postfixPercent"
+        },
+        "semantics": {
+          "domain": "real",
+          "angleUnit": "radian",
+          "powerSemantics": "realPrincipal"
+        },
+        "exactOutput": {
+          "tag": "include",
+          "format": "auto"
+        },
+        "scientificOutput": {
+          "tag": "omit"
+        },
+        "enclosureOutput": {
+          "tag": "omit"
+        },
+        "limits": {
+          "tag": "default"
+        }
+      },
+      "expectedResult": {
+        "tag": "error",
+        "error": {
+          "tag": "domain",
+          "code": "divisionByZero",
+          "span": {
+            "tag": "none"
+          }
+        }
+      }
+    }
+  ]
+}

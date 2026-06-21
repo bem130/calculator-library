@@ -389,6 +389,33 @@ pub fn calculate(
 }
 
 #[cfg(test)]
+mod dto_conformance {
+    use serde::Deserialize;
+
+    use crate::dto::CalculationRequestDto;
+
+    const FIXTURE: &str = include_str!("../fixtures/native_wasm_dto_conformance.json");
+
+    #[derive(Debug, Deserialize)]
+    pub struct Fixture {
+        pub cases: Vec<Case>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct Case {
+        pub id: String,
+        pub source: String,
+        pub request: CalculationRequestDto,
+        pub expected_result: serde_json::Value,
+    }
+
+    pub fn load_fixture() -> Fixture {
+        serde_json::from_str(FIXTURE).expect("native/wasm DTO conformance fixture must be valid")
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::dto::*;
@@ -587,6 +614,15 @@ mod tests {
     }
 
     #[test]
+    fn native_serialized_outputs_match_dto_golden_fixture() {
+        for case in dto_conformance::load_fixture().cases {
+            let actual = serde_json::to_value(calculate_dto(&case.source, case.request))
+                .unwrap_or_else(|error| panic!("{}: failed to serialize result: {error}", case.id));
+            assert_eq!(actual, case.expected_result, "{}", case.id);
+        }
+    }
+
+    #[test]
     fn wasm_dto_accepts_camel_case_scientific_request_fields() {
         let request: CalculationRequestDto = serde_json::from_value(serde_json::json!({
             "parse": {
@@ -767,7 +803,7 @@ pub mod wasm_tests {
     use wasm_bindgen::JsValue;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    use super::{calculate, calculate_dto, SessionCore};
+    use super::{calculate, calculate_dto, dto_conformance, SessionCore};
     use crate::dto::*;
 
     fn exact_only_request() -> CalculationRequestDto {
@@ -1008,5 +1044,19 @@ pub mod wasm_tests {
                 code: InputLimitErrorCodeDto::InvalidResourceLimit,
             }
         );
+    }
+
+    #[wasm_bindgen_test]
+    fn wasm32_serialized_outputs_match_dto_golden_fixture() {
+        for case in dto_conformance::load_fixture().cases {
+            let request = serde_wasm_bindgen::to_value(&case.request).unwrap_or_else(|error| {
+                panic!("{}: failed to serialize request: {error:?}", case.id)
+            });
+            let actual: serde_json::Value =
+                serde_wasm_bindgen::from_value(calculate(&case.source, request)).unwrap_or_else(
+                    |error| panic!("{}: failed to deserialize wasm result: {error:?}", case.id),
+                );
+            assert_eq!(actual, case.expected_result, "{}", case.id);
+        }
     }
 }
