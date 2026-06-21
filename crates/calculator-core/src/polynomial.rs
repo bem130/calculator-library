@@ -8,8 +8,8 @@ use num_traits::{One, Signed, Zero};
 use crate::types::{
     Integer, PrimitivePolynomial, PrimitivePolynomialConstructionError,
     PrimitivePolynomialDivisionError, PrimitivePolynomialRootCountingError,
-    PrimitivePolynomialSign, PrimitiveSquareFreeFactor, Rational, RationalInterval,
-    SignedPrimitivePolynomial,
+    PrimitivePolynomialRootIsolationError, PrimitivePolynomialSign, PrimitiveSquareFreeFactor,
+    Rational, RationalInterval, SignedPrimitivePolynomial,
 };
 
 impl PrimitivePolynomial {
@@ -295,6 +295,51 @@ impl PrimitivePolynomial {
         }
         u32::try_from(count).map_err(|_| PrimitivePolynomialRootCountingError::CountOverflow)
     }
+
+    pub fn isolate_real_roots(
+        &self,
+        max_steps: u32,
+    ) -> Result<Vec<RationalInterval>, PrimitivePolynomialRootIsolationError> {
+        let polynomial = Self::new(effective_coefficients(&self.coefficients_low_to_high).to_vec())
+            .map_err(root_isolation_construction_error)?;
+        if !is_nonconstant(&polynomial) {
+            return Ok(Vec::new());
+        }
+
+        let bound = cauchy_root_bound(&polynomial.coefficients_low_to_high);
+        let initial_interval = RationalInterval {
+            lower: Rational::from_integer(Integer::from_bigint(-bound.clone())),
+            upper: Rational::from_integer(Integer::from_bigint(bound)),
+        };
+        let mut steps = 0;
+        let mut pending = vec![initial_interval];
+        let mut isolated = Vec::new();
+
+        while let Some(interval) = pending.pop() {
+            consume_root_isolation_step(&mut steps, max_steps)?;
+            let root_count = polynomial
+                .distinct_real_root_count_in_interval(&interval)
+                .map_err(root_isolation_counting_error)?;
+            match root_count {
+                0 => {}
+                1 => isolated.push(interval),
+                _ => {
+                    let split = polynomial.non_root_split(&interval, &mut steps, max_steps)?;
+                    pending.push(RationalInterval {
+                        lower: split.clone(),
+                        upper: interval.upper,
+                    });
+                    pending.push(RationalInterval {
+                        lower: interval.lower,
+                        upper: split,
+                    });
+                }
+            }
+        }
+
+        isolated.sort_by(|left, right| left.lower.compare(&right.lower));
+        Ok(isolated)
+    }
 }
 
 fn add_polynomials(
@@ -481,6 +526,62 @@ fn is_nonconstant(polynomial: &PrimitivePolynomial) -> bool {
     polynomial.degree().is_some_and(|degree| degree > 0)
 }
 
+fn cauchy_root_bound(coefficients: &[Integer]) -> BigInt {
+    let leading_coefficient = &coefficients
+        .last()
+        .expect("non-zero primitive polynomial has a leading coefficient")
+        .inner;
+    debug_assert!(leading_coefficient.sign() == Sign::Plus);
+
+    let mut max_ratio_ceiling = BigInt::zero();
+    for coefficient in &coefficients[..coefficients.len() - 1] {
+        let ratio_ceiling = coefficient.inner.abs().div_ceil(leading_coefficient);
+        if ratio_ceiling > max_ratio_ceiling {
+            max_ratio_ceiling = ratio_ceiling;
+        }
+    }
+    max_ratio_ceiling + 1_u8
+}
+
+fn rational_midpoint(lower: &Rational, upper: &Rational) -> Rational {
+    lower
+        .add(upper)
+        .divide(&Rational::from_integer(Integer::from(2)))
+        .expect("2 is non-zero")
+}
+
+impl PrimitivePolynomial {
+    fn non_root_split(
+        &self,
+        interval: &RationalInterval,
+        steps: &mut u32,
+        max_steps: u32,
+    ) -> Result<Rational, PrimitivePolynomialRootIsolationError> {
+        let mut candidates = vec![(interval.lower.clone(), interval.upper.clone())];
+        while let Some((lower, upper)) = candidates.pop() {
+            consume_root_isolation_step(steps, max_steps)?;
+            let midpoint = rational_midpoint(&lower, &upper);
+            if self.evaluate_rational_sign(&midpoint) != Sign::NoSign {
+                return Ok(midpoint);
+            }
+            candidates.push((midpoint.clone(), upper));
+            candidates.push((lower, midpoint));
+        }
+        unreachable!("a non-zero polynomial has finitely many roots")
+    }
+}
+
+fn consume_root_isolation_step(
+    steps: &mut u32,
+    max_steps: u32,
+) -> Result<(), PrimitivePolynomialRootIsolationError> {
+    if *steps >= max_steps {
+        return Err(PrimitivePolynomialRootIsolationError::StepLimitExceeded);
+    }
+    *steps += 1;
+    Ok(())
+}
+
 fn signed_primitive_polynomial_from_coefficients(
     mut coefficients_low_to_high: Vec<Integer>,
 ) -> Result<Option<SignedPrimitivePolynomial>, PrimitivePolynomialConstructionError> {
@@ -563,6 +664,32 @@ fn root_counting_construction_error(
     }
 }
 
+fn root_isolation_construction_error(
+    error: PrimitivePolynomialConstructionError,
+) -> PrimitivePolynomialRootIsolationError {
+    match error {
+        PrimitivePolynomialConstructionError::ZeroPolynomial => {
+            PrimitivePolynomialRootIsolationError::ZeroPolynomial
+        }
+    }
+}
+
+fn root_isolation_counting_error(
+    error: PrimitivePolynomialRootCountingError,
+) -> PrimitivePolynomialRootIsolationError {
+    match error {
+        PrimitivePolynomialRootCountingError::ZeroPolynomial => {
+            PrimitivePolynomialRootIsolationError::ZeroPolynomial
+        }
+        PrimitivePolynomialRootCountingError::InvalidInterval => {
+            unreachable!("root isolation preserves ordered interval bounds")
+        }
+        PrimitivePolynomialRootCountingError::CountOverflow => {
+            PrimitivePolynomialRootIsolationError::CountOverflow
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -586,6 +713,24 @@ mod tests {
             lower: rational(lower_numerator, lower_denominator),
             upper: rational(upper_numerator, upper_denominator),
         }
+    }
+
+    fn assert_isolates_one_root(polynomial: &PrimitivePolynomial, interval: &RationalInterval) {
+        assert_eq!(interval.lower.compare(&interval.upper), Ordering::Less);
+        assert_ne!(
+            polynomial.evaluate_rational_sign(&interval.lower),
+            Sign::NoSign
+        );
+        assert_ne!(
+            polynomial.evaluate_rational_sign(&interval.upper),
+            Sign::NoSign
+        );
+        assert_eq!(
+            polynomial
+                .distinct_real_root_count_in_interval(interval)
+                .unwrap(),
+            1
+        );
     }
 
     #[test]
@@ -1085,6 +1230,72 @@ mod tests {
         assert_eq!(
             zero.distinct_real_root_count_in_interval(&rational_interval(-1, 1, 1, 1)),
             Err(PrimitivePolynomialRootCountingError::ZeroPolynomial)
+        );
+    }
+
+    #[test]
+    fn isolate_real_roots_returns_ordered_single_root_intervals() {
+        let polynomial = PrimitivePolynomial::new(integers(&[-2, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+
+        let intervals = polynomial.isolate_real_roots(32).unwrap();
+
+        assert_eq!(intervals.len(), 2);
+        for interval in &intervals {
+            assert_isolates_one_root(&polynomial, interval);
+        }
+        assert_ne!(
+            intervals[0].upper.compare(&Rational::zero()),
+            Ordering::Greater
+        );
+        assert_ne!(
+            intervals[1].lower.compare(&Rational::zero()),
+            Ordering::Less
+        );
+    }
+
+    #[test]
+    fn isolate_real_roots_skips_rootless_polynomial_and_counts_repeated_root_once() {
+        let rootless =
+            PrimitivePolynomial::new(integers(&[1, 0, 1])).expect("non-zero polynomial normalizes");
+        let repeated_root = PrimitivePolynomial::new(integers(&[1, -2, 1]))
+            .expect("non-zero polynomial normalizes");
+
+        assert_eq!(rootless.isolate_real_roots(8).unwrap(), vec![]);
+
+        let intervals = repeated_root.isolate_real_roots(32).unwrap();
+        assert_eq!(intervals.len(), 1);
+        assert_isolates_one_root(&repeated_root, &intervals[0]);
+    }
+
+    #[test]
+    fn isolate_real_roots_finds_non_root_split_when_midpoint_is_root() {
+        let polynomial = PrimitivePolynomial::new(integers(&[0, -1, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+
+        let intervals = polynomial.isolate_real_roots(128).unwrap();
+
+        assert_eq!(intervals.len(), 3);
+        for interval in &intervals {
+            assert_isolates_one_root(&polynomial, interval);
+        }
+    }
+
+    #[test]
+    fn isolate_real_roots_reports_step_limit_and_zero_polynomial() {
+        let polynomial = PrimitivePolynomial::new(integers(&[0, -1, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+        let zero = PrimitivePolynomial {
+            coefficients_low_to_high: integers(&[0, 0]),
+        };
+
+        assert_eq!(
+            polynomial.isolate_real_roots(1),
+            Err(PrimitivePolynomialRootIsolationError::StepLimitExceeded)
+        );
+        assert_eq!(
+            zero.isolate_real_roots(32),
+            Err(PrimitivePolynomialRootIsolationError::ZeroPolynomial)
         );
     }
 }
