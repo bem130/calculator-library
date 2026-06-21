@@ -50,9 +50,10 @@ const state: CalculatorState = {
     copied: false,
 };
 
+const assetBaseUrl = new URL(import.meta.env.BASE_URL, window.location.href);
 const calculator = createCalculator({
-    wasmGlueUrl: new URL("/wasm/calculator_wasm.js", window.location.href),
-    wasmModuleUrl: new URL("/wasm/calculator_wasm_bg.wasm", window.location.href),
+    wasmGlueUrl: new URL("wasm/calculator_wasm.js", assetBaseUrl),
+    wasmModuleUrl: new URL("wasm/calculator_wasm_bg.wasm", assetBaseUrl),
 });
 const app = document.querySelector<HTMLDivElement>("#app");
 
