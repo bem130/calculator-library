@@ -797,6 +797,12 @@ mod tests {
                 false,
             ),
             (
+                "sqrt(6962)",
+                "59sqrt(2)",
+                ExactRepresentationKindDto::Radical,
+                false,
+            ),
+            (
                 "sqrt(1/2)",
                 "sqrt(2)/2",
                 ExactRepresentationKindDto::Radical,
@@ -1553,6 +1559,7 @@ pub mod wasm_tests {
     fn wasm32_calculates_simple_radical_exact_output() {
         for (source, expected) in [
             ("sqrt(72)", "6sqrt(2)"),
+            ("sqrt(6962)", "59sqrt(2)"),
             ("sqrt(1/2)", "sqrt(2)/2"),
             ("2^(1/2)", "sqrt(2)"),
             ("sqrt(2) * sqrt(2)", "2"),
