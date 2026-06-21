@@ -13,7 +13,7 @@ use num_traits::{Signed, Zero};
 use crate::expression::{
     evaluate_interval_dag, evaluate_radical_dag, evaluate_rational_evaluation_dag,
     evaluate_rational_pi_multiple_dag, lower_source_expression, ExactExpressionDag,
-    PiCoefficientEvaluation, RadicalEvaluation, RationalEvaluation,
+    PiCoefficientEvaluation, RadicalEvaluation, RadicalReduction, RationalEvaluation,
 };
 use crate::interval;
 use crate::types::*;
@@ -122,34 +122,47 @@ pub fn evaluate(
                 });
             }
             if let Some(radical) = evaluate_radical_dag(&dag)? {
-                let certified_enclosure =
-                    radical_enclosure(&dag, &radical).map_err(|interval_error| {
-                        interval_error_to_evaluation_error(interval_error, error.clone())
-                    })?;
-                let mut methods = vec![
-                    MethodTag::RadicalExtraction,
-                    MethodTag::CertifiedIntervalEvaluation,
-                ];
-                if radical.used_special_angle() {
-                    methods.push(MethodTag::SpecialAngle);
+                match radical {
+                    RadicalReduction::Rational(rational) => {
+                        return Ok(rational_evaluation_outcome_with_methods(
+                            expression,
+                            &dag,
+                            rational,
+                            request,
+                            &[MethodTag::RadicalExtraction],
+                        ));
+                    }
+                    RadicalReduction::Radical(radical) => {
+                        let certified_enclosure =
+                            radical_enclosure(&dag, &radical).map_err(|interval_error| {
+                                interval_error_to_evaluation_error(interval_error, error.clone())
+                            })?;
+                        let mut methods = vec![
+                            MethodTag::RadicalExtraction,
+                            MethodTag::CertifiedIntervalEvaluation,
+                        ];
+                        if radical.used_special_angle() {
+                            methods.push(MethodTag::SpecialAngle);
+                        }
+                        return Ok(EvaluationOutcome {
+                            value: EvaluatedValue {
+                                exact_expression: ExactExpression {
+                                    source: expression.source.clone(),
+                                },
+                                recognized_exact: RecognizedExact::Radical(radical.into_value()),
+                                certified_enclosure: CertifiedEnclosureState::Available(
+                                    certified_enclosure,
+                                ),
+                            },
+                            metadata: EvaluationMetadata {
+                                semantic_settings: request.semantics,
+                                methods,
+                                internal_precision_bits: 128,
+                                refinement_rounds: 0,
+                            },
+                        });
+                    }
                 }
-                return Ok(EvaluationOutcome {
-                    value: EvaluatedValue {
-                        exact_expression: ExactExpression {
-                            source: expression.source.clone(),
-                        },
-                        recognized_exact: RecognizedExact::Radical(radical.into_value()),
-                        certified_enclosure: CertifiedEnclosureState::Available(
-                            certified_enclosure,
-                        ),
-                    },
-                    metadata: EvaluationMetadata {
-                        semantic_settings: request.semantics,
-                        methods,
-                        internal_precision_bits: 128,
-                        refinement_rounds: 0,
-                    },
-                });
             }
             let certified_enclosure = evaluate_interval_dag(&dag).map_err(|interval_error| {
                 interval_error_to_evaluation_error(interval_error, error.clone())
@@ -214,9 +227,24 @@ fn rational_evaluation_outcome(
     rational: RationalEvaluation,
     request: &EvaluationRequest,
 ) -> EvaluationOutcome {
+    rational_evaluation_outcome_with_methods(expression, dag, rational, request, &[])
+}
+
+fn rational_evaluation_outcome_with_methods(
+    expression: &ParsedExpression,
+    dag: &ExactExpressionDag,
+    rational: RationalEvaluation,
+    request: &EvaluationRequest,
+    extra_methods: &[MethodTag],
+) -> EvaluationOutcome {
     let certified_enclosure = evaluate_interval_dag(dag)
         .unwrap_or_else(|_| interval::from_rational(rational.value(), 128));
     let mut methods = vec![MethodTag::RationalReduction];
+    for method in extra_methods {
+        if !methods.contains(method) {
+            methods.push(*method);
+        }
+    }
     if rational.used_special_angle() {
         methods.push(MethodTag::SpecialAngle);
     }
@@ -1246,6 +1274,24 @@ mod tests {
     }
 
     #[test]
+    fn simple_radical_algebra_reduces_products_quotients_and_like_terms() {
+        for (source, expected) in [
+            ("sqrt(2) * sqrt(2)", "2"),
+            ("sqrt(2) * sqrt(3)", "sqrt(6)"),
+            ("sqrt(2) * sqrt(8)", "4"),
+            ("sqrt(8) / sqrt(2)", "2"),
+            ("sqrt(2) / sqrt(8)", "1/2"),
+            ("1 / sqrt(2)", "sqrt(2)/2"),
+            ("sqrt(8) + sqrt(2)", "3sqrt(2)"),
+            ("sqrt(8) - 2 * sqrt(2)", "0"),
+            ("sin(pi/4) * cos(pi/4)", "1/2"),
+            ("tan(pi/3) / sqrt(3)", "1"),
+        ] {
+            assert_eq!(exact_plain_text(source), expected, "{source}");
+        }
+    }
+
+    #[test]
     fn radical_metadata_reports_exact_representation_and_methods() {
         let mut context = EvaluationContext::default();
         let outcome = calculate("sin(pi/4)", &exact_only_request(), &mut context).unwrap();
@@ -1259,6 +1305,34 @@ mod tests {
         assert_eq!(
             calculation.metadata.exact_representation,
             ExactRepresentationKind::Radical
+        );
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::RadicalExtraction));
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::SpecialAngle));
+        assert_eq!(calculation.metadata.assurance, AssuranceLevel::Exact);
+    }
+
+    #[test]
+    fn radical_algebra_rational_results_report_radical_extraction() {
+        let mut context = EvaluationContext::default();
+        let outcome =
+            calculate("sin(pi/4) * cos(pi/4)", &exact_only_request(), &mut context).unwrap();
+        let CalculationOutcome::Complete(calculation) = outcome else {
+            panic!("expected complete calculation");
+        };
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("expected exact output");
+        };
+        assert_eq!(exact.representation, ExactRepresentationKind::Rational);
+        assert_eq!(exact.plain_text, "1/2");
+        assert_eq!(
+            calculation.metadata.exact_representation,
+            ExactRepresentationKind::Rational
         );
         assert!(calculation
             .metadata
