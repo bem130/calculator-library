@@ -14,8 +14,9 @@
     "@bem130/exact-calculator": "link:../../packages/calculator"
   },
   "devDependencies": {
+    "esbuild": "^0.28.1",
     "playwright": "^1.61.0",
     "typescript": "^5.9.0",
-    "vite": "^7.0.0"
+    "vite": "^8.0.16"
   }
 }

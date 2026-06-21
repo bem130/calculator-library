@@ -47,6 +47,12 @@ jobs:
       - name: Install example dependencies
         run: corepack pnpm --dir examples/vanilla-web install --frozen-lockfile
 
+      - name: Audit package dependencies
+        run: corepack pnpm --dir packages/calculator audit --audit-level low
+
+      - name: Audit example dependencies
+        run: corepack pnpm --dir examples/vanilla-web audit --audit-level low
+
       - name: Check Rust formatting
         run: cargo fmt --all --check
 
