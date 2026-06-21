@@ -287,6 +287,7 @@ window.addEventListener("keydown", (event) => {
         void calculateFromSession();
     }
 });
+window.addEventListener("pagehide", disposeActiveSession);
 
 syncControls();
 void calculateFromSession();
@@ -399,11 +400,16 @@ function beginOperation(): number {
 }
 
 function invalidateSession(): void {
-    activeSession = null;
+    disposeActiveSession();
     state.sessionSynced = false;
     state.busy = false;
     beginOperation();
     renderStatus();
+}
+
+function disposeActiveSession(): void {
+    activeSession?.dispose?.();
+    activeSession = null;
 }
 
 function isCurrentOperation(operation: number): boolean {
@@ -464,6 +470,7 @@ async function sessionForCurrentExpression(operation: number): Promise<Calculato
             throw new Error(result.error.code);
         }
     }
+    disposeActiveSession();
     activeSession = session;
     state.sessionSynced = true;
     state.expression = session.getState().source;

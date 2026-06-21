@@ -25,6 +25,7 @@ export type WasmCalculatorSession = {
     dispatch(action: InputActionDto): SessionDispatchResult;
     applyResult(result: ApiResult<CalculationOutcome>): SessionStateDto;
     getState(): SessionStateDto;
+    free(): void;
 };
 
 export type CreateCalculatorOptions = {
@@ -55,6 +56,7 @@ export interface CalculatorSession {
     dispatch(action: InputActionDto): SessionDispatchResult;
     applyResult(result: ApiResult<CalculationOutcome>): SessionStateDto;
     getState(): SessionStateDto;
+    dispose?(): void;
 }
 
 export function createCalculatorFromWasmModule(
@@ -72,15 +74,30 @@ export function createSessionFromWasmModule(
     policy: InputPolicyDto,
 ): CalculatorSession {
     const session = new module.CalculatorSession(policy);
+    let disposed = false;
+    const ensureActive = (): void => {
+        if (disposed) {
+            throw new Error("CalculatorSession has been disposed.");
+        }
+    };
     return {
         dispatch(action) {
+            ensureActive();
             return session.dispatch(action);
         },
         applyResult(result) {
+            ensureActive();
             return session.applyResult(result);
         },
         getState() {
+            ensureActive();
             return session.getState();
+        },
+        dispose() {
+            if (!disposed) {
+                disposed = true;
+                session.free();
+            }
         },
     };
 }
