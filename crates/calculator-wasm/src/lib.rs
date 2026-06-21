@@ -657,6 +657,46 @@ mod tests {
     }
 
     #[test]
+    fn wasm_dto_serializes_real_algebraic_rational_power() {
+        let mut request = exact_only_request();
+        request.scientific_output = ScientificOutputRequestDto::Include {
+            significant_digits: 50,
+            rounding_mode: DecimalRoundingModeDto::NearestTiesToEven,
+        };
+        let result = calculate_dto("2^(1/3)", request);
+        let ApiResultDto::Ok {
+            value:
+                CalculationOutcomeDto::Partial {
+                    calculation:
+                        CalculationDto {
+                            exact: ExactOutputDto::Included { value: exact },
+                            metadata,
+                            ..
+                        },
+                    ..
+                },
+        } = result
+        else {
+            panic!("expected partial real algebraic calculation");
+        };
+        assert_eq!(
+            exact.representation,
+            ExactRepresentationKindDto::RealAlgebraic
+        );
+        assert_eq!(exact.plain_text, "2^(1/3)");
+        assert_eq!(
+            metadata.exact_representation,
+            ExactRepresentationKindDto::RealAlgebraic
+        );
+        assert!(metadata
+            .methods
+            .contains(&MethodTagDto::AlgebraicMinimalPolynomial));
+        assert!(metadata
+            .methods
+            .contains(&MethodTagDto::AlgebraicRootIsolation));
+    }
+
+    #[test]
     fn wasm_dto_serializes_partial_constants_with_certified_enclosures() {
         let source = "e";
         let mut request = exact_only_request();

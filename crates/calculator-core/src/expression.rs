@@ -265,6 +265,13 @@ pub(crate) fn evaluate_radical_dag(
     evaluate_radical_node(dag, dag.root())
 }
 
+pub(crate) fn evaluate_real_algebraic_dag(
+    dag: &ExactExpressionDag,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraic>, EvaluationError> {
+    evaluate_real_algebraic_node(dag, dag.root(), limits)
+}
+
 fn evaluate_node(
     dag: &ExactExpressionDag,
     id: ExprId,
@@ -506,6 +513,108 @@ fn evaluate_radical_reduction(
         Err(error) if is_unsupported_exact_expression(&error) => evaluate_radical_node(dag, id),
         Err(error) => Err(error),
     }
+}
+
+fn evaluate_real_algebraic_node(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraic>, EvaluationError> {
+    let ExpressionNode::Power { base, exponent } = dag.node(id) else {
+        return Ok(None);
+    };
+    let base = match evaluate_node(dag, *base) {
+        Ok(value) => value,
+        Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let exponent = match evaluate_node(dag, *exponent) {
+        Ok(value) => value,
+        Err(error) if base.value().is_negative() && is_unsupported_exact_expression(&error) => {
+            return Err(domain_error(DomainErrorKind::NonRealPower));
+        }
+        Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    rational_prime_root_algebraic(base.value(), exponent.value(), limits)
+}
+
+fn rational_prime_root_algebraic(
+    base: &Rational,
+    exponent: &Rational,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraic>, EvaluationError> {
+    if base.is_zero() || exponent.is_integer() {
+        return Ok(None);
+    }
+    let Some(root_index) = exponent.denominator.inner.inner.to_u32() else {
+        return Ok(None);
+    };
+    if !is_supported_minimal_prime_root_index(root_index) {
+        return Ok(None);
+    }
+    if root_index > limits.max_algebraic_degree {
+        return Ok(None);
+    }
+    if base.is_negative() && root_index.is_multiple_of(2) {
+        return Err(domain_error(DomainErrorKind::NonRealPower));
+    }
+    let Some(exponent_numerator) = exponent.numerator.inner.to_i64() else {
+        return Ok(None);
+    };
+    let powered_base = match base.pow_i64(exponent_numerator) {
+        Ok(value) => value,
+        Err(RationalArithmeticError::ExponentTooLarge) => return Ok(None),
+        Err(error) => return Err(arithmetic_error(error)),
+    };
+    let polynomial = prime_root_polynomial(&powered_base, root_index)?;
+    if polynomial.max_coefficient_bits() > u64::from(limits.max_polynomial_coefficient_bits) {
+        return Ok(None);
+    }
+    let intervals = match polynomial.isolate_real_roots(limits.max_root_isolation_steps) {
+        Ok(intervals) => intervals,
+        Err(PrimitivePolynomialRootIsolationError::StepLimitExceeded) => return Ok(None),
+        Err(PrimitivePolynomialRootIsolationError::ZeroPolynomial) => {
+            return Err(invalid_algebraic_isolation_error());
+        }
+        Err(PrimitivePolynomialRootIsolationError::CountOverflow) => {
+            return Err(EvaluationError::ComputationLimit(ComputationLimitError {
+                kind: ComputationLimitKind::RootIsolationSteps,
+            }));
+        }
+    };
+    let [isolating_interval] = intervals.as_slice() else {
+        return Err(invalid_algebraic_isolation_error());
+    };
+    Ok(Some(RealAlgebraic {
+        minimal_polynomial: polynomial,
+        real_root_index: 0,
+        isolating_interval: isolating_interval.clone(),
+    }))
+}
+
+fn is_supported_minimal_prime_root_index(value: u32) -> bool {
+    if value < 3 || value.is_multiple_of(2) {
+        return false;
+    }
+    let mut divisor = 3;
+    while divisor <= value / divisor {
+        if value.is_multiple_of(divisor) {
+            return false;
+        }
+        divisor += 2;
+    }
+    true
+}
+
+fn prime_root_polynomial(
+    powered_base: &Rational,
+    root_index: u32,
+) -> Result<PrimitivePolynomial, EvaluationError> {
+    let mut coefficients = vec![Integer::from_bigint(-powered_base.numerator.inner.clone())];
+    coefficients.resize(root_index as usize, Integer::zero());
+    coefficients.push(powered_base.denominator.inner.clone());
+    PrimitivePolynomial::new(coefficients).map_err(|_| invalid_algebraic_isolation_error())
 }
 
 fn evaluate_radical_sum(
@@ -1495,6 +1604,12 @@ fn logarithm_of_non_positive_error() -> EvaluationError {
 
 fn domain_error(kind: DomainErrorKind) -> EvaluationError {
     EvaluationError::Domain(DomainError { kind, span: None })
+}
+
+fn invalid_algebraic_isolation_error() -> EvaluationError {
+    EvaluationError::InternalInvariant(InternalInvariantError {
+        code: InternalInvariantCode::InvalidAlgebraicIsolation,
+    })
 }
 
 fn evaluate_interval_node(
