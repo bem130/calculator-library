@@ -1954,6 +1954,15 @@ mod tests {
                     Integer::one(),
                 ],
             ),
+            (
+                "2^(1/3)/2+1",
+                vec![
+                    Integer::from(-5),
+                    Integer::from(12),
+                    Integer::from(-12),
+                    Integer::from(4),
+                ],
+            ),
         ];
 
         for (source, coefficients) in cases {
@@ -2269,6 +2278,16 @@ mod tests {
     fn division_by_zero_is_domain_error() {
         let mut context = EvaluationContext::default();
         let error = calculate("1 / 0", &exact_only_request(), &mut context).expect_err("1 / 0");
+        assert_eq!(
+            error,
+            CalculatorError::Domain(DomainError {
+                kind: DomainErrorKind::DivisionByZero,
+                span: None,
+            })
+        );
+
+        let error =
+            calculate("2^(1/3) / 0", &exact_only_request(), &mut context).expect_err("2^(1/3) / 0");
         assert_eq!(
             error,
             CalculatorError::Domain(DomainError {

@@ -526,9 +526,12 @@ fn evaluate_real_algebraic_node(
         }
         ExpressionNode::Add(list_id) => evaluate_real_algebraic_sum(dag, *list_id, limits),
         ExpressionNode::Multiply(list_id) => evaluate_real_algebraic_product(dag, *list_id, limits),
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => evaluate_real_algebraic_quotient(dag, *numerator, *denominator, limits),
         ExpressionNode::Rational(_)
         | ExpressionNode::Constant(_)
-        | ExpressionNode::Divide { .. }
         | ExpressionNode::Function { .. } => Ok(None),
     }
 }
@@ -625,14 +628,42 @@ fn evaluate_real_algebraic_product(
     let Some(algebraic) = algebraic else {
         return Ok(None);
     };
-    if rational.is_zero() {
+    scale_real_algebraic_by_rational(algebraic, &rational, limits)
+}
+
+fn evaluate_real_algebraic_quotient(
+    dag: &ExactExpressionDag,
+    numerator: ExprId,
+    denominator: ExprId,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraic>, EvaluationError> {
+    let Some(numerator) = evaluate_real_algebraic_node(dag, numerator, limits)? else {
+        return Ok(None);
+    };
+    let denominator = match evaluate_node(dag, denominator) {
+        Ok(value) => value,
+        Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let scalar = Rational::one()
+        .divide(denominator.value())
+        .map_err(arithmetic_error)?;
+    scale_real_algebraic_by_rational(numerator, &scalar, limits)
+}
+
+fn scale_real_algebraic_by_rational(
+    algebraic: RealAlgebraic,
+    scalar: &Rational,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraic>, EvaluationError> {
+    if scalar.is_zero() {
         return Ok(None);
     }
-    if rational == Rational::one() {
+    if scalar == &Rational::one() {
         return Ok(Some(algebraic));
     }
     match algebraic.scale_rational_bounded(
-        &rational,
+        scalar,
         limits.max_polynomial_coefficient_bits,
         limits.max_root_isolation_steps,
     ) {
