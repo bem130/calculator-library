@@ -447,7 +447,15 @@ fn evaluate_pi_coefficient(
             {
                 evaluate_inverse_trig_pi_coefficient(dag, *function, *argument)
             }
-            _ => Ok(None),
+            Function::Sin
+            | Function::Cos
+            | Function::Tan
+            | Function::Asin
+            | Function::Acos
+            | Function::Atan
+            | Function::Sqrt
+            | Function::Exp
+            | Function::Log => Ok(None),
         },
         ExpressionNode::Power { .. } => Ok(None),
     }
@@ -804,7 +812,12 @@ fn evaluate_real_algebraic_trigonometric_function(
             };
             multiply_real_algebraics(sine, reciprocal_cosine, limits)
         }
-        _ => unreachable!("only trigonometric functions are dispatched here"),
+        Function::Asin
+        | Function::Acos
+        | Function::Atan
+        | Function::Sqrt
+        | Function::Exp
+        | Function::Log => Ok(None),
     }
 }
 
@@ -1107,7 +1120,14 @@ fn evaluate_radical_trigonometric_function(
         Function::Sin => sine_radical_special_angle(coefficient.coefficient()),
         Function::Cos => cosine_radical_special_angle(coefficient.coefficient()),
         Function::Tan => tangent_radical_special_angle(coefficient.coefficient())?,
-        _ => unreachable!("only trigonometric functions are dispatched here"),
+        Function::Asin
+        | Function::Acos
+        | Function::Atan
+        | Function::Sqrt
+        | Function::Exp
+        | Function::Log => {
+            return Ok(None);
+        }
     };
     Ok(value)
 }
@@ -1451,7 +1471,14 @@ fn evaluate_trigonometric_function(
         Function::Sin => sine_special_angle(coefficient.coefficient()),
         Function::Cos => cosine_special_angle(coefficient.coefficient()),
         Function::Tan => tangent_special_angle(coefficient.coefficient())?,
-        _ => unreachable!("only trigonometric functions are dispatched here"),
+        Function::Asin
+        | Function::Acos
+        | Function::Atan
+        | Function::Sqrt
+        | Function::Exp
+        | Function::Log => {
+            return Err(unsupported_function_evaluation());
+        }
     }
     .ok_or_else(unsupported_function_evaluation)?;
     Ok(RationalEvaluation::special_angle(value))
@@ -1782,7 +1809,14 @@ fn evaluate_inverse_trig_pi_coefficient(
         Function::Asin => asin_known_pi_coefficient(&reduction)?,
         Function::Acos => acos_known_pi_coefficient(&reduction)?,
         Function::Atan => atan_known_pi_coefficient(&reduction),
-        _ => unreachable!("only inverse trigonometric functions are dispatched here"),
+        Function::Sin
+        | Function::Cos
+        | Function::Tan
+        | Function::Sqrt
+        | Function::Exp
+        | Function::Log => {
+            return Ok(None);
+        }
     };
     Ok(coefficient.map(PiCoefficientEvaluation::special_angle))
 }
@@ -2004,7 +2038,23 @@ fn real_algebraic_construction_error(error: RealAlgebraicConstructionError) -> E
         ) => EvaluationError::ComputationLimit(ComputationLimitError {
             kind: ComputationLimitKind::RootIsolationSteps,
         }),
-        _ => invalid_algebraic_isolation_error(),
+        RealAlgebraicConstructionError::ConstantPolynomial
+        | RealAlgebraicConstructionError::InvalidInterval
+        | RealAlgebraicConstructionError::EndpointRoot
+        | RealAlgebraicConstructionError::NonIsolatingInterval
+        | RealAlgebraicConstructionError::PolynomialConstruction(_)
+        | RealAlgebraicConstructionError::PolynomialResultant(_)
+        | RealAlgebraicConstructionError::NoMatchingPolynomialFactor
+        | RealAlgebraicConstructionError::RootIndexOverflow
+        | RealAlgebraicConstructionError::RootIndexNotFound
+        | RealAlgebraicConstructionError::RootCounting(
+            PrimitivePolynomialRootCountingError::ZeroPolynomial
+            | PrimitivePolynomialRootCountingError::InvalidInterval,
+        )
+        | RealAlgebraicConstructionError::RootIsolation(
+            PrimitivePolynomialRootIsolationError::ZeroPolynomial
+            | PrimitivePolynomialRootIsolationError::StepLimitExceeded,
+        ) => invalid_algebraic_isolation_error(),
     }
 }
 
@@ -2083,7 +2133,11 @@ fn evaluate_interval_node(
                         kind: DomainErrorKind::LogarithmOfNonPositive,
                         ..
                     }) => IntervalError::Domain(DomainErrorKind::LogarithmOfNonPositive),
-                    _ => IntervalError::UnsupportedExpression,
+                    EvaluationError::Domain(_)
+                    | EvaluationError::InputLimit(_)
+                    | EvaluationError::ComputationLimit(_)
+                    | EvaluationError::UnsupportedFeature(_)
+                    | EvaluationError::InternalInvariant(_) => IntervalError::UnsupportedExpression,
                 })?;
                 if argument.value().is_negative() || argument.value().is_zero() {
                     return Err(IntervalError::Domain(
@@ -2115,7 +2169,10 @@ fn tangent_rational_pi_interval(
 ) -> Result<CertifiedInterval, IntervalError> {
     let coefficient = evaluate_pi_coefficient(dag, argument).map_err(|error| match error {
         EvaluationError::Domain(DomainError { kind, .. }) => IntervalError::Domain(kind),
-        _ => IntervalError::UnsupportedExpression,
+        EvaluationError::InputLimit(_)
+        | EvaluationError::ComputationLimit(_)
+        | EvaluationError::UnsupportedFeature(_)
+        | EvaluationError::InternalInvariant(_) => IntervalError::UnsupportedExpression,
     })?;
     let Some(coefficient) = coefficient else {
         return Err(IntervalError::UnsupportedExpression);
