@@ -10,6 +10,9 @@ use crate::types::{
     Rational,
 };
 
+const MAX_EXP_RANGE_REDUCTION_STEPS: u32 = 4096;
+const MAX_LOG_RANGE_REDUCTION_STEPS: u32 = 4096;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum IntervalError {
     Domain(DomainErrorKind),
@@ -114,6 +117,37 @@ pub(crate) fn sqrt(
         lower: sqrt_dyadic_lower(&value.lower, precision_bits)?,
         upper: sqrt_dyadic_upper(&value.upper, precision_bits)?,
     })
+}
+
+pub(crate) fn exp(
+    value: &CertifiedInterval,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    let lower = dyadic_to_rational(&value.lower)?;
+    let upper = dyadic_to_rational(&value.upper)?;
+    let (lower, _) = exp_rational_bounds(&lower, precision_bits)?;
+    let (_, upper) = exp_rational_bounds(&upper, precision_bits)?;
+    from_rational_bounds(&lower, &upper, precision_bits)
+}
+
+pub(crate) fn log(
+    value: &CertifiedInterval,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    let lower = dyadic_to_rational(&value.lower)?;
+    let upper = dyadic_to_rational(&value.upper)?;
+    if upper.is_negative() || upper.is_zero() {
+        return Err(IntervalError::Domain(
+            DomainErrorKind::LogarithmOfNonPositive,
+        ));
+    }
+    if lower.is_negative() || lower.is_zero() {
+        return Err(IntervalError::UnsupportedExpression);
+    }
+
+    let (lower, _) = log_rational_bounds(&lower, precision_bits)?;
+    let (_, upper) = log_rational_bounds(&upper, precision_bits)?;
+    from_rational_bounds(&lower, &upper, precision_bits)
 }
 
 pub(crate) fn pow_i64(
@@ -258,6 +292,182 @@ fn nth_root_nonnegative_rational(
             -BigInt::from(precision_bits),
         ),
     })
+}
+
+fn exp_rational_bounds(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    if value.is_zero() {
+        return Ok((Rational::one(), Rational::one()));
+    }
+    if value.is_negative() {
+        let (positive_lower, positive_upper) =
+            exp_nonnegative_rational_bounds(&value.negate(), precision_bits)?;
+        let lower = divide_rational(&Rational::one(), &positive_upper)?;
+        let upper = divide_rational(&Rational::one(), &positive_lower)?;
+        return Ok((lower, upper));
+    }
+    exp_nonnegative_rational_bounds(value, precision_bits)
+}
+
+fn exp_nonnegative_rational_bounds(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    debug_assert!(!value.is_negative());
+    let reduction = ceil_nonnegative_rational_to_u32(value)?;
+    let divisor = rational_integer(i64::from(reduction));
+    let reduced = divide_rational(value, &divisor)?;
+    let (lower, upper) = exp_small_nonnegative_rational_bounds(&reduced, precision_bits)?;
+    Ok((
+        pow_positive_rational(&lower, reduction)?,
+        pow_positive_rational(&upper, reduction)?,
+    ))
+}
+
+fn exp_small_nonnegative_rational_bounds(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    debug_assert!(!value.is_negative());
+    debug_assert!(compare_rationals(value, &Rational::one()) != Ordering::Greater);
+    let term_count = series_terms(precision_bits)?;
+    let mut sum = Rational::zero();
+    let mut term = Rational::one();
+    for n in 0..=term_count {
+        sum = sum.add(&term);
+        let next_n = n.checked_add(1).ok_or(IntervalError::ExponentTooLarge)?;
+        term = divide_rational(&term.multiply(value), &rational_integer(i64::from(next_n)))?;
+    }
+    let upper = sum.add(&scale_rational(&term, 2));
+    Ok((sum, upper))
+}
+
+fn log_rational_bounds(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    if value.is_negative() || value.is_zero() {
+        return Err(IntervalError::Domain(
+            DomainErrorKind::LogarithmOfNonPositive,
+        ));
+    }
+    let (reduced, exponent_two) = reduce_log_argument_to_unit_range(value)?;
+    let (lower, upper) = log_reduced_rational_bounds(&reduced, precision_bits)?;
+    if exponent_two == 0 {
+        return Ok((lower, upper));
+    }
+
+    let (log_two_lower, log_two_upper) =
+        log_reduced_rational_bounds(&rational_integer(2), precision_bits)?;
+    if exponent_two > 0 {
+        Ok((
+            lower.add(&scale_rational(&log_two_lower, exponent_two)),
+            upper.add(&scale_rational(&log_two_upper, exponent_two)),
+        ))
+    } else {
+        Ok((
+            lower.add(&scale_rational(&log_two_upper, exponent_two)),
+            upper.add(&scale_rational(&log_two_lower, exponent_two)),
+        ))
+    }
+}
+
+fn reduce_log_argument_to_unit_range(value: &Rational) -> Result<(Rational, i64), IntervalError> {
+    let mut reduced = value.clone();
+    let mut exponent_two = 0_i64;
+    let mut steps = 0_u32;
+    let two = rational_integer(2);
+    while compare_rationals(&reduced, &two) != Ordering::Less {
+        guard_log_range_reduction_step(&mut steps)?;
+        reduced = divide_rational(&reduced, &two)?;
+        exponent_two = exponent_two
+            .checked_add(1)
+            .ok_or(IntervalError::ExponentTooLarge)?;
+    }
+    while compare_rationals(&reduced, &Rational::one()) == Ordering::Less {
+        guard_log_range_reduction_step(&mut steps)?;
+        reduced = reduced.multiply(&two);
+        exponent_two = exponent_two
+            .checked_sub(1)
+            .ok_or(IntervalError::ExponentTooLarge)?;
+    }
+    Ok((reduced, exponent_two))
+}
+
+fn log_reduced_rational_bounds(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    debug_assert!(compare_rationals(value, &Rational::one()) != Ordering::Less);
+    debug_assert!(compare_rationals(value, &rational_integer(2)) != Ordering::Greater);
+    let numerator = value.subtract(&Rational::one());
+    let denominator = value.add(&Rational::one());
+    let z = divide_rational(&numerator, &denominator)?;
+    let z_squared = z.multiply(&z);
+    let term_count = series_terms(precision_bits)?;
+    let mut sum = Rational::zero();
+    let mut term_power = z.clone();
+    for k in 0..=term_count {
+        let denominator = k
+            .checked_mul(2)
+            .and_then(|value| value.checked_add(1))
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        sum = sum.add(&divide_rational(
+            &term_power,
+            &rational_integer(i64::from(denominator)),
+        )?);
+        term_power = term_power.multiply(&z_squared);
+    }
+
+    let next_denominator = term_count
+        .checked_add(1)
+        .and_then(|value| value.checked_mul(2))
+        .and_then(|value| value.checked_add(1))
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let next = divide_rational(&term_power, &rational_integer(i64::from(next_denominator)))?;
+    let lower = scale_rational(&sum, 2);
+    let upper = lower.add(&scale_rational(&next, 4));
+    Ok((lower, upper))
+}
+
+fn ceil_nonnegative_rational_to_u32(value: &Rational) -> Result<u32, IntervalError> {
+    debug_assert!(!value.is_negative());
+    let quotient = value
+        .numerator
+        .inner
+        .div_ceil(&value.denominator.inner.inner);
+    let value = if quotient.is_zero() {
+        1
+    } else {
+        quotient.to_u32().ok_or(IntervalError::ExponentTooLarge)?
+    };
+    if value > MAX_EXP_RANGE_REDUCTION_STEPS {
+        return Err(IntervalError::ExponentTooLarge);
+    }
+    Ok(value)
+}
+
+fn guard_log_range_reduction_step(steps: &mut u32) -> Result<(), IntervalError> {
+    *steps = steps
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    if *steps > MAX_LOG_RANGE_REDUCTION_STEPS {
+        return Err(IntervalError::ExponentTooLarge);
+    }
+    Ok(())
+}
+
+fn pow_positive_rational(value: &Rational, exponent: u32) -> Result<Rational, IntervalError> {
+    value
+        .pow_i64(i64::from(exponent))
+        .map_err(|_| IntervalError::ExponentTooLarge)
+}
+
+fn divide_rational(left: &Rational, right: &Rational) -> Result<Rational, IntervalError> {
+    left.divide(right)
+        .map_err(|_| IntervalError::DivisionByIntervalContainingZero)
 }
 
 fn negate_dyadic(value: &ExactDyadic) -> ExactDyadic {
@@ -430,8 +640,12 @@ fn series_terms(precision_bits: u32) -> Result<u32, IntervalError> {
         .ok_or(IntervalError::ExponentTooLarge)
 }
 
+fn rational_integer(value: i64) -> Rational {
+    Rational::from_integer(Integer::from(value))
+}
+
 fn scale_rational(value: &Rational, factor: i64) -> Rational {
-    value.multiply(&Rational::from_integer(Integer::from(factor)))
+    value.multiply(&rational_integer(factor))
 }
 
 fn rational_from_parts(numerator: BigInt, denominator: BigInt) -> Result<Rational, IntervalError> {
@@ -621,6 +835,69 @@ mod tests {
         assert_eq!(
             compare_dyadic_to_rational(&interval.upper, &rational(3, 1)).unwrap(),
             Ordering::Less
+        );
+    }
+
+    #[test]
+    fn exp_interval_is_inside_coarse_known_bounds() {
+        let interval = exp(&from_rational(&rational(2, 1), 128), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&interval.lower, &rational(7, 1)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&interval.upper, &rational(8, 1)).unwrap(),
+            Ordering::Less
+        );
+
+        let reciprocal = exp(&from_rational(&rational(-2, 1), 128), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&reciprocal.lower, &rational(1, 8)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&reciprocal.upper, &rational(1, 7)).unwrap(),
+            Ordering::Less
+        );
+    }
+
+    #[test]
+    fn log_interval_is_inside_coarse_known_bounds() {
+        let interval = log(&from_rational(&rational(2, 1), 128), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&interval.lower, &rational(1, 2)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&interval.upper, &rational(1, 1)).unwrap(),
+            Ordering::Less
+        );
+
+        let negative = log(&from_rational(&rational(1, 2), 128), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&negative.lower, &rational(-1, 1)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&negative.upper, &rational(-1, 2)).unwrap(),
+            Ordering::Less
+        );
+    }
+
+    #[test]
+    fn log_interval_rejects_proven_non_positive_domain() {
+        assert_eq!(
+            log(&from_rational(&rational(-1, 1), 16), 16),
+            Err(IntervalError::Domain(
+                DomainErrorKind::LogarithmOfNonPositive
+            ))
+        );
+        assert_eq!(
+            log(
+                &from_rational_bounds(&rational(-1, 1), &rational(1, 1), 16).unwrap(),
+                16,
+            ),
+            Err(IntervalError::UnsupportedExpression)
         );
     }
 

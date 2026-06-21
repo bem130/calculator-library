@@ -2381,40 +2381,14 @@ fn evaluate_interval_node(
                 &evaluate_interval_node(dag, *argument, precision_bits)?,
                 precision_bits,
             ),
-            Function::Exp => {
-                let argument = evaluate_node(dag, *argument)
-                    .map_err(|_| IntervalError::UnsupportedExpression)?;
-                if argument.value().is_zero() {
-                    Ok(interval::from_rational(&Rational::one(), precision_bits))
-                } else if argument.value() == &Rational::one() {
-                    interval::constant(Constant::Euler, precision_bits)
-                } else {
-                    Err(IntervalError::UnsupportedExpression)
-                }
-            }
-            Function::Log => {
-                let argument = evaluate_node(dag, *argument).map_err(|error| match error {
-                    EvaluationError::Domain(DomainError {
-                        kind: DomainErrorKind::LogarithmOfNonPositive,
-                        ..
-                    }) => IntervalError::Domain(DomainErrorKind::LogarithmOfNonPositive),
-                    EvaluationError::Domain(_)
-                    | EvaluationError::InputLimit(_)
-                    | EvaluationError::ComputationLimit(_)
-                    | EvaluationError::UnsupportedFeature(_)
-                    | EvaluationError::InternalInvariant(_) => IntervalError::UnsupportedExpression,
-                })?;
-                if argument.value().is_negative() || argument.value().is_zero() {
-                    return Err(IntervalError::Domain(
-                        DomainErrorKind::LogarithmOfNonPositive,
-                    ));
-                }
-                if argument.value() == &Rational::one() {
-                    Ok(interval::from_rational(&Rational::zero(), precision_bits))
-                } else {
-                    Err(IntervalError::UnsupportedExpression)
-                }
-            }
+            Function::Exp => interval::exp(
+                &evaluate_interval_node(dag, *argument, precision_bits)?,
+                precision_bits,
+            ),
+            Function::Log => interval::log(
+                &evaluate_interval_node(dag, *argument, precision_bits)?,
+                precision_bits,
+            ),
             Function::Sin | Function::Cos => {
                 evaluate_interval_node(dag, *argument, precision_bits)?;
                 interval::from_rational_bounds(&rational(-1, 1), &rational(1, 1), precision_bits)

@@ -92,7 +92,6 @@ pub fn evaluate(
                 if pi_multiple.coefficient().is_zero() {
                     return Ok(rational_evaluation_outcome(
                         expression,
-                        &dag,
                         RationalEvaluation::direct(pi_multiple.into_coefficient()),
                         request,
                     ));
@@ -133,7 +132,6 @@ pub fn evaluate(
                     RadicalReduction::Rational(rational) => {
                         return Ok(rational_evaluation_outcome_with_methods(
                             expression,
-                            &dag,
                             rational,
                             request,
                             &[MethodTag::RadicalExtraction],
@@ -260,9 +258,7 @@ pub fn evaluate(
         }
         Err(error) => return Err(error),
     };
-    Ok(rational_evaluation_outcome(
-        expression, &dag, rational, request,
-    ))
+    Ok(rational_evaluation_outcome(expression, rational, request))
 }
 
 fn rational_pi_enclosure(
@@ -346,22 +342,19 @@ fn recover_unsupported_interval(
 
 fn rational_evaluation_outcome(
     expression: &ParsedExpression,
-    dag: &ExactExpressionDag,
     rational: RationalEvaluation,
     request: &EvaluationRequest,
 ) -> EvaluationOutcome {
-    rational_evaluation_outcome_with_methods(expression, dag, rational, request, &[])
+    rational_evaluation_outcome_with_methods(expression, rational, request, &[])
 }
 
 fn rational_evaluation_outcome_with_methods(
     expression: &ParsedExpression,
-    dag: &ExactExpressionDag,
     rational: RationalEvaluation,
     request: &EvaluationRequest,
     extra_methods: &[MethodTag],
 ) -> EvaluationOutcome {
-    let certified_enclosure = evaluate_interval_dag(dag)
-        .unwrap_or_else(|_| interval::from_rational(rational.value(), 128));
+    let certified_enclosure = interval::from_rational(rational.value(), 128);
     let mut methods = vec![MethodTag::RationalReduction];
     for method in extra_methods {
         if !methods.contains(method) {
@@ -2643,6 +2636,57 @@ mod tests {
             calculation.metadata.assurance,
             AssuranceLevel::CertifiedEnclosure
         );
+    }
+
+    #[test]
+    fn transcendental_interval_evaluation_retains_symbolic_exact_expression() {
+        let mut context = EvaluationContext::default();
+        for source in [
+            "log(2)",
+            "log(1/2)",
+            "exp(2)",
+            "sqrt(2)+log(2)",
+            "log(sqrt(2))",
+            "exp(sqrt(2))",
+        ] {
+            let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+            let CalculationOutcome::Partial {
+                calculation,
+                certified_enclosure,
+                ..
+            } = outcome
+            else {
+                panic!("{source}: expected partial symbolic calculation");
+            };
+            let ExactOutput::Included(exact) = calculation.exact else {
+                panic!("{source}: expected retained exact expression");
+            };
+            assert_eq!(
+                exact.representation,
+                ExactRepresentationKind::GeneralSymbolic
+            );
+            assert_eq!(exact.plain_text, source);
+            let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
+                panic!("{source}: expected requested enclosure output");
+            };
+            assert_eq!(certified_enclosure, enclosure);
+            assert_eq!(
+                calculation.metadata.exact_representation,
+                ExactRepresentationKind::GeneralSymbolic
+            );
+            assert_eq!(
+                calculation.metadata.assurance,
+                AssuranceLevel::CertifiedEnclosure
+            );
+            assert!(calculation
+                .metadata
+                .methods
+                .contains(&MethodTag::SymbolicRetention));
+            assert!(calculation
+                .metadata
+                .methods
+                .contains(&MethodTag::CertifiedIntervalEvaluation));
+        }
     }
 
     #[test]
