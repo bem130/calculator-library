@@ -26,6 +26,7 @@ export type WasmCalculatorSession = {
     applyResult(result: ApiResult<CalculationOutcome>): SessionStateDto;
     getState(): SessionStateDto;
     free(): void;
+    __destroy_into_raw?: () => number;
 };
 
 export type CreateCalculatorOptions = {
@@ -96,7 +97,11 @@ export function createSessionFromWasmModule(
         dispose() {
             if (!disposed) {
                 disposed = true;
-                session.free();
+                if (typeof session.__destroy_into_raw === "function") {
+                    session.__destroy_into_raw();
+                } else {
+                    session.free();
+                }
             }
         },
     };
