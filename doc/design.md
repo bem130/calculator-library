@@ -1892,6 +1892,9 @@ pub struct ResourceLimits {
     pub max_integer_bits: u32,
     pub max_algebraic_degree: u32,
     pub max_polynomial_coefficient_bits: u32,
+    pub max_resultant_degree: u32,
+    pub max_factorization_work: u32,
+    pub max_root_isolation_steps: u32,
     pub max_rewrite_steps: u32,
     pub max_precision_bits: u32,
     pub max_refinement_rounds: u32,
@@ -2008,6 +2011,9 @@ export type ResourceLimitsDto = {
     maxIntegerBits: number;
     maxAlgebraicDegree: number;
     maxPolynomialCoefficientBits: number;
+    maxResultantDegree: number;
+    maxFactorizationWork: number;
+    maxRootIsolationSteps: number;
     maxRewriteSteps: number;
     maxPrecisionBits: number;
     maxRefinementRounds: number;
