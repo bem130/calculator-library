@@ -199,6 +199,48 @@ pub(crate) fn tan(
     from_rational_bounds(&lower, &upper, precision_bits)
 }
 
+pub(crate) fn sin(
+    value: &CertifiedInterval,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    let Some((lower, upper)) = unit_trigonometric_rational_bounds(value)? else {
+        return full_trigonometric_range(precision_bits);
+    };
+    let (lower, _) = sin_unit_rational_bounds(&lower, precision_bits)?;
+    let (_, upper) = sin_unit_rational_bounds(&upper, precision_bits)?;
+    from_rational_bounds(&lower, &upper, precision_bits)
+}
+
+pub(crate) fn cos(
+    value: &CertifiedInterval,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    let Some((lower, upper)) = unit_trigonometric_rational_bounds(value)? else {
+        return full_trigonometric_range(precision_bits);
+    };
+
+    let lower_abs = abs_rational(&lower);
+    let upper_abs = abs_rational(&upper);
+    let farthest_from_zero = if compare_rationals(&lower_abs, &upper_abs) == Ordering::Greater {
+        lower_abs.clone()
+    } else {
+        upper_abs.clone()
+    };
+    let nearest_to_zero = if compare_rationals(&lower, &Rational::zero()) != Ordering::Greater
+        && compare_rationals(&upper, &Rational::zero()) != Ordering::Less
+    {
+        Rational::zero()
+    } else if compare_rationals(&lower_abs, &upper_abs) == Ordering::Less {
+        lower_abs
+    } else {
+        upper_abs
+    };
+
+    let (lower, _) = cos_unit_rational_bounds(&farthest_from_zero, precision_bits)?;
+    let (_, upper) = cos_unit_rational_bounds(&nearest_to_zero, precision_bits)?;
+    from_rational_bounds(&lower, &upper, precision_bits)
+}
+
 pub(crate) fn pow_i64(
     base: &CertifiedInterval,
     exponent: i64,
@@ -815,6 +857,45 @@ fn ordered_rational_bounds(
     }
 }
 
+fn unit_trigonometric_rational_bounds(
+    value: &CertifiedInterval,
+) -> Result<Option<(Rational, Rational)>, IntervalError> {
+    let lower = dyadic_to_rational(&value.lower)?;
+    let upper = dyadic_to_rational(&value.upper)?;
+    let minus_one = rational_integer(-1);
+    if compare_rationals(&lower, &minus_one) == Ordering::Less
+        || compare_rationals(&upper, &Rational::one()) == Ordering::Greater
+    {
+        Ok(None)
+    } else {
+        Ok(Some((lower, upper)))
+    }
+}
+
+fn full_trigonometric_range(precision_bits: u32) -> Result<CertifiedInterval, IntervalError> {
+    interval_from_integer_bounds(-1, 1, precision_bits)
+}
+
+fn interval_from_integer_bounds(
+    lower: i64,
+    upper: i64,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    from_rational_bounds(
+        &rational_integer(lower),
+        &rational_integer(upper),
+        precision_bits,
+    )
+}
+
+fn abs_rational(value: &Rational) -> Rational {
+    if value.is_negative() {
+        value.negate()
+    } else {
+        value.clone()
+    }
+}
+
 fn ceil_nonnegative_rational_to_u32(value: &Rational) -> Result<u32, IntervalError> {
     debug_assert!(!value.is_negative());
     let quotient = value
@@ -1346,6 +1427,69 @@ mod tests {
             ),
             Err(IntervalError::UnsupportedExpression)
         );
+    }
+
+    #[test]
+    fn sin_cos_unit_intervals_are_inside_coarse_known_bounds() {
+        let sine = sin(&from_rational(&rational(1, 1), 128), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&sine.lower, &rational(4, 5)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&sine.upper, &rational(9, 10)).unwrap(),
+            Ordering::Less
+        );
+
+        let negative_sine = sin(&from_rational(&rational(-1, 1), 128), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&negative_sine.lower, &rational(-9, 10)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&negative_sine.upper, &rational(-4, 5)).unwrap(),
+            Ordering::Less
+        );
+
+        let cosine = cos(&from_rational(&rational(1, 1), 128), 128).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&cosine.lower, &rational(1, 2)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&cosine.upper, &rational(3, 5)).unwrap(),
+            Ordering::Less
+        );
+
+        let crossing_zero = cos(
+            &from_rational_bounds(&rational(-1, 2), &rational(1, 3), 128).unwrap(),
+            128,
+        )
+        .unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&crossing_zero.lower, &rational(4, 5)).unwrap(),
+            Ordering::Greater
+        );
+        assert!(contains_rational(&crossing_zero, &rational(1, 1)).unwrap());
+    }
+
+    #[test]
+    fn sin_cos_outside_unit_range_fall_back_to_full_range() {
+        let interval = sin(
+            &from_rational_bounds(&rational(0, 1), &rational(2, 1), 16).unwrap(),
+            16,
+        )
+        .unwrap();
+        assert!(contains_rational(&interval, &rational(-1, 1)).unwrap());
+        assert!(contains_rational(&interval, &rational(1, 1)).unwrap());
+
+        let interval = cos(
+            &from_rational_bounds(&rational(-2, 1), &rational(0, 1), 16).unwrap(),
+            16,
+        )
+        .unwrap();
+        assert!(contains_rational(&interval, &rational(-1, 1)).unwrap());
+        assert!(contains_rational(&interval, &rational(1, 1)).unwrap());
     }
 
     #[test]

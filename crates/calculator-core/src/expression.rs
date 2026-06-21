@@ -2389,10 +2389,14 @@ fn evaluate_interval_node(
                 &evaluate_interval_node(dag, *argument, precision_bits)?,
                 precision_bits,
             ),
-            Function::Sin | Function::Cos => {
-                evaluate_interval_node(dag, *argument, precision_bits)?;
-                interval::from_rational_bounds(&rational(-1, 1), &rational(1, 1), precision_bits)
-            }
+            Function::Sin => interval::sin(
+                &evaluate_interval_node(dag, *argument, precision_bits)?,
+                precision_bits,
+            ),
+            Function::Cos => interval::cos(
+                &evaluate_interval_node(dag, *argument, precision_bits)?,
+                precision_bits,
+            ),
             Function::Tan => tangent_interval(dag, *argument, precision_bits),
             Function::Atan => interval::atan(
                 &evaluate_interval_node(dag, *argument, precision_bits)?,
