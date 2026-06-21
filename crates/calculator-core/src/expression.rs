@@ -159,9 +159,37 @@ impl RadicalEvaluation {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RadicalLinearCombinationEvaluation {
+    value: RadicalLinearCombination,
+    used_special_angle: bool,
+}
+
+impl RadicalLinearCombinationEvaluation {
+    fn with_origin(value: RadicalLinearCombination, used_special_angle: bool) -> Self {
+        Self {
+            value,
+            used_special_angle,
+        }
+    }
+
+    pub(crate) fn value(&self) -> &RadicalLinearCombination {
+        &self.value
+    }
+
+    pub(crate) fn into_value(self) -> RadicalLinearCombination {
+        self.value
+    }
+
+    pub(crate) fn used_special_angle(&self) -> bool {
+        self.used_special_angle
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RadicalReduction {
     Rational(RationalEvaluation),
     Radical(RadicalEvaluation),
+    LinearCombination(RadicalLinearCombinationEvaluation),
 }
 
 impl RadicalReduction {
@@ -173,10 +201,18 @@ impl RadicalReduction {
         Self::Radical(RadicalEvaluation::with_origin(value, used_special_angle))
     }
 
+    fn linear_combination(value: RadicalLinearCombination, used_special_angle: bool) -> Self {
+        Self::LinearCombination(RadicalLinearCombinationEvaluation::with_origin(
+            value,
+            used_special_angle,
+        ))
+    }
+
     pub(crate) fn used_special_angle(&self) -> bool {
         match self {
             Self::Rational(value) => value.used_special_angle(),
             Self::Radical(value) => value.used_special_angle(),
+            Self::LinearCombination(value) => value.used_special_angle(),
         }
     }
 }
@@ -483,9 +519,8 @@ fn evaluate_radical_sum(
     dag: &ExactExpressionDag,
     list_id: ExprListId,
 ) -> Result<Option<RadicalReduction>, EvaluationError> {
-    let mut radicand = None;
     let mut rational = Rational::zero();
-    let mut coefficient = Rational::zero();
+    let mut radicals = Vec::new();
     let mut used_special_angle = false;
     let mut saw_radical = false;
 
@@ -500,13 +535,16 @@ fn evaluate_radical_sum(
             }
             RadicalReduction::Radical(radical) => {
                 saw_radical = true;
-                match &radicand {
-                    Some(current) if current != &radical.value().radicand => return Ok(None),
-                    None => radicand = Some(radical.value().radicand.clone()),
-                    _ => {}
-                }
                 used_special_angle |= radical.used_special_angle();
-                coefficient = coefficient.add(&radical.value().coefficient);
+                add_radical_term(&mut radicals, radical.value());
+            }
+            RadicalReduction::LinearCombination(value) => {
+                saw_radical = true;
+                used_special_angle |= value.used_special_angle();
+                rational = rational.add(&value.value().rational);
+                for radical in &value.value().radicals {
+                    add_radical_term(&mut radicals, radical);
+                }
             }
         }
     }
@@ -514,23 +552,9 @@ fn evaluate_radical_sum(
     if !saw_radical {
         return Ok(None);
     }
-    if coefficient.is_zero() {
-        return Ok(Some(RadicalReduction::rational(
-            rational,
-            used_special_angle,
-        )));
-    }
-    if !rational.is_zero() {
-        return Ok(None);
-    }
-    let Some(radicand) = radicand else {
-        return Ok(None);
-    };
-    Ok(Some(RadicalReduction::radical(
-        SimpleRadical {
-            coefficient,
-            radicand,
-        },
+    Ok(Some(radical_linear_combination_reduction(
+        rational,
+        radicals,
         used_special_angle,
     )))
 }
@@ -541,6 +565,7 @@ fn evaluate_radical_product(
 ) -> Result<Option<RadicalReduction>, EvaluationError> {
     let mut coefficient = Rational::one();
     let mut radicand = Rational::one();
+    let mut linear_combination = None;
     let mut saw_radical = false;
     let mut used_special_angle = false;
 
@@ -560,9 +585,26 @@ fn evaluate_radical_product(
                 radicand =
                     radicand.multiply(&rational_from_positive_integer(&value.value().radicand));
             }
+            RadicalReduction::LinearCombination(value) => {
+                if linear_combination.is_some() {
+                    return Ok(None);
+                }
+                used_special_angle |= value.used_special_angle();
+                linear_combination = Some(value);
+            }
         }
     }
 
+    if let Some(linear_combination) = linear_combination {
+        if saw_radical {
+            return Ok(None);
+        }
+        return Ok(Some(scale_radical_linear_combination(
+            linear_combination.value(),
+            &coefficient,
+            used_special_angle,
+        )));
+    }
     if !saw_radical {
         return Ok(None);
     }
@@ -606,6 +648,7 @@ fn reduce_square_root(
             }
             Ok(None)
         }
+        RadicalReduction::LinearCombination(_) => Ok(None),
     }
 }
 
@@ -626,8 +669,28 @@ fn reduce_radical_quotient(
     denominator: &RadicalReduction,
     used_special_angle: bool,
 ) -> Result<Option<RadicalReduction>, EvaluationError> {
-    let numerator = radical_components(numerator);
-    let denominator = radical_components(denominator);
+    if let RadicalReduction::LinearCombination(numerator) = numerator {
+        let Some(denominator) = radical_components(denominator) else {
+            return Ok(None);
+        };
+        if denominator.radicand != Rational::one() {
+            return Ok(None);
+        }
+        let scalar = Rational::one()
+            .divide(&denominator.coefficient)
+            .map_err(arithmetic_error)?;
+        return Ok(Some(scale_radical_linear_combination(
+            numerator.value(),
+            &scalar,
+            used_special_angle,
+        )));
+    }
+    let Some(numerator) = radical_components(numerator) else {
+        return Ok(None);
+    };
+    let Some(denominator) = radical_components(denominator) else {
+        return Ok(None);
+    };
     let coefficient = numerator
         .coefficient
         .divide(&denominator.coefficient)
@@ -677,21 +740,76 @@ struct RadicalComponents {
     radicand: Rational,
 }
 
-fn radical_components(value: &RadicalReduction) -> RadicalComponents {
+fn radical_components(value: &RadicalReduction) -> Option<RadicalComponents> {
     match value {
-        RadicalReduction::Rational(value) => RadicalComponents {
+        RadicalReduction::Rational(value) => Some(RadicalComponents {
             coefficient: value.value().clone(),
             radicand: Rational::one(),
-        },
-        RadicalReduction::Radical(value) => RadicalComponents {
+        }),
+        RadicalReduction::Radical(value) => Some(RadicalComponents {
             coefficient: value.value().coefficient.clone(),
             radicand: rational_from_positive_integer(&value.value().radicand),
-        },
+        }),
+        RadicalReduction::LinearCombination(_) => None,
     }
 }
 
 fn rational_from_positive_integer(value: &PositiveInteger) -> Rational {
     Rational::from_integer(value.inner.clone())
+}
+
+fn add_radical_term(radicals: &mut Vec<SimpleRadical>, radical: &SimpleRadical) {
+    if radical.coefficient.is_zero() {
+        return;
+    }
+    if let Some(existing) = radicals
+        .iter_mut()
+        .find(|existing| existing.radicand == radical.radicand)
+    {
+        existing.coefficient = existing.coefficient.add(&radical.coefficient);
+        return;
+    }
+    radicals.push(radical.clone());
+}
+
+fn radical_linear_combination_reduction(
+    rational: Rational,
+    mut radicals: Vec<SimpleRadical>,
+    used_special_angle: bool,
+) -> RadicalReduction {
+    radicals.retain(|radical| !radical.coefficient.is_zero());
+    radicals.sort_by(|left, right| left.radicand.inner.inner.cmp(&right.radicand.inner.inner));
+
+    match (rational.is_zero(), radicals.len()) {
+        (_, 0) => RadicalReduction::rational(rational, used_special_angle),
+        (true, 1) => RadicalReduction::radical(
+            radicals
+                .pop()
+                .expect("radical length was checked before popping"),
+            used_special_angle,
+        ),
+        _ => RadicalReduction::linear_combination(
+            RadicalLinearCombination { rational, radicals },
+            used_special_angle,
+        ),
+    }
+}
+
+fn scale_radical_linear_combination(
+    value: &RadicalLinearCombination,
+    scalar: &Rational,
+    used_special_angle: bool,
+) -> RadicalReduction {
+    let rational = value.rational.multiply(scalar);
+    let radicals = value
+        .radicals
+        .iter()
+        .map(|radical| SimpleRadical {
+            coefficient: radical.coefficient.multiply(scalar),
+            radicand: radical.radicand.clone(),
+        })
+        .collect();
+    radical_linear_combination_reduction(rational, radicals, used_special_angle)
 }
 
 fn evaluate_power(

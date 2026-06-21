@@ -90,6 +90,12 @@
       "expectedExact": "sqrt(2)/2"
     },
     {
+      "id": "mixed_rational_radical_exact_value",
+      "source": "sin(pi/6)+sqrt(2)",
+      "expectedParseTree": "add(sin(divide(constant(pi),number(6))),sqrt(number(2)))",
+      "expectedExact": "1/2 + sqrt(2)"
+    },
+    {
       "id": "inverse_trigonometric_known_value",
       "source": "asin(1/2)",
       "expectedParseTree": "asin(divide(number(1),number(2)))",

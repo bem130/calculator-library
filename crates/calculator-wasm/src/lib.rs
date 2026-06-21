@@ -833,6 +833,18 @@ mod tests {
                 true,
             ),
             (
+                "sin(pi/6) + sqrt(2)",
+                "1/2 + sqrt(2)",
+                ExactRepresentationKindDto::Radical,
+                true,
+            ),
+            (
+                "sqrt(3) + sqrt(2)",
+                "sqrt(2) + sqrt(3)",
+                ExactRepresentationKindDto::Radical,
+                false,
+            ),
+            (
                 "sin(pi/4)",
                 "sqrt(2)/2",
                 ExactRepresentationKindDto::Radical,
@@ -1565,6 +1577,8 @@ pub mod wasm_tests {
             ("sqrt(2) * sqrt(2)", "2"),
             ("sqrt(2) * sqrt(3)", "sqrt(6)"),
             ("sqrt(8) / sqrt(2)", "2"),
+            ("sin(pi/6) + sqrt(2)", "1/2 + sqrt(2)"),
+            ("sqrt(3) + sqrt(2)", "sqrt(2) + sqrt(3)"),
             ("sin(pi/4)", "sqrt(2)/2"),
             ("sin(pi/4) * cos(pi/4)", "1/2"),
             ("tan(pi/3)", "sqrt(3)"),

@@ -3,6 +3,7 @@ use alloc::{
     format,
     string::{String, ToString},
     vec,
+    vec::Vec,
 };
 use core::cmp::Ordering;
 
@@ -13,7 +14,8 @@ use num_traits::{Signed, Zero};
 use crate::expression::{
     evaluate_interval_dag, evaluate_radical_dag, evaluate_rational_evaluation_dag,
     evaluate_rational_pi_multiple_dag, lower_source_expression, ExactExpressionDag,
-    PiCoefficientEvaluation, RadicalEvaluation, RadicalReduction, RationalEvaluation,
+    PiCoefficientEvaluation, RadicalEvaluation, RadicalLinearCombinationEvaluation,
+    RadicalReduction, RationalEvaluation,
 };
 use crate::interval;
 use crate::types::*;
@@ -162,6 +164,40 @@ pub fn evaluate(
                             },
                         });
                     }
+                    RadicalReduction::LinearCombination(value) => {
+                        let certified_enclosure = radical_linear_combination_enclosure(
+                            &dag, &value,
+                        )
+                        .map_err(|interval_error| {
+                            interval_error_to_evaluation_error(interval_error, error.clone())
+                        })?;
+                        let mut methods = vec![
+                            MethodTag::RadicalExtraction,
+                            MethodTag::CertifiedIntervalEvaluation,
+                        ];
+                        if value.used_special_angle() {
+                            methods.push(MethodTag::SpecialAngle);
+                        }
+                        return Ok(EvaluationOutcome {
+                            value: EvaluatedValue {
+                                exact_expression: ExactExpression {
+                                    source: expression.source.clone(),
+                                },
+                                recognized_exact: RecognizedExact::RadicalLinearCombination(
+                                    value.into_value(),
+                                ),
+                                certified_enclosure: CertifiedEnclosureState::Available(
+                                    certified_enclosure,
+                                ),
+                            },
+                            metadata: EvaluationMetadata {
+                                semantic_settings: request.semantics,
+                                methods,
+                                internal_precision_bits: 128,
+                                refinement_rounds: 0,
+                            },
+                        });
+                    }
                 }
             }
             let certified_enclosure = evaluate_interval_dag(&dag).map_err(|interval_error| {
@@ -216,6 +252,26 @@ fn radical_enclosure(
             let radicand = Rational::from_integer(value.value().radicand.inner.clone());
             let radical = interval::sqrt(&interval::from_rational(&radicand, 128), 128)?;
             interval::multiply(&coefficient, &radical)
+        }
+        error => Err(error),
+    })
+}
+
+fn radical_linear_combination_enclosure(
+    dag: &ExactExpressionDag,
+    value: &RadicalLinearCombinationEvaluation,
+) -> Result<CertifiedInterval, interval::IntervalError> {
+    evaluate_interval_dag(dag).or_else(|error| match error {
+        interval::IntervalError::UnsupportedExpression => {
+            let mut total = interval::from_rational(&value.value().rational, 128);
+            for radical in &value.value().radicals {
+                let coefficient = interval::from_rational(&radical.coefficient, 128);
+                let radicand = Rational::from_integer(radical.radicand.inner.clone());
+                let radical = interval::sqrt(&interval::from_rational(&radicand, 128), 128)?;
+                let term = interval::multiply(&coefficient, &radical)?;
+                total = interval::add(&total, &term)?;
+            }
+            Ok(total)
         }
         error => Err(error),
     })
@@ -278,6 +334,9 @@ pub fn present(
         }
         (RecognizedExact::Radical(value), ExactOutputRequest::Include { .. }) => {
             ExactOutput::Included(radical_presentation(value))
+        }
+        (RecognizedExact::RadicalLinearCombination(value), ExactOutputRequest::Include { .. }) => {
+            ExactOutput::Included(radical_linear_combination_presentation(value))
         }
         (RecognizedExact::RationalPiMultiple(value), ExactOutputRequest::Include { .. }) => {
             ExactOutput::Included(rational_pi_presentation(value))
@@ -446,6 +505,38 @@ fn radical_presentation(value: &SimpleRadical) -> ExactPresentation {
     }
 }
 
+fn radical_linear_combination_presentation(value: &RadicalLinearCombination) -> ExactPresentation {
+    ExactPresentation {
+        relation: ResultRelation::ExactEqual,
+        representation: ExactRepresentationKind::Radical,
+        presentation: radical_linear_combination_presentation_node(value),
+        plain_text: radical_linear_combination_plain_text(value),
+    }
+}
+
+fn radical_linear_combination_plain_text(value: &RadicalLinearCombination) -> String {
+    let mut text = String::new();
+    if !value.rational.is_zero() {
+        push_plain_text_term(&mut text, value.rational.to_string());
+    }
+    for radical in &value.radicals {
+        push_plain_text_term(&mut text, radical_plain_text(radical));
+    }
+    text
+}
+
+fn push_plain_text_term(target: &mut String, term: String) {
+    if target.is_empty() {
+        target.push_str(&term);
+    } else if let Some(term) = term.strip_prefix('-') {
+        target.push_str(" - ");
+        target.push_str(term);
+    } else {
+        target.push_str(" + ");
+        target.push_str(&term);
+    }
+}
+
 fn radical_plain_text(value: &SimpleRadical) -> String {
     let numerator = value.coefficient.numerator.to_string();
     let denominator = value.coefficient.denominator.inner.to_string();
@@ -463,6 +554,58 @@ fn radical_plain_text(value: &SimpleRadical) -> String {
         "1" => format!("{radical}/{denominator}"),
         "-1" => format!("-{radical}/{denominator}"),
         _ => format!("{numerator}{radical}/{denominator}"),
+    }
+}
+
+fn radical_linear_combination_presentation_node(
+    value: &RadicalLinearCombination,
+) -> PresentationNode {
+    let mut children = Vec::new();
+    if !value.rational.is_zero() {
+        children.push(rational_presentation(&value.rational));
+    }
+    for radical in &value.radicals {
+        push_presentation_term(
+            &mut children,
+            radical.coefficient.is_negative(),
+            radical_presentation_node(&absolute_radical(radical)),
+        );
+    }
+
+    if children.len() == 1 {
+        children
+            .pop()
+            .expect("single-node radical expression has one child")
+    } else {
+        PresentationNode::Row(children)
+    }
+}
+
+fn push_presentation_term(
+    children: &mut Vec<PresentationNode>,
+    is_negative: bool,
+    unsigned_node: PresentationNode,
+) {
+    if children.is_empty() {
+        if is_negative {
+            children.push(PresentationNode::Text(String::from("-")));
+        }
+    } else if is_negative {
+        children.push(PresentationNode::Text(String::from(" - ")));
+    } else {
+        children.push(PresentationNode::Text(String::from(" + ")));
+    }
+    children.push(unsigned_node);
+}
+
+fn absolute_radical(value: &SimpleRadical) -> SimpleRadical {
+    SimpleRadical {
+        coefficient: if value.coefficient.is_negative() {
+            value.coefficient.negate()
+        } else {
+            value.coefficient.clone()
+        },
+        radicand: value.radicand.clone(),
     }
 }
 
@@ -573,7 +716,9 @@ fn symbolic_presentation(source: &str) -> ExactPresentation {
 fn exact_representation_kind(value: &RecognizedExact) -> ExactRepresentationKind {
     match value {
         RecognizedExact::Rational(rational) => rational_exact_representation_kind(rational),
-        RecognizedExact::Radical(_) => ExactRepresentationKind::Radical,
+        RecognizedExact::Radical(_) | RecognizedExact::RadicalLinearCombination(_) => {
+            ExactRepresentationKind::Radical
+        }
         RecognizedExact::RealAlgebraic(_) => ExactRepresentationKind::RealAlgebraic,
         RecognizedExact::RationalPiMultiple(_) => ExactRepresentationKind::RationalPiMultiple,
         RecognizedExact::GeneralSymbolic => ExactRepresentationKind::GeneralSymbolic,
@@ -601,7 +746,9 @@ fn simplification_status(scientific: &ScientificOutput) -> SimplificationStatus 
 
 fn assurance_level(value: &RecognizedExact) -> AssuranceLevel {
     match value {
-        RecognizedExact::Rational(_) | RecognizedExact::Radical(_) => AssuranceLevel::Exact,
+        RecognizedExact::Rational(_)
+        | RecognizedExact::Radical(_)
+        | RecognizedExact::RadicalLinearCombination(_) => AssuranceLevel::Exact,
         RecognizedExact::RealAlgebraic(_)
         | RecognizedExact::RationalPiMultiple(_)
         | RecognizedExact::GeneralSymbolic => AssuranceLevel::CertifiedEnclosure,
@@ -1270,6 +1417,11 @@ mod tests {
             ("tan(pi/3)", "sqrt(3)"),
             ("tan(pi/6)", "sqrt(3)/3"),
             ("sin(pi/4) + cos(pi/4)", "sqrt(2)"),
+            ("sin(pi/6) + sqrt(2)", "1/2 + sqrt(2)"),
+            ("sqrt(3) + sqrt(2)", "sqrt(2) + sqrt(3)"),
+            ("2 * (sin(pi/6) + sqrt(2))", "1 + 2sqrt(2)"),
+            ("(sin(pi/6) + sqrt(2)) / 2", "1/4 + sqrt(2)/2"),
+            ("-(sin(pi/6) + sqrt(2))", "-1/2 - sqrt(2)"),
         ] {
             assert_eq!(exact_plain_text(source), expected, "{source}");
         }
@@ -1335,6 +1487,34 @@ mod tests {
         assert_eq!(
             calculation.metadata.exact_representation,
             ExactRepresentationKind::Rational
+        );
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::RadicalExtraction));
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::SpecialAngle));
+        assert_eq!(calculation.metadata.assurance, AssuranceLevel::Exact);
+    }
+
+    #[test]
+    fn radical_linear_combinations_report_radical_representation() {
+        let mut context = EvaluationContext::default();
+        let outcome =
+            calculate("sin(pi/6) + sqrt(2)", &exact_only_request(), &mut context).unwrap();
+        let CalculationOutcome::Complete(calculation) = outcome else {
+            panic!("expected complete calculation");
+        };
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("expected exact output");
+        };
+        assert_eq!(exact.representation, ExactRepresentationKind::Radical);
+        assert_eq!(exact.plain_text, "1/2 + sqrt(2)");
+        assert_eq!(
+            calculation.metadata.exact_representation,
+            ExactRepresentationKind::Radical
         );
         assert!(calculation
             .metadata

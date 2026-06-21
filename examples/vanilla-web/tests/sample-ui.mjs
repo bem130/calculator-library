@@ -275,6 +275,8 @@ async function assertSpecialAngles(page) {
 }
 
 async function assertSimpleRadicalAlgebra(page) {
+    await page.click('button[data-angle="radian"]');
+
     await page.fill("#expression", "sqrt(2)*sqrt(2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 2");
@@ -288,6 +290,11 @@ async function assertSimpleRadicalAlgebra(page) {
     await page.fill("#expression", "sqrt(6962)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 59sqrt(2)");
+    await waitForText(page, "#exact-kind", "RADICAL");
+
+    await page.fill("#expression", "sin(pi/6)+sqrt(2)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 1/2 + sqrt(2)");
     await waitForText(page, "#exact-kind", "RADICAL");
 
     await page.fill("#expression", "sqrt(8)/sqrt(2)");
