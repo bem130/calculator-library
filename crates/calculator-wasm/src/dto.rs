@@ -160,7 +160,19 @@ pub enum ResourceLimitRequestDto {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceLimitsDto {
+    pub max_input_bytes: u32,
+    pub max_source_ast_nodes: u32,
+    pub max_source_depth: u32,
+    pub max_expression_nodes: u32,
+    pub max_integer_bits: u32,
+    pub max_algebraic_degree: u32,
+    pub max_polynomial_coefficient_bits: u32,
+    pub max_rewrite_steps: u32,
+    pub max_precision_bits: u32,
+    pub max_refinement_rounds: u32,
     pub max_logical_work_units: String,
+    pub max_presentation_nodes: u32,
+    pub max_output_bytes: u32,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]

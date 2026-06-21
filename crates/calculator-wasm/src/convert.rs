@@ -210,8 +210,19 @@ impl TryFrom<ResourceLimitRequestDto> for core::ResourceLimitRequest {
             ResourceLimitRequestDto::Default => Ok(Self::Default),
             ResourceLimitRequestDto::Custom { value } => {
                 let limits = core::ResourceLimits {
+                    max_input_bytes: value.max_input_bytes,
+                    max_source_ast_nodes: value.max_source_ast_nodes,
+                    max_source_depth: value.max_source_depth,
+                    max_expression_nodes: value.max_expression_nodes,
+                    max_integer_bits: value.max_integer_bits,
+                    max_algebraic_degree: value.max_algebraic_degree,
+                    max_polynomial_coefficient_bits: value.max_polynomial_coefficient_bits,
+                    max_rewrite_steps: value.max_rewrite_steps,
+                    max_precision_bits: value.max_precision_bits,
+                    max_refinement_rounds: value.max_refinement_rounds,
                     max_logical_work_units: parse_u64(&value.max_logical_work_units)?,
-                    ..core::ResourceLimits::default()
+                    max_presentation_nodes: value.max_presentation_nodes,
+                    max_output_bytes: value.max_output_bytes,
                 };
                 Ok(Self::Custom(limits))
             }
@@ -828,7 +839,19 @@ impl From<core::ResourceLimitRequest> for ResourceLimitRequestDto {
             core::ResourceLimitRequest::Default => Self::Default,
             core::ResourceLimitRequest::Custom(value) => Self::Custom {
                 value: ResourceLimitsDto {
+                    max_input_bytes: value.max_input_bytes,
+                    max_source_ast_nodes: value.max_source_ast_nodes,
+                    max_source_depth: value.max_source_depth,
+                    max_expression_nodes: value.max_expression_nodes,
+                    max_integer_bits: value.max_integer_bits,
+                    max_algebraic_degree: value.max_algebraic_degree,
+                    max_polynomial_coefficient_bits: value.max_polynomial_coefficient_bits,
+                    max_rewrite_steps: value.max_rewrite_steps,
+                    max_precision_bits: value.max_precision_bits,
+                    max_refinement_rounds: value.max_refinement_rounds,
                     max_logical_work_units: value.max_logical_work_units.to_string(),
+                    max_presentation_nodes: value.max_presentation_nodes,
+                    max_output_bytes: value.max_output_bytes,
                 },
             },
         }
@@ -1509,7 +1532,7 @@ pub fn input_limit_error(code: InputLimitErrorCodeDto) -> CalculatorErrorDto {
 }
 
 fn parse_u64(value: &str) -> Result<u64, CalculatorErrorDto> {
-    if value.is_empty() || value.bytes().any(|byte| !byte.is_ascii_digit()) {
+    if !is_unsigned_decimal_string(value) {
         return Err(input_limit_error(
             InputLimitErrorCodeDto::InvalidResourceLimit,
         ));
@@ -1519,12 +1542,33 @@ fn parse_u64(value: &str) -> Result<u64, CalculatorErrorDto> {
 }
 
 fn parse_integer(value: &str) -> Result<core::Integer, CalculatorErrorDto> {
+    if !is_signed_decimal_string(value) {
+        return Err(input_limit_error(
+            InputLimitErrorCodeDto::InvalidResourceLimit,
+        ));
+    }
     let Some(integer) = BigInt::parse_bytes(value.as_bytes(), 10) else {
         return Err(input_limit_error(
             InputLimitErrorCodeDto::InvalidResourceLimit,
         ));
     };
     Ok(core::Integer::from_bigint(integer))
+}
+
+fn is_unsigned_decimal_string(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    match bytes {
+        [b'0'] => true,
+        [b'1'..=b'9', rest @ ..] => rest.iter().all(u8::is_ascii_digit),
+        _ => false,
+    }
+}
+
+fn is_signed_decimal_string(value: &str) -> bool {
+    match value.strip_prefix('-') {
+        Some(rest) => rest != "0" && is_unsigned_decimal_string(rest),
+        None => is_unsigned_decimal_string(value),
+    }
 }
 
 fn utf8_to_utf16_units(source: &str, utf8_offset: u32) -> u32 {
@@ -1569,5 +1613,40 @@ mod tests {
                 value: TextSpanDto { start: 1, end: 3 },
             }
         );
+    }
+
+    #[test]
+    fn unsigned_decimal_parser_rejects_non_canonical_resource_limits() {
+        for value in [
+            "", "00", "01", "-0", "-1", "+1", "1.0", "1e2", "NaN", "Infinity",
+        ] {
+            assert_eq!(
+                parse_u64(value),
+                Err(input_limit_error(
+                    InputLimitErrorCodeDto::InvalidResourceLimit
+                )),
+                "{value} must not be accepted as an unsigned decimal resource limit"
+            );
+        }
+        assert_eq!(parse_u64("0"), Ok(0));
+        assert_eq!(parse_u64("123"), Ok(123));
+    }
+
+    #[test]
+    fn signed_decimal_parser_rejects_non_canonical_integer_strings() {
+        for value in [
+            "", "00", "01", "-0", "-01", "+1", "1.0", "1e2", "NaN", "Infinity",
+        ] {
+            assert_eq!(
+                parse_integer(value),
+                Err(input_limit_error(
+                    InputLimitErrorCodeDto::InvalidResourceLimit
+                )),
+                "{value} must not be accepted as a signed decimal integer"
+            );
+        }
+        assert_eq!(parse_integer("0").unwrap().to_string(), "0");
+        assert_eq!(parse_integer("-123").unwrap().to_string(), "-123");
+        assert_eq!(parse_integer("123").unwrap().to_string(), "123");
     }
 }
