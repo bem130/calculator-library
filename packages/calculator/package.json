@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build:wasm": "wasm-pack build ../../crates/calculator-wasm --target web --out-dir ../../packages/calculator/wasm --release",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit && node --experimental-strip-types tests/presentation-renderers.mjs"
   },
   "devDependencies": {
     "typescript": "^5.9.0"

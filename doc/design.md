@@ -2287,9 +2287,10 @@ export function createSession(policy: InputPolicyDto): CalculatorSession;
 
 export function renderPlainText(node: PresentationNodeDto): string;
 export function renderMathMl(node: PresentationNodeDto): string;
+export function renderLatex(node: PresentationNodeDto): string;
 ```
 
-`renderMathMl` は文字列を返すが、DOMへ挿入する責務は持たない。DOM sanitization、clipboard、ARIA属性はsample UI側の責務とする。
+`renderMathMl` と `renderLatex` は文字列を返すが、DOMへ挿入する責務は持たない。DOM sanitization、clipboard、ARIA属性、LaTeX rendererへの投入可否判断はsample UIまたは利用側の責務とする。
 
 公開facadeで使う補助DTOは次の形を正本とする。詳細なfieldはgenerated DTOから再exportするが、`tag` と `code` の値はこの文書のRust enumとcamelCaseで対応する。
 
