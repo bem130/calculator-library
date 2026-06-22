@@ -299,28 +299,24 @@ pub fn evaluate(
 }
 
 fn rational_pi_enclosure(
-    dag: &ExactExpressionDag,
+    _dag: &ExactExpressionDag,
     value: &PiCoefficientEvaluation,
 ) -> Result<CertifiedInterval, interval::IntervalError> {
-    recover_unsupported_interval(evaluate_interval_dag(dag), || {
-        interval::multiply(
-            &interval::from_rational(value.coefficient(), 128),
-            &interval::constant(Constant::Pi, 128)?,
-        )
-    })
+    interval::multiply(
+        &interval::from_rational(value.coefficient(), 128),
+        &interval::constant(Constant::Pi, 128)?,
+    )
 }
 
 fn real_algebraic_enclosure(
-    dag: &ExactExpressionDag,
+    _dag: &ExactExpressionDag,
     value: &RealAlgebraic,
 ) -> Result<CertifiedInterval, interval::IntervalError> {
-    recover_unsupported_interval(evaluate_interval_dag(dag), || {
-        interval::from_rational_bounds(
-            &value.isolating_interval().lower,
-            &value.isolating_interval().upper,
-            128,
-        )
-    })
+    interval::from_rational_bounds(
+        &value.isolating_interval().lower,
+        &value.isolating_interval().upper,
+        128,
+    )
 }
 
 fn contains_trigonometric_function(dag: &ExactExpressionDag) -> bool {
@@ -336,45 +332,28 @@ fn contains_trigonometric_function(dag: &ExactExpressionDag) -> bool {
 }
 
 fn radical_enclosure(
-    dag: &ExactExpressionDag,
+    _dag: &ExactExpressionDag,
     value: &RadicalEvaluation,
 ) -> Result<CertifiedInterval, interval::IntervalError> {
-    recover_unsupported_interval(evaluate_interval_dag(dag), || {
-        let coefficient = interval::from_rational(&value.value().coefficient, 128);
-        let radicand = Rational::from_integer(value.value().radicand.inner.clone());
-        let radical = interval::sqrt(&interval::from_rational(&radicand, 128), 128)?;
-        interval::multiply(&coefficient, &radical)
-    })
+    let coefficient = interval::from_rational(&value.value().coefficient, 128);
+    let radicand = Rational::from_integer(value.value().radicand.inner.clone());
+    let radical = interval::sqrt(&interval::from_rational(&radicand, 128), 128)?;
+    interval::multiply(&coefficient, &radical)
 }
 
 fn radical_linear_combination_enclosure(
-    dag: &ExactExpressionDag,
+    _dag: &ExactExpressionDag,
     value: &RadicalLinearCombinationEvaluation,
 ) -> Result<CertifiedInterval, interval::IntervalError> {
-    recover_unsupported_interval(evaluate_interval_dag(dag), || {
-        let mut total = interval::from_rational(&value.value().rational, 128);
-        for radical in &value.value().radicals {
-            let coefficient = interval::from_rational(&radical.coefficient, 128);
-            let radicand = Rational::from_integer(radical.radicand.inner.clone());
-            let radical = interval::sqrt(&interval::from_rational(&radicand, 128), 128)?;
-            let term = interval::multiply(&coefficient, &radical)?;
-            total = interval::add(&total, &term)?;
-        }
-        Ok(total)
-    })
-}
-
-fn recover_unsupported_interval(
-    result: Result<CertifiedInterval, interval::IntervalError>,
-    fallback: impl FnOnce() -> Result<CertifiedInterval, interval::IntervalError>,
-) -> Result<CertifiedInterval, interval::IntervalError> {
-    result.or_else(|error| match error {
-        interval::IntervalError::UnsupportedExpression => fallback(),
-        error @ interval::IntervalError::Domain(_) => Err(error),
-        error @ interval::IntervalError::InvalidBounds => Err(error),
-        error @ interval::IntervalError::ExponentTooLarge => Err(error),
-        error @ interval::IntervalError::DivisionByIntervalContainingZero => Err(error),
-    })
+    let mut total = interval::from_rational(&value.value().rational, 128);
+    for radical in &value.value().radicals {
+        let coefficient = interval::from_rational(&radical.coefficient, 128);
+        let radicand = Rational::from_integer(radical.radicand.inner.clone());
+        let radical = interval::sqrt(&interval::from_rational(&radicand, 128), 128)?;
+        let term = interval::multiply(&coefficient, &radical)?;
+        total = interval::add(&total, &term)?;
+    }
+    Ok(total)
 }
 
 fn rational_evaluation_outcome(
@@ -3380,6 +3359,64 @@ mod tests {
     }
 
     #[test]
+    fn guarded_inverse_trig_compositions_are_exact_for_proven_values() {
+        for (source, expected) in [
+            ("sin(asin(1/3))", "1/3"),
+            ("cos(acos(-1/3))", "-1/3"),
+            ("tan(atan(1/3))", "1/3"),
+            ("sin(asin(sqrt(2)/3))", "sqrt(2)/3"),
+            ("cos(acos(sqrt(3)/3))", "sqrt(3)/3"),
+            ("tan(atan(sqrt(2)))", "sqrt(2)"),
+            ("sin(asin(sqrt(3)-sqrt(2)))", "sqrt(3) - sqrt(2)"),
+        ] {
+            assert_eq!(exact_plain_text(source), expected, "{source}");
+        }
+
+        let mut context = EvaluationContext::default();
+        let outcome = calculate("tan(atan(2^(1/3)))", &exact_only_request(), &mut context).unwrap();
+        let CalculationOutcome::Complete(calculation) = outcome else {
+            panic!("expected complete real algebraic calculation");
+        };
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("expected exact output");
+        };
+        assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
+        assert_eq!(
+            calculation.metadata.exact_representation,
+            ExactRepresentationKind::RealAlgebraic
+        );
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::AlgebraicMinimalPolynomial));
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::AlgebraicRootIsolation));
+    }
+
+    #[test]
+    fn guarded_inverse_trig_compositions_honor_angle_unit_semantics() {
+        let mut degree_request = exact_only_request();
+        degree_request.semantics.angle_unit = AngleUnit::Degree;
+        assert_eq!(
+            exact_plain_text_with_request("sin(asin(1/3))", &degree_request),
+            "1/3"
+        );
+        assert_eq!(
+            exact_plain_text_with_request("cos(acos(sqrt(2)/3))", &degree_request),
+            "sqrt(2)/3"
+        );
+
+        let mut gradian_request = exact_only_request();
+        gradian_request.semantics.angle_unit = AngleUnit::Gradian;
+        assert_eq!(
+            exact_plain_text_with_request("tan(atan(1/3))", &gradian_request),
+            "1/3"
+        );
+    }
+
+    #[test]
     fn symbolic_function_parity_presentation_normalizes_negative_arguments() {
         for (source, expected) in [
             ("sin(-1)", "-sin(1)"),
@@ -3744,6 +3781,8 @@ mod tests {
             "asin(sqrt(2))",
             "acos(-2)",
             "acos(-2*sqrt(2))",
+            "sin(asin(sqrt(2)+sqrt(3)))",
+            "cos(acos(-sqrt(2)-sqrt(3)))",
         ] {
             let mut context = EvaluationContext::default();
             let error = calculate(source, &exact_only_request(), &mut context).expect_err(source);
