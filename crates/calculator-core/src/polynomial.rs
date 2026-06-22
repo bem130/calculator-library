@@ -259,13 +259,66 @@ impl RealAlgebraic {
         .map(Some)
     }
 
-    pub(crate) fn principal_square_root_bounded(
-        &self,
+    pub(crate) fn nth_root_of_rational_bounded(
+        source: &Rational,
+        root_index: u32,
         max_algebraic_degree: u32,
         max_polynomial_coefficient_bits: u32,
+        max_resultant_degree: u32,
         max_factorization_work: u32,
         max_root_isolation_steps: u32,
     ) -> Result<Option<Self>, RealAlgebraicConstructionError> {
+        if root_index <= 1 || source.is_zero() || root_index > max_resultant_degree {
+            return Ok(None);
+        }
+        let candidate_polynomial = rational_nth_root_candidate(source, root_index)
+            .map_err(RealAlgebraicConstructionError::PolynomialConstruction)?;
+        let source_interval = RationalInterval {
+            lower: source.clone(),
+            upper: source.clone(),
+        };
+        let Some(isolating_interval) = select_nth_root_interval(
+            None,
+            &source_interval,
+            &candidate_polynomial,
+            root_index,
+            max_root_isolation_steps,
+        )?
+        else {
+            return Ok(None);
+        };
+        Self::from_candidate_polynomial_bounded(
+            candidate_polynomial,
+            isolating_interval,
+            max_algebraic_degree,
+            max_polynomial_coefficient_bits,
+            max_factorization_work,
+            max_root_isolation_steps,
+        )
+    }
+
+    pub(crate) fn principal_nth_root_bounded(
+        &self,
+        root_index: u32,
+        max_algebraic_degree: u32,
+        max_polynomial_coefficient_bits: u32,
+        max_resultant_degree: u32,
+        max_factorization_work: u32,
+        max_root_isolation_steps: u32,
+    ) -> Result<Option<Self>, RealAlgebraicConstructionError> {
+        if root_index <= 1 {
+            return Ok(None);
+        }
+        let Some(source_degree) = self.minimal_polynomial.degree() else {
+            return Ok(None);
+        };
+        let Some(candidate_degree) = source_degree.checked_mul(root_index as usize) else {
+            return Ok(None);
+        };
+        if candidate_degree > max_resultant_degree as usize {
+            return Ok(None);
+        }
+
         let Some(source_interval) = isolate_away_from_zero(
             &self.minimal_polynomial,
             &self.isolating_interval,
@@ -274,18 +327,21 @@ impl RealAlgebraic {
         else {
             return Ok(None);
         };
-        if source_interval.upper.compare(&Rational::zero()) != Ordering::Greater {
+        if root_index.is_multiple_of(2)
+            && source_interval.upper.compare(&Rational::zero()) != Ordering::Greater
+        {
             return Ok(None);
         }
 
         let candidate_polynomial = self
             .minimal_polynomial
-            .principal_square_root_candidate()
+            .principal_nth_root_candidate(root_index)
             .map_err(RealAlgebraicConstructionError::PolynomialConstruction)?;
-        let Some(isolating_interval) = select_principal_square_root_interval(
-            &self.minimal_polynomial,
+        let Some(isolating_interval) = select_nth_root_interval(
+            Some(&self.minimal_polynomial),
             &source_interval,
             &candidate_polynomial,
+            root_index,
             max_root_isolation_steps,
         )?
         else {
@@ -565,17 +621,24 @@ impl PrimitivePolynomial {
         Self::new(coefficients.iter().rev().cloned().collect())
     }
 
-    fn principal_square_root_candidate(
+    fn principal_nth_root_candidate(
         &self,
+        root_index: u32,
     ) -> Result<Self, PrimitivePolynomialConstructionError> {
+        debug_assert!(root_index > 1);
         let coefficients = effective_coefficients(&self.coefficients_low_to_high);
         if coefficients.is_empty() {
             return Err(PrimitivePolynomialConstructionError::ZeroPolynomial);
         }
 
-        let mut candidate = vec![Integer::zero(); coefficients.len() * 2 - 1];
+        let root_index = root_index as usize;
+        let candidate_len = (coefficients.len() - 1)
+            .checked_mul(root_index)
+            .and_then(|degree| degree.checked_add(1))
+            .ok_or(PrimitivePolynomialConstructionError::ZeroPolynomial)?;
+        let mut candidate = vec![Integer::zero(); candidate_len];
         for (degree, coefficient) in coefficients.iter().enumerate() {
-            candidate[degree * 2] = coefficient.clone();
+            candidate[degree * root_index] = coefficient.clone();
         }
         Self::new(candidate)
     }
@@ -1049,6 +1112,34 @@ impl PrimitivePolynomial {
             if current.degree() == Some(1) {
                 factors = push_factor(factors, current, 1);
                 return Ok(polynomial_factorization(factors, None, None));
+            }
+            match is_irreducible_binomial_bounded(&current, &mut work, max_work) {
+                Ok(true) => {
+                    factors = push_factor(factors, current, 1);
+                    return Ok(polynomial_factorization(factors, None, None));
+                }
+                Ok(false) => {}
+                Err(reason) => {
+                    return Ok(polynomial_factorization(
+                        factors,
+                        Some(current),
+                        Some(reason),
+                    ));
+                }
+            }
+            match is_eisenstein_irreducible_bounded(&current, &mut work, max_work) {
+                Ok(true) => {
+                    factors = push_factor(factors, current, 1);
+                    return Ok(polynomial_factorization(factors, None, None));
+                }
+                Ok(false) => {}
+                Err(reason) => {
+                    return Ok(polynomial_factorization(
+                        factors,
+                        Some(current),
+                        Some(reason),
+                    ));
+                }
             }
 
             let factor = match find_rational_linear_factor(&current, &mut work, max_work) {
@@ -1645,12 +1736,25 @@ fn binary_result_interval(
     }
 }
 
-fn select_principal_square_root_interval(
-    source_polynomial: &PrimitivePolynomial,
+fn rational_nth_root_candidate(
+    source: &Rational,
+    root_index: u32,
+) -> Result<PrimitivePolynomial, PrimitivePolynomialConstructionError> {
+    debug_assert!(root_index > 1);
+    let mut coefficients = vec![Integer::from_bigint(-source.numerator.inner.clone())];
+    coefficients.resize(root_index as usize, Integer::zero());
+    coefficients.push(source.denominator.inner.clone());
+    PrimitivePolynomial::new(coefficients)
+}
+
+fn select_nth_root_interval(
+    source_polynomial: Option<&PrimitivePolynomial>,
     source_interval: &RationalInterval,
     candidate_polynomial: &PrimitivePolynomial,
+    root_index: u32,
     max_root_isolation_steps: u32,
 ) -> Result<Option<RationalInterval>, RealAlgebraicConstructionError> {
+    debug_assert!(root_index > 1);
     let mut source_interval = source_interval.clone();
     let isolated_candidate_intervals =
         match candidate_polynomial.isolate_real_roots(max_root_isolation_steps) {
@@ -1677,11 +1781,11 @@ fn select_principal_square_root_interval(
             .iter()
             .enumerate()
             .filter_map(|(index, interval)| {
-                if interval.lower.compare(&zero) == Ordering::Less {
+                if root_index.is_multiple_of(2) && interval.lower.compare(&zero) == Ordering::Less {
                     return None;
                 }
-                let squared = square_interval(interval);
-                rational_intervals_overlap(&squared, &source_interval).then_some(index)
+                let powered = positive_integer_power_interval(interval, root_index);
+                rational_intervals_overlap(&powered, &source_interval).then_some(index)
             })
             .collect::<Vec<_>>();
 
@@ -1694,16 +1798,18 @@ fn select_principal_square_root_interval(
         if refinement_steps >= max_root_isolation_steps {
             return Ok(None);
         }
-        let Some(refined_source) = refine_isolating_interval(
-            source_polynomial,
-            &source_interval,
-            &mut refinement_steps,
-            max_root_isolation_steps,
-        )?
-        else {
-            return Ok(None);
-        };
-        source_interval = refined_source;
+        if let Some(source_polynomial) = source_polynomial {
+            let Some(refined_source) = refine_isolating_interval(
+                source_polynomial,
+                &source_interval,
+                &mut refinement_steps,
+                max_root_isolation_steps,
+            )?
+            else {
+                return Ok(None);
+            };
+            source_interval = refined_source;
+        }
 
         for index in matching_indexes {
             if refinement_steps >= max_root_isolation_steps {
@@ -1723,28 +1829,48 @@ fn select_principal_square_root_interval(
     }
 }
 
-fn square_interval(interval: &RationalInterval) -> RationalInterval {
+fn positive_integer_power_interval(interval: &RationalInterval, exponent: u32) -> RationalInterval {
+    debug_assert!(exponent > 0);
+    if exponent == 1 {
+        return interval.clone();
+    }
     let zero = Rational::zero();
-    if interval.upper.compare(&zero) != Ordering::Greater {
+    if exponent.is_multiple_of(2) && interval.upper.compare(&zero) != Ordering::Greater {
         RationalInterval {
-            lower: interval.upper.multiply(&interval.upper),
-            upper: interval.lower.multiply(&interval.lower),
+            lower: rational_power_u32(&interval.upper, exponent),
+            upper: rational_power_u32(&interval.lower, exponent),
         }
-    } else if interval.lower.compare(&zero) != Ordering::Less {
+    } else if !exponent.is_multiple_of(2) || interval.lower.compare(&zero) != Ordering::Less {
         RationalInterval {
-            lower: interval.lower.multiply(&interval.lower),
-            upper: interval.upper.multiply(&interval.upper),
+            lower: rational_power_u32(&interval.lower, exponent),
+            upper: rational_power_u32(&interval.upper, exponent),
         }
     } else {
-        let lower_square = interval.lower.multiply(&interval.lower);
-        let upper_square = interval.upper.multiply(&interval.upper);
-        let upper = if lower_square.compare(&upper_square) == Ordering::Greater {
-            lower_square
+        let lower_power = rational_power_u32(&interval.lower, exponent);
+        let upper_power = rational_power_u32(&interval.upper, exponent);
+        let upper = if lower_power.compare(&upper_power) == Ordering::Greater {
+            lower_power
         } else {
-            upper_square
+            upper_power
         };
         RationalInterval { lower: zero, upper }
     }
+}
+
+fn rational_power_u32(value: &Rational, mut exponent: u32) -> Rational {
+    debug_assert!(exponent > 0);
+    let mut result = Rational::one();
+    let mut factor = value.clone();
+    while exponent > 0 {
+        if exponent & 1 == 1 {
+            result = result.multiply(&factor);
+        }
+        exponent >>= 1;
+        if exponent > 0 {
+            factor = factor.multiply(&factor);
+        }
+    }
+    result
 }
 
 fn isolate_away_from_zero(
@@ -2013,6 +2139,117 @@ fn find_rational_linear_factor(
         }
     }
     Ok(None)
+}
+
+fn is_irreducible_binomial_bounded(
+    polynomial: &PrimitivePolynomial,
+    work: &mut u32,
+    max_work: u32,
+) -> Result<bool, PrimitivePolynomialFactorizationIncompleteReason> {
+    let coefficients = effective_coefficients(&polynomial.coefficients_low_to_high);
+    let Some(degree) = coefficients.len().checked_sub(1) else {
+        return Ok(false);
+    };
+    if degree < 2 || coefficients[0].is_zero() {
+        return Ok(false);
+    }
+    if coefficients[1..degree]
+        .iter()
+        .any(|coefficient| !coefficient.is_zero())
+    {
+        return Ok(false);
+    }
+
+    let binomial_value = Rational::new(
+        Integer::from_bigint(-coefficients[0].inner.clone()),
+        coefficients[degree].clone(),
+    )
+    .expect("primitive polynomial leading coefficient is non-zero");
+    for prime in distinct_prime_divisors_bounded(degree, work, max_work)? {
+        consume_factorization_work(work, max_work)?;
+        if binomial_value.nth_root_if_rational(prime).is_some() {
+            return Ok(false);
+        }
+    }
+    if degree.is_multiple_of(4) {
+        consume_factorization_work(work, max_work)?;
+        let negative_four = Rational::from_integer(Integer::from(-4));
+        if binomial_value
+            .multiply(&negative_four)
+            .nth_root_if_rational(4)
+            .is_some()
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn distinct_prime_divisors_bounded(
+    mut value: usize,
+    work: &mut u32,
+    max_work: u32,
+) -> Result<Vec<u32>, PrimitivePolynomialFactorizationIncompleteReason> {
+    let mut divisors = Vec::new();
+    let mut candidate = 2;
+    while candidate <= value / candidate {
+        consume_factorization_work(work, max_work)?;
+        if value.is_multiple_of(candidate) {
+            divisors.push(candidate as u32);
+            while value.is_multiple_of(candidate) {
+                value /= candidate;
+            }
+        }
+        candidate += if candidate == 2 { 1 } else { 2 };
+    }
+    if value > 1 {
+        let divisor = u32::try_from(value)
+            .map_err(|_| PrimitivePolynomialFactorizationIncompleteReason::WorkLimitExceeded)?;
+        divisors.push(divisor);
+    }
+    Ok(divisors)
+}
+
+fn is_eisenstein_irreducible_bounded(
+    polynomial: &PrimitivePolynomial,
+    work: &mut u32,
+    max_work: u32,
+) -> Result<bool, PrimitivePolynomialFactorizationIncompleteReason> {
+    const SMALL_PRIMES: [u32; 25] = [
+        2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89,
+        97,
+    ];
+
+    let coefficients = effective_coefficients(&polynomial.coefficients_low_to_high);
+    if coefficients.len() < 3 {
+        return Ok(false);
+    }
+    let Some((leading, non_leading)) = coefficients.split_last() else {
+        return Ok(false);
+    };
+    let constant = &non_leading[0].inner;
+    if constant.is_zero() {
+        return Ok(false);
+    }
+
+    for prime in SMALL_PRIMES {
+        consume_factorization_work(work, max_work)?;
+        let prime = BigInt::from(prime);
+        if (&leading.inner % &prime).is_zero() || (constant % &prime) != BigInt::zero() {
+            continue;
+        }
+        let prime_squared = &prime * &prime;
+        if (constant % prime_squared).is_zero() {
+            continue;
+        }
+        if non_leading
+            .iter()
+            .all(|coefficient| (&coefficient.inner % &prime).is_zero())
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn rational_linear_factor_if_root(
@@ -3861,6 +4098,44 @@ mod tests {
 
         assert_eq!(
             polynomial.factor_bounded(10_000).unwrap(),
+            PrimitivePolynomialFactorization {
+                factors: vec![PrimitivePolynomialFactor {
+                    factor: polynomial,
+                    multiplicity: 1,
+                }],
+                residual: None,
+                incomplete_reason: None,
+            }
+        );
+    }
+
+    #[test]
+    fn factor_bounded_keeps_eisenstein_polynomial_without_kronecker_search() {
+        let polynomial = PrimitivePolynomial::new(integers(&[2, 0, 0, 0, 0, 0, 0, 0, 0, 1]))
+            .expect("non-zero polynomial normalizes");
+
+        assert_eq!(
+            polynomial.factor_bounded(8).unwrap(),
+            PrimitivePolynomialFactorization {
+                factors: vec![PrimitivePolynomialFactor {
+                    factor: polynomial,
+                    multiplicity: 1,
+                }],
+                residual: None,
+                incomplete_reason: None,
+            }
+        );
+    }
+
+    #[test]
+    fn factor_bounded_keeps_irreducible_binomial_without_kronecker_search() {
+        let mut coefficients = vec![Integer::zero(); 16];
+        coefficients[0] = Integer::from(-4);
+        coefficients[15] = Integer::one();
+        let polynomial = PrimitivePolynomial::new(coefficients).expect("binomial normalizes");
+
+        assert_eq!(
+            polynomial.factor_bounded(8).unwrap(),
             PrimitivePolynomialFactorization {
                 factors: vec![PrimitivePolynomialFactor {
                     factor: polynomial,

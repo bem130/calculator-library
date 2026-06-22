@@ -17,7 +17,7 @@
 * rational pi multiple recognition。
 * simple radical と radical linear combination の exact presentation、積・商・整数累乗の bounded reduction。recognized exact radical/radical-linear/algebraic 値の certified enclosure は、再度元式全体を区間評価せず、証明済み exact 値から構築する。
 * rational/simple-radical special angles と inverse trigonometric known values。
-* bounded real algebraic recognition for supported polynomial operations、整数累乗、正性を証明できる real algebraic の主平方根、cyclotomic trigonometric cases、degree-one algebraic result の rational collapse と後続の代数的演算への伝播。
+* bounded real algebraic recognition for supported polynomial operations、整数累乗、符号を証明できる real algebraic の主 n 乗根と有理指数、cyclotomic trigonometric cases、degree-one algebraic result の rational collapse と後続の代数的演算への伝播。
 * parser/session/DTO/native-Wasm/browser conformance tests。
 * resource limit enforcement before or during expensive evaluation paths。
 
