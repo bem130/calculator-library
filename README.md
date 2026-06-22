@@ -11,6 +11,7 @@ The implementation is following [doc/design.md](doc/design.md). The current work
 
 - `calculator-core` parses and evaluates rational expressions without `f32` / `f64`.
 - Rational evaluation carries an internal exact-dyadic certified interval and can produce exact significant-digit scientific notation.
+- Rational exact output honors display preferences: finite decimal output is used only when it is exact, and improper rationals can be rendered as mixed fractions.
 - Integer powers and rational powers follow the `RealPrincipal` semantics: perfect roots such as `(-8)^(1/3)` and `(-8)^(2/3)` are exact, non-perfect roots such as `2^(1/2)` return certified enclosures with `Partial`, and negative bases with non-rational exponents report `NonRealPower`.
 - General real powers with a certified positive base use interval composition through `exp(y ln(x))`, so expressions such as `2^sqrt(2)` and `sqrt(2)^sqrt(2)` retain exact symbolic output while returning certified enclosures.
 - `sqrt` preserves perfect-square rational results exactly, recognizes simple radicals such as `sqrt(72) = 6sqrt(2)`, `sqrt(6962) = 59sqrt(2)`, `sqrt(1/2) = sqrt(2)/2`, and `2^(1/2) = sqrt(2)`, and reduces simple-radical products, quotients, and like terms such as `sqrt(2) * sqrt(2) = 2`, `sqrt(2) * sqrt(3) = sqrt(6)`, and `sqrt(8) / sqrt(2) = 2`.

@@ -37,7 +37,9 @@ author は `bem130`、license は `MIT` とする。license 本文は repository
 
 ## Outputs
 
-Exact output は relation、presentation tree、plain text、MathML、LaTeX、representation kind、simplification status、method tags を持つ。Scientific output と enclosure output も relation を持つ。npm facade は `renderPlainText`、`renderMathMl`、`renderLatex` と `renderResultRelationPlainText` / `renderResultRelationMathMl` / `renderResultRelationLatex` を公開し、sample UI はこの public facade だけを使用する。`presentInput` は入力式そのものの presentation tree を返し、評価結果とは混同しない。
+Exact output は relation、presentation tree、plain text、MathML、LaTeX、representation kind、simplification status、method tags を持つ。`ExactFormatPreference::FiniteDecimal` は有限小数として正確に表せる rational だけを finite decimal 表示にし、表せない rational は rational 表示へ戻す。`ExactFormatPreference::MixedFraction` は improper rational を帯分数表示にし、proper rational と integer は canonical 表示へ戻す。`Auto` / `Rational` / `Symbolic` は現行実装では canonical exact 表示を返す。
+
+Scientific output と enclosure output も relation を持つ。npm facade は `renderPlainText`、`renderMathMl`、`renderLatex` と `renderResultRelationPlainText` / `renderResultRelationMathMl` / `renderResultRelationLatex` を公開し、sample UI はこの public facade だけを使用する。`presentInput` は入力式そのものの presentation tree を返し、評価結果とは混同しない。
 
 Scientific output は significant digits と rounding mode を要求として受ける。rounding mode は DTO と Rust enum の両方で明示 variant として扱う。既定の `CalculationRequest` は 5 significant digits を要求する。`ScientificPresentation` は機械可読な `significand` / `exponentTen` に加えて、UI 表示用の presentation tree を `x.xxx × 10^n` 形式で返す。
 

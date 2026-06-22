@@ -87,6 +87,8 @@ const request: CalculationRequest = {
 
 重要な点は、exact / scientific / enclosure を個別に要求することである。UI で常に3つの出力欄を見せたい場合は、上のように3つとも `include` にする。
 
+`exactOutput.format` は exact value の表示候補を選ぶ。`auto` と `rational` は canonical exact 表示を返す。`finiteDecimal` は `0.1 + 0.2 = 0.3` のように有限小数で正確に書ける rational だけを小数表示し、`1/3` のように有限小数で書けない値は `1/3` のまま返す。`mixedFraction` は `7/3 = 2 1/3` のような improper rational を帯分数で表示する。
+
 `decimalScientific` の certified interval は、下端を下向き、上端を上向きに丸めた `x.xxx × 10^n` 形式の presentation tree として返る。UI は `renderPlainText(result.calculation.enclosure.value.presentation)` や `renderMathMl(...)` を使えばよく、dyadic endpoint の丸めを UI 側で再実装しない。
 
 ---

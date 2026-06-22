@@ -109,6 +109,9 @@ function escapeXml(text: string): string {
 }
 
 function renderTextMathMl(text: string): string {
+    if (/^\s+$/u.test(text)) {
+        return "<mspace width=\"0.5em\"/>";
+    }
     const escaped = escapeXml(text);
     if (/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/iu.test(text)) {
         return `<mn>${escaped}</mn>`;

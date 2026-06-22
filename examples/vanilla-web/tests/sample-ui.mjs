@@ -112,6 +112,7 @@ async function runBrowserChecks(url, origin) {
         await waitForText(page, "#enclosure-output", "∈ [1.4142 × 10^0, 1.4143 × 10^0]");
         assert(await page.locator("#include-scientific").count() === 0, "output toggles remain");
         await assertPhase2Outputs(page);
+        await assertExactFormatPreferences(page);
 
         await page.click("#copy");
         await waitForText(page, "#status", "Copied");
@@ -198,6 +199,30 @@ async function assertPhase2Outputs(page) {
         rationalCompareWithRational(interval.upper, 3n, 10n) >= 0,
         "certified enclosure upper bound is below 3/10",
     );
+}
+
+async function assertExactFormatPreferences(page) {
+    await page.fill("#expression", "0.1 + 0.2");
+    await page.selectOption("#exact-format", "finiteDecimal");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-kind", "FINITE DECIMAL");
+    await waitForText(page, "#exact-output", "= 0.3");
+
+    await page.fill("#expression", "1/3");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-kind", "RATIONAL");
+    await waitForText(page, "#exact-output", "= 1/3");
+
+    await page.selectOption("#exact-format", "mixedFraction");
+    await page.fill("#expression", "7/3");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-kind", "RATIONAL");
+    await waitForText(page, "#exact-output", "= 2 1/3");
+
+    await page.selectOption("#exact-format", "auto");
+    await page.fill("#expression", "0.1 + 0.2");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 3/10");
 }
 
 async function assertInitialExpLog(page) {
