@@ -608,6 +608,19 @@ mod dto_differential {
             },
         },
         Case {
+            id: "symbolic-trig-half-pi-shift-presentation",
+            source: "cos(pi/2+1/10)",
+            request: RequestProfile::ExactOnly,
+            expected: ExpectedOutcome::Complete {
+                representation: ExactRepresentationKindDto::GeneralSymbolic,
+                plain_text: "-sin(1/10)",
+                methods: &[
+                    MethodTagDto::SymbolicRetention,
+                    MethodTagDto::CertifiedIntervalEvaluation,
+                ],
+            },
+        },
+        Case {
             id: "guarded-exp-log-radical-identity",
             source: "exp(log(sqrt(2)))",
             request: RequestProfile::ExactOnly,

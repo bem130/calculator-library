@@ -13,7 +13,7 @@
 * real principal power semantics に基づく rational power の exact root / domain error / symbolic fallback。
 * exact dyadic certified interval と adaptive scientific rounding。
 * `pi`、`e`、exp/log の証明可能な恒等式。`exp(log(x))` は正性を証明できる supported rational/radical/radical-linear/algebraic `x` で exact にし、`log(exp(x))` は supported exact `x` で exact にする。bounded rational/dyadic endpoint に対する exp/log/asin/acos/atan、rational point trigonometric range reduction、周期的な sin/cos extrema、tan pole-aware branch、正の底が証明できる一般実数指数 `x^y` の certified interval。
-* GeneralSymbolic exact presentation における安全な奇偶性と整数 `pi` シフトの正規化。例: `sin(-1) = -sin(1)`、`cos(-1) = cos(1)`、`sin(pi+1/10) = -sin(1/10)`、`exp(sin(pi+1/10)) = exp(-sin(1/10))`。
+* GeneralSymbolic exact presentation における安全な奇偶性、整数 `pi` シフト、`sin` / `cos` の半整数 `pi` cofunction shift の正規化。例: `sin(-1) = -sin(1)`、`cos(-1) = cos(1)`、`sin(pi+1/10) = -sin(1/10)`、`cos(pi/2+1/10) = -sin(1/10)`、`exp(sin(pi/2+1/10)) = exp(cos(1/10))`。
 * rational pi multiple recognition。
 * simple radical と radical linear combination の exact presentation、積・商・整数累乗の bounded reduction。
 * rational/simple-radical special angles と inverse trigonometric known values。

@@ -18,7 +18,7 @@ The implementation is following [doc/design.md](doc/design.md). The current work
 - `pi`, `pi/6`, and other rational multiples of `pi` are recognized structurally as exact `RationalPiMultiple` values and return certified enclosures with `Partial` until requested decimal digits are confirmed.
 - The `e` constant returns a certified enclosure with `Partial` until requested decimal digits are confirmed.
 - `exp` / `log` identities are exact when proven over supported exact values, including `exp(0)`, `log(1)`, `exp(log(x))` for proven positive rational/radical/radical-linear/algebraic `x`, and `log(exp(x))` for supported exact `x`; `exp(1)` returns the certified enclosure for `e`.
-- General symbolic exact output normalizes safe odd/even function presentation for negative arguments and integer-`pi` trigonometric shifts, such as `sin(-1) = -sin(1)`, `cos(-1) = cos(1)`, `sin(pi+1/10) = -sin(1/10)`, and nested cases like `exp(sin(pi+1/10)) = exp(-sin(1/10))`.
+- General symbolic exact output normalizes safe odd/even function presentation, integer-`pi` trigonometric shifts, and `sin` / `cos` half-`pi` cofunction shifts, such as `sin(-1) = -sin(1)`, `cos(-1) = cos(1)`, `sin(pi+1/10) = -sin(1/10)`, `cos(pi/2+1/10) = -sin(1/10)`, and nested cases like `exp(sin(pi/2+1/10)) = exp(cos(1/10))`.
 - Rational and simple-radical special angles are exact when the DAG proves the argument is a supported rational multiple of `pi`: examples include `sin(pi/6) = 1/2`, `cos(pi/3) = 1/2`, `sin(pi/4) = sqrt(2)/2`, `sin(pi/12) = sqrt(6)/4 - sqrt(2)/4`, `tan(pi/12) = 2 - sqrt(3)`, and `tan(pi/2)` as `domain.tangentPole`.
 - Forward trigonometric functions lower degree and gradian inputs to exact radian expressions before evaluation, so `sin(30)` in degree mode is exact `1/2`.
 - Inverse trigonometric known values are exact for supported rational and simple-radical arguments: examples include `asin(1/2) = pi/6`, `asin(sqrt(2)/2) = pi/4`, `atan(sqrt(3)) = pi/3` in radian mode, and `asin(1/2) = 30` / `atan(sqrt(3)) = 60` in degree mode.
@@ -99,7 +99,7 @@ The example e2e test covers the public worker API path, MathML rendering,
 clipboard copy, worker cancellation, rational scientific/enclosure output,
 guarded `exp` / `log` identities over rational, radical, and radical-linear
 values, exact rational power semantics, positive-base general power intervals, symbolic
-trigonometric `pi` shift presentation, and rational
+trigonometric `pi` and half-`pi` shift presentation, and rational
 `pi` multiple output, rational and radical special-angle output, inverse
 trigonometric known values, simple radical output and algebra, mixed radical
 linear combinations, bounded real algebraic output, and `tan` pole errors.

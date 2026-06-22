@@ -902,8 +902,8 @@ struct SymbolicPiCoefficient {
 }
 
 #[derive(Clone, Debug)]
-struct SymbolicIntegerPiShiftArgument {
-    phase_is_odd: bool,
+struct SymbolicPiShiftArgument {
+    phase: Rational,
     remainder: SignedRenderedSymbolic,
 }
 
@@ -1136,15 +1136,12 @@ fn render_signed_symbolic_function(
     argument: ExprId,
 ) -> SignedRenderedSymbolic {
     if matches!(function, Function::Sin | Function::Cos | Function::Tan) {
-        if let Some(shifted_argument) = render_symbolic_integer_pi_shift_argument(dag, argument) {
-            let mut rendered = render_signed_symbolic_function_from_signed_argument(
-                function,
-                shifted_argument.remainder,
-            );
-            if shifted_argument.phase_is_odd && matches!(function, Function::Sin | Function::Cos) {
-                rendered.negative = !rendered.negative;
+        if let Some(shifted_argument) = render_symbolic_pi_shift_argument(dag, argument) {
+            if let Some(rendered) =
+                render_symbolic_shifted_trig_function(function, shifted_argument)
+            {
+                return rendered;
             }
-            return rendered;
         }
     }
 
@@ -1189,6 +1186,73 @@ fn render_signed_symbolic_function_from_signed_argument(
     }
 }
 
+fn render_symbolic_shifted_trig_function(
+    function: Function,
+    shifted_argument: SymbolicPiShiftArgument,
+) -> Option<SignedRenderedSymbolic> {
+    let phase = shifted_argument.phase.modulo_integer(2);
+    if phase.is_integer() {
+        let mut rendered = render_signed_symbolic_function_from_signed_argument(
+            function,
+            shifted_argument.remainder,
+        );
+        if phase.numerator.inner.is_odd() && matches!(function, Function::Sin | Function::Cos) {
+            rendered.negative = !rendered.negative;
+        }
+        return Some(rendered);
+    }
+
+    if phase == symbolic_rational(1, 2) {
+        return match function {
+            Function::Sin => Some(render_signed_symbolic_function_from_signed_argument(
+                Function::Cos,
+                shifted_argument.remainder,
+            )),
+            Function::Cos => {
+                let mut rendered = render_signed_symbolic_function_from_signed_argument(
+                    Function::Sin,
+                    shifted_argument.remainder,
+                );
+                rendered.negative = !rendered.negative;
+                Some(rendered)
+            }
+            Function::Tan
+            | Function::Asin
+            | Function::Acos
+            | Function::Atan
+            | Function::Sqrt
+            | Function::Exp
+            | Function::Log => None,
+        };
+    }
+
+    if phase == symbolic_rational(3, 2) {
+        return match function {
+            Function::Sin => {
+                let mut rendered = render_signed_symbolic_function_from_signed_argument(
+                    Function::Cos,
+                    shifted_argument.remainder,
+                );
+                rendered.negative = !rendered.negative;
+                Some(rendered)
+            }
+            Function::Cos => Some(render_signed_symbolic_function_from_signed_argument(
+                Function::Sin,
+                shifted_argument.remainder,
+            )),
+            Function::Tan
+            | Function::Asin
+            | Function::Acos
+            | Function::Atan
+            | Function::Sqrt
+            | Function::Exp
+            | Function::Log => None,
+        };
+    }
+
+    None
+}
+
 fn render_symbolic_function_value(
     function: Function,
     argument: &RenderedSymbolic,
@@ -1199,10 +1263,10 @@ fn render_symbolic_function_value(
     }
 }
 
-fn render_symbolic_integer_pi_shift_argument(
+fn render_symbolic_pi_shift_argument(
     dag: &ExactExpressionDag,
     argument: ExprId,
-) -> Option<SymbolicIntegerPiShiftArgument> {
+) -> Option<SymbolicPiShiftArgument> {
     let ExpressionNode::Add(list_id) = dag.node(argument) else {
         return None;
     };
@@ -1220,14 +1284,19 @@ fn render_symbolic_integer_pi_shift_argument(
         }
     }
 
-    if !contains_pi || !phase.is_integer() || remainder_terms.is_empty() {
+    if !contains_pi || remainder_terms.is_empty() {
         return None;
     }
 
-    Some(SymbolicIntegerPiShiftArgument {
-        phase_is_odd: phase.numerator.inner.is_odd(),
+    Some(SymbolicPiShiftArgument {
+        phase,
         remainder: render_signed_symbolic_sum_terms(&remainder_terms),
     })
+}
+
+fn symbolic_rational(numerator: i64, denominator: i64) -> Rational {
+    Rational::new(Integer::from(numerator), Integer::from(denominator))
+        .expect("symbolic rational helper uses non-zero denominators")
 }
 
 fn symbolic_pi_multiple_coefficient(
@@ -3348,6 +3417,25 @@ mod tests {
     }
 
     #[test]
+    fn symbolic_trig_half_pi_shift_presentation_normalizes_cofunctions() {
+        for (source, expected) in [
+            ("sin(pi/2+1/10)", "cos(1/10)"),
+            ("sin(1/10+pi/2)", "cos(1/10)"),
+            ("sin(pi/2-1/10)", "cos(1/10)"),
+            ("sin(3*pi/2+1/10)", "-cos(1/10)"),
+            ("sin(-pi/2+1/10)", "-cos(1/10)"),
+            ("cos(pi/2+1/10)", "-sin(1/10)"),
+            ("cos(pi/2-1/10)", "sin(1/10)"),
+            ("cos(3*pi/2+1/10)", "sin(1/10)"),
+            ("cos(-pi/2+1/10)", "sin(1/10)"),
+            ("tan(pi/2+1/10)", "tan(pi/2+1/10)"),
+            ("exp(sin(pi/2+1/10))", "exp(cos(1/10))"),
+        ] {
+            assert_eq!(exact_plain_text(source), expected, "{source}");
+        }
+    }
+
+    #[test]
     fn exp_one_returns_partial_euler_enclosure() {
         let mut context = EvaluationContext::default();
         let outcome = calculate("exp(1)", &CalculationRequest::default(), &mut context).unwrap();
@@ -3402,6 +3490,8 @@ mod tests {
             ("sin(pi+1/10)", "-sin(1/10)"),
             ("cos(pi+1/10)", "-cos(1/10)"),
             ("tan(pi+1/10)", "tan(1/10)"),
+            ("sin(pi/2+1/10)", "cos(1/10)"),
+            ("cos(pi/2+1/10)", "-sin(1/10)"),
             ("tan(pi/2+1/10)", "tan(pi/2+1/10)"),
         ] {
             let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
