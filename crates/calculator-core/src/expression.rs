@@ -2360,17 +2360,18 @@ fn evaluate_rational_inverse_trig_composition(
     function: Function,
     argument: ExprId,
 ) -> Result<Option<RationalEvaluation>, EvaluationError> {
-    let Some((domain, inner_argument)) =
-        inverse_trig_composition_inner_argument(dag, function, argument)?
-    else {
+    let Some(composition) = inverse_trig_composition(dag, function, argument)? else {
         return Ok(None);
     };
-    let value = match evaluate_node(dag, inner_argument) {
+    if composition.kind != InverseTrigCompositionKind::Identity {
+        return Ok(None);
+    }
+    let value = match evaluate_node(dag, composition.inner_argument) {
         Ok(value) => value,
         Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
         Err(error) => return Err(error),
     };
-    match domain {
+    match composition.domain {
         InverseTrigCompositionDomain::UnitInterval => {
             match rational_unit_interval_domain_proof(value.value()) {
                 UnitIntervalDomainProof::InRange => Ok(Some(value)),
@@ -2387,23 +2388,86 @@ fn evaluate_radical_inverse_trig_composition(
     function: Function,
     argument: ExprId,
 ) -> Result<Option<RadicalReduction>, EvaluationError> {
-    let Some((domain, inner_argument)) =
-        inverse_trig_composition_inner_argument(dag, function, argument)?
-    else {
+    let Some(composition) = inverse_trig_composition(dag, function, argument)? else {
         return Ok(None);
     };
-    let Some(value) = evaluate_radical_reduction(dag, inner_argument)? else {
+    let Some(value) = evaluate_radical_reduction(dag, composition.inner_argument)? else {
         return Ok(None);
     };
-    match domain {
+    match composition.domain {
         InverseTrigCompositionDomain::UnitInterval => {
             match radical_unit_interval_domain_proof(&value) {
-                UnitIntervalDomainProof::InRange => Ok(Some(value)),
+                UnitIntervalDomainProof::InRange => match composition.kind {
+                    InverseTrigCompositionKind::Identity => Ok(Some(value)),
+                    InverseTrigCompositionKind::UnitCofunction => {
+                        radical_inverse_trig_cofunction_value(&value)
+                    }
+                },
                 UnitIntervalDomainProof::OutOfRange => Err(inverse_trig_out_of_range_error()),
                 UnitIntervalDomainProof::Unknown => Ok(None),
             }
         }
-        InverseTrigCompositionDomain::RealLine => Ok(Some(value)),
+        InverseTrigCompositionDomain::RealLine => match composition.kind {
+            InverseTrigCompositionKind::Identity => Ok(Some(value)),
+            InverseTrigCompositionKind::UnitCofunction => Ok(None),
+        },
+    }
+}
+
+fn radical_inverse_trig_cofunction_value(
+    value: &RadicalReduction,
+) -> Result<Option<RadicalReduction>, EvaluationError> {
+    let Some(square) = multiply_radical_reductions(value, value, value.used_special_angle())?
+    else {
+        return Ok(None);
+    };
+    let one = RadicalReduction::rational(Rational::one(), value.used_special_angle());
+    let complement = subtract_radical_reductions(&one, &square);
+    reduce_square_root(&complement, DomainErrorKind::EvenRootOfNegative)
+}
+
+fn real_algebraic_inverse_trig_cofunction_value(
+    value: RealAlgebraicEvaluation,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
+    let Some(square) = multiply_real_algebraic_evaluations(value.clone(), value, limits)? else {
+        return Ok(None);
+    };
+    let Some(negative_square) =
+        multiply_real_algebraic_evaluation_by_rational(square, &rational_integer(-1), limits)?
+    else {
+        return Ok(None);
+    };
+    let Some(complement) =
+        add_rational_to_real_algebraic_evaluation(negative_square, &Rational::one(), limits)?
+    else {
+        return Ok(None);
+    };
+    nth_root_real_algebraic_evaluation(complement, 2, DomainErrorKind::EvenRootOfNegative, limits)
+}
+
+fn add_rational_to_real_algebraic_evaluation(
+    value: RealAlgebraicEvaluation,
+    rhs: &Rational,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
+    match value {
+        RealAlgebraicEvaluation::Rational(value) => Ok(Some(RealAlgebraicEvaluation::Rational(
+            RationalEvaluation::with_origin(value.value().add(rhs), value.used_special_angle()),
+        ))),
+        RealAlgebraicEvaluation::Algebraic(value) => {
+            match value.add_rational_bounded(
+                rhs,
+                limits.max_polynomial_coefficient_bits,
+                limits.max_root_isolation_steps,
+            ) {
+                Ok(value) => Ok(value.map(RealAlgebraicEvaluation::from_algebraic)),
+                Err(RealAlgebraicConstructionError::RootIsolation(
+                    PrimitivePolynomialRootIsolationError::StepLimitExceeded,
+                )) => Ok(None),
+                Err(error) => Err(real_algebraic_construction_error(error)),
+            }
+        }
     }
 }
 
@@ -2413,24 +2477,45 @@ fn evaluate_real_algebraic_inverse_trig_composition(
     argument: ExprId,
     limits: &ResourceLimits,
 ) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
-    let Some((domain, inner_argument)) =
-        inverse_trig_composition_inner_argument(dag, function, argument)?
+    let Some(composition) = inverse_trig_composition(dag, function, argument)? else {
+        return Ok(None);
+    };
+    let Some(value) =
+        evaluate_rational_or_real_algebraic_node(dag, composition.inner_argument, limits)?
     else {
         return Ok(None);
     };
-    let Some(value) = evaluate_rational_or_real_algebraic_node(dag, inner_argument, limits)? else {
-        return Ok(None);
-    };
-    match domain {
+    match composition.domain {
         InverseTrigCompositionDomain::UnitInterval => {
             match real_algebraic_unit_interval_domain_proof(&value, limits)? {
-                UnitIntervalDomainProof::InRange => Ok(Some(value)),
+                UnitIntervalDomainProof::InRange => match composition.kind {
+                    InverseTrigCompositionKind::Identity => Ok(Some(value)),
+                    InverseTrigCompositionKind::UnitCofunction => {
+                        real_algebraic_inverse_trig_cofunction_value(value, limits)
+                    }
+                },
                 UnitIntervalDomainProof::OutOfRange => Err(inverse_trig_out_of_range_error()),
                 UnitIntervalDomainProof::Unknown => Ok(None),
             }
         }
-        InverseTrigCompositionDomain::RealLine => Ok(Some(value)),
+        InverseTrigCompositionDomain::RealLine => match composition.kind {
+            InverseTrigCompositionKind::Identity => Ok(Some(value)),
+            InverseTrigCompositionKind::UnitCofunction => Ok(None),
+        },
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct InverseTrigComposition {
+    domain: InverseTrigCompositionDomain,
+    kind: InverseTrigCompositionKind,
+    inner_argument: ExprId,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InverseTrigCompositionKind {
+    Identity,
+    UnitCofunction,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2439,31 +2524,27 @@ enum InverseTrigCompositionDomain {
     RealLine,
 }
 
-fn inverse_trig_composition_inner_argument(
+fn inverse_trig_composition(
     dag: &ExactExpressionDag,
     outer_function: Function,
     argument: ExprId,
-) -> Result<Option<(InverseTrigCompositionDomain, ExprId)>, EvaluationError> {
+) -> Result<Option<InverseTrigComposition>, EvaluationError> {
     match dag.semantics().angle_unit {
-        AngleUnit::Radian => Ok(direct_inverse_trig_composition_inner_argument(
+        AngleUnit::Radian => Ok(direct_inverse_trig_composition(
             dag,
             outer_function,
             argument,
         )),
-        AngleUnit::Degree => {
-            scaled_inverse_trig_composition_inner_argument(dag, outer_function, argument, 180)
-        }
-        AngleUnit::Gradian => {
-            scaled_inverse_trig_composition_inner_argument(dag, outer_function, argument, 200)
-        }
+        AngleUnit::Degree => scaled_inverse_trig_composition(dag, outer_function, argument, 180),
+        AngleUnit::Gradian => scaled_inverse_trig_composition(dag, outer_function, argument, 200),
     }
 }
 
-fn direct_inverse_trig_composition_inner_argument(
+fn direct_inverse_trig_composition(
     dag: &ExactExpressionDag,
     outer_function: Function,
     argument: ExprId,
-) -> Option<(InverseTrigCompositionDomain, ExprId)> {
+) -> Option<InverseTrigComposition> {
     let ExpressionNode::Function {
         function: inner_function,
         argument: inner_argument,
@@ -2471,16 +2552,21 @@ fn direct_inverse_trig_composition_inner_argument(
     else {
         return None;
     };
-    inverse_trig_composition_domain(outer_function, *inner_function)
-        .map(|domain| (domain, *inner_argument))
+    inverse_trig_composition_rule(outer_function, *inner_function).map(|(domain, kind)| {
+        InverseTrigComposition {
+            domain,
+            kind,
+            inner_argument: *inner_argument,
+        }
+    })
 }
 
-fn scaled_inverse_trig_composition_inner_argument(
+fn scaled_inverse_trig_composition(
     dag: &ExactExpressionDag,
     outer_function: Function,
     argument: ExprId,
     unit_denominator: i64,
-) -> Result<Option<(InverseTrigCompositionDomain, ExprId)>, EvaluationError> {
+) -> Result<Option<InverseTrigComposition>, EvaluationError> {
     let ExpressionNode::Multiply(list_id) = dag.node(argument) else {
         return Ok(None);
     };
@@ -2492,8 +2578,17 @@ fn scaled_inverse_trig_composition_inner_argument(
             argument: inner_argument,
         } = dag.node(*child)
         {
-            if let Some(domain) = inverse_trig_composition_domain(outer_function, *inner_function) {
-                if composition.replace((domain, *inner_argument)).is_some() {
+            if let Some((domain, kind)) =
+                inverse_trig_composition_rule(outer_function, *inner_function)
+            {
+                if composition
+                    .replace(InverseTrigComposition {
+                        domain,
+                        kind,
+                        inner_argument: *inner_argument,
+                    })
+                    .is_some()
+                {
                     return Ok(None);
                 }
                 continue;
@@ -2513,15 +2608,23 @@ fn scaled_inverse_trig_composition_inner_argument(
     }
 }
 
-fn inverse_trig_composition_domain(
+fn inverse_trig_composition_rule(
     outer_function: Function,
     inner_function: Function,
-) -> Option<InverseTrigCompositionDomain> {
+) -> Option<(InverseTrigCompositionDomain, InverseTrigCompositionKind)> {
     match (outer_function, inner_function) {
-        (Function::Sin, Function::Asin) | (Function::Cos, Function::Acos) => {
-            Some(InverseTrigCompositionDomain::UnitInterval)
-        }
-        (Function::Tan, Function::Atan) => Some(InverseTrigCompositionDomain::RealLine),
+        (Function::Sin, Function::Asin) | (Function::Cos, Function::Acos) => Some((
+            InverseTrigCompositionDomain::UnitInterval,
+            InverseTrigCompositionKind::Identity,
+        )),
+        (Function::Cos, Function::Asin) | (Function::Sin, Function::Acos) => Some((
+            InverseTrigCompositionDomain::UnitInterval,
+            InverseTrigCompositionKind::UnitCofunction,
+        )),
+        (Function::Tan, Function::Atan) => Some((
+            InverseTrigCompositionDomain::RealLine,
+            InverseTrigCompositionKind::Identity,
+        )),
         _ => None,
     }
 }

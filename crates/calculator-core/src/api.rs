@@ -3717,35 +3717,56 @@ mod tests {
             ("sin(asin(1/3))", "1/3"),
             ("cos(acos(-1/3))", "-1/3"),
             ("tan(atan(1/3))", "1/3"),
+            ("cos(asin(1/3))", "2sqrt(2)/3"),
+            ("sin(acos(1/3))", "2sqrt(2)/3"),
             ("sin(asin(sqrt(2)/3))", "sqrt(2)/3"),
             ("cos(acos(sqrt(3)/3))", "sqrt(3)/3"),
             ("tan(atan(sqrt(2)))", "sqrt(2)"),
+            ("cos(asin(sqrt(2)/3))", "sqrt(7)/3"),
+            ("sin(acos(sqrt(3)/3))", "sqrt(6)/3"),
             ("sin(asin(sqrt(3)-sqrt(2)))", "sqrt(3) - sqrt(2)"),
         ] {
             assert_eq!(exact_plain_text(source), expected, "{source}");
         }
 
         let mut context = EvaluationContext::default();
-        let outcome = calculate("tan(atan(2^(1/3)))", &exact_only_request(), &mut context).unwrap();
-        let CalculationOutcome::Complete(calculation) = outcome else {
-            panic!("expected complete real algebraic calculation");
-        };
-        let ExactOutput::Included(exact) = calculation.exact else {
-            panic!("expected exact output");
-        };
-        assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
-        assert_eq!(
-            calculation.metadata.exact_representation,
-            ExactRepresentationKind::RealAlgebraic
-        );
-        assert!(calculation
-            .metadata
-            .methods
-            .contains(&MethodTag::AlgebraicMinimalPolynomial));
-        assert!(calculation
-            .metadata
-            .methods
-            .contains(&MethodTag::AlgebraicRootIsolation));
+        for source in [
+            "tan(atan(2^(1/3)))",
+            "cos(asin(2^(1/3)-1))",
+            "sin(acos(2^(1/3)-1))",
+        ] {
+            let outcome = calculate(source, &exact_only_request(), &mut context).unwrap();
+            let CalculationOutcome::Complete(calculation) = outcome else {
+                panic!("{source}: expected complete real algebraic calculation");
+            };
+            let ExactOutput::Included(exact) = calculation.exact else {
+                panic!("{source}: expected exact output");
+            };
+            assert_eq!(
+                exact.representation,
+                ExactRepresentationKind::RealAlgebraic,
+                "{source}"
+            );
+            assert_eq!(
+                calculation.metadata.exact_representation,
+                ExactRepresentationKind::RealAlgebraic,
+                "{source}"
+            );
+            assert!(
+                calculation
+                    .metadata
+                    .methods
+                    .contains(&MethodTag::AlgebraicMinimalPolynomial),
+                "{source}"
+            );
+            assert!(
+                calculation
+                    .metadata
+                    .methods
+                    .contains(&MethodTag::AlgebraicRootIsolation),
+                "{source}"
+            );
+        }
     }
 
     #[test]
@@ -3760,12 +3781,20 @@ mod tests {
             exact_plain_text_with_request("cos(acos(sqrt(2)/3))", &degree_request),
             "sqrt(2)/3"
         );
+        assert_eq!(
+            exact_plain_text_with_request("cos(asin(sqrt(2)/3))", &degree_request),
+            "sqrt(7)/3"
+        );
 
         let mut gradian_request = exact_only_request();
         gradian_request.semantics.angle_unit = AngleUnit::Gradian;
         assert_eq!(
             exact_plain_text_with_request("tan(atan(1/3))", &gradian_request),
             "1/3"
+        );
+        assert_eq!(
+            exact_plain_text_with_request("sin(acos(sqrt(3)/3))", &gradian_request),
+            "sqrt(6)/3"
         );
     }
 

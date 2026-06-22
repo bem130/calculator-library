@@ -686,6 +686,19 @@ mod dto_differential {
             },
         },
         Case {
+            id: "guarded-inverse-trig-cofunction-radical-identity",
+            source: "cos(asin(sqrt(2)/3))",
+            request: RequestProfile::ExactOnly,
+            expected: ExpectedOutcome::Complete {
+                representation: ExactRepresentationKindDto::Radical,
+                plain_text: "sqrt(7)/3",
+                methods: &[
+                    MethodTagDto::RadicalExtraction,
+                    MethodTagDto::CertifiedIntervalEvaluation,
+                ],
+            },
+        },
+        Case {
             id: "guarded-inverse-trig-degree-identity",
             source: "sin(asin(1/3))",
             request: RequestProfile::DegreeExactOnly,
