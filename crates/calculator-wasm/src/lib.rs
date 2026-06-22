@@ -1751,6 +1751,8 @@ mod tests {
             ("ln(exp(2))", "2"),
             ("ln(exp(-2))", "-2"),
             ("ln(exp(-sqrt(2)))", "-sqrt(2)"),
+            ("log(2^(1/3),2)", "1/3"),
+            ("log(sqrt(2),2)", "1/2"),
         ] {
             let result = calculate_dto(source, exact_only_request());
             let ApiResultDto::Ok {
@@ -2491,6 +2493,8 @@ pub mod wasm_tests {
             ("ln(exp(2))", "2"),
             ("ln(exp(-2))", "-2"),
             ("ln(exp(-sqrt(2)))", "-sqrt(2)"),
+            ("log(2^(1/3),2)", "1/3"),
+            ("log(sqrt(2),2)", "1/2"),
         ] {
             let result = calculate_dto(source, exact_only_request());
             assert_eq!(exact_plain_text(result), expected, "{source}");
