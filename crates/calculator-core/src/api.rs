@@ -2657,6 +2657,10 @@ mod tests {
             "sin(2)",
             "cos(2)",
             "tan(2)",
+            "sin(pi+1/10)",
+            "cos(pi+1/10)",
+            "tan(pi+1/10)",
+            "tan(pi/2+1/10)",
         ] {
             let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
             let CalculationOutcome::Partial {

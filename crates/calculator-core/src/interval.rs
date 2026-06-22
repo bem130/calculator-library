@@ -188,15 +188,12 @@ pub(crate) fn tan(
 ) -> Result<CertifiedInterval, IntervalError> {
     let lower = dyadic_to_rational(&value.lower)?;
     let upper = dyadic_to_rational(&value.upper)?;
-    let minus_one = rational_integer(-1);
-    if compare_rationals(&lower, &minus_one) == Ordering::Less
-        || compare_rationals(&upper, &Rational::one()) == Ordering::Greater
-    {
+    if contains_possible_tangent_pole(&lower, &upper, precision_bits)? {
         return Err(IntervalError::UnsupportedExpression);
     }
 
-    let (lower, _) = tan_unit_rational_bounds(&lower, precision_bits)?;
-    let (_, upper) = tan_unit_rational_bounds(&upper, precision_bits)?;
+    let (lower, upper) =
+        trigonometric_endpoint_bounds(&lower, &upper, precision_bits, tan_rational)?;
     from_rational_bounds(&lower, &upper, precision_bits)
 }
 
@@ -231,11 +228,29 @@ pub(crate) fn sin(
     value: &CertifiedInterval,
     precision_bits: u32,
 ) -> Result<CertifiedInterval, IntervalError> {
-    let Some((lower, upper)) = unit_trigonometric_rational_bounds(value)? else {
+    let lower = dyadic_to_rational(&value.lower)?;
+    let upper = dyadic_to_rational(&value.upper)?;
+    if covers_full_trigonometric_period(&lower, &upper, precision_bits)? {
+        return full_trigonometric_range(precision_bits);
+    }
+
+    let Some((mut lower_bound, mut upper_bound)) =
+        bounded_trigonometric_endpoint_bounds(&lower, &upper, precision_bits, sin_rational)?
+    else {
         return full_trigonometric_range(precision_bits);
     };
-    let (lower, _) = sin_unit_rational_bounds(&lower, precision_bits)?;
-    let (_, upper) = sin_unit_rational_bounds(&upper, precision_bits)?;
+    if !include_sine_extrema(
+        &lower,
+        &upper,
+        &mut lower_bound,
+        &mut upper_bound,
+        precision_bits,
+    )? {
+        return full_trigonometric_range(precision_bits);
+    }
+
+    let lower = lower_bound;
+    let upper = upper_bound;
     from_rational_bounds(&lower, &upper, precision_bits)
 }
 
@@ -243,29 +258,29 @@ pub(crate) fn cos(
     value: &CertifiedInterval,
     precision_bits: u32,
 ) -> Result<CertifiedInterval, IntervalError> {
-    let Some((lower, upper)) = unit_trigonometric_rational_bounds(value)? else {
+    let lower = dyadic_to_rational(&value.lower)?;
+    let upper = dyadic_to_rational(&value.upper)?;
+    if covers_full_trigonometric_period(&lower, &upper, precision_bits)? {
+        return full_trigonometric_range(precision_bits);
+    }
+
+    let Some((mut lower_bound, mut upper_bound)) =
+        bounded_trigonometric_endpoint_bounds(&lower, &upper, precision_bits, cos_rational)?
+    else {
         return full_trigonometric_range(precision_bits);
     };
+    if !include_cosine_extrema(
+        &lower,
+        &upper,
+        &mut lower_bound,
+        &mut upper_bound,
+        precision_bits,
+    )? {
+        return full_trigonometric_range(precision_bits);
+    }
 
-    let lower_abs = abs_rational(&lower);
-    let upper_abs = abs_rational(&upper);
-    let farthest_from_zero = if compare_rationals(&lower_abs, &upper_abs) == Ordering::Greater {
-        lower_abs.clone()
-    } else {
-        upper_abs.clone()
-    };
-    let nearest_to_zero = if compare_rationals(&lower, &Rational::zero()) != Ordering::Greater
-        && compare_rationals(&upper, &Rational::zero()) != Ordering::Less
-    {
-        Rational::zero()
-    } else if compare_rationals(&lower_abs, &upper_abs) == Ordering::Less {
-        lower_abs
-    } else {
-        upper_abs
-    };
-
-    let (lower, _) = cos_unit_rational_bounds(&farthest_from_zero, precision_bits)?;
-    let (_, upper) = cos_unit_rational_bounds(&nearest_to_zero, precision_bits)?;
+    let lower = lower_bound;
+    let upper = upper_bound;
     from_rational_bounds(&lower, &upper, precision_bits)
 }
 
@@ -762,35 +777,6 @@ fn acos_rational_bounds(
     ))
 }
 
-fn tan_unit_rational_bounds(
-    value: &Rational,
-    precision_bits: u32,
-) -> Result<(Rational, Rational), IntervalError> {
-    let minus_one = rational_integer(-1);
-    if compare_rationals(value, &minus_one) == Ordering::Less
-        || compare_rationals(value, &Rational::one()) == Ordering::Greater
-    {
-        return Err(IntervalError::UnsupportedExpression);
-    }
-    if value.is_zero() {
-        return Ok((Rational::zero(), Rational::zero()));
-    }
-    if value.is_negative() {
-        let (lower, upper) = tan_unit_rational_bounds(&value.negate(), precision_bits)?;
-        return Ok((upper.negate(), lower.negate()));
-    }
-
-    let (sin_lower, sin_upper) = sin_unit_rational_bounds(value, precision_bits)?;
-    let (cos_lower, cos_upper) = cos_unit_rational_bounds(value, precision_bits)?;
-    if compare_rationals(&cos_lower, &Rational::zero()) != Ordering::Greater {
-        return Err(IntervalError::UnsupportedExpression);
-    }
-    Ok((
-        divide_rational(&sin_lower, &cos_upper)?,
-        divide_rational(&sin_upper, &cos_lower)?,
-    ))
-}
-
 fn sin_cos_rational(
     value: &Rational,
     precision_bits: u32,
@@ -934,6 +920,217 @@ fn ordered_rational_bounds(
     }
 }
 
+fn covers_full_trigonometric_period(
+    lower: &Rational,
+    upper: &Rational,
+    precision_bits: u32,
+) -> Result<bool, IntervalError> {
+    if compare_rationals(lower, upper) == Ordering::Greater {
+        return Err(IntervalError::InvalidBounds);
+    }
+    let width = upper.subtract(lower);
+    let (_, pi_upper) = pi_bounds(precision_bits)?;
+    Ok(compare_rationals(&width, &scale_rational(&pi_upper, 2)) != Ordering::Less)
+}
+
+fn bounded_trigonometric_endpoint_bounds(
+    lower: &Rational,
+    upper: &Rational,
+    precision_bits: u32,
+    evaluator: fn(&Rational, u32) -> Result<CertifiedInterval, IntervalError>,
+) -> Result<Option<(Rational, Rational)>, IntervalError> {
+    match trigonometric_endpoint_bounds(lower, upper, precision_bits, evaluator) {
+        Ok(bounds) => Ok(Some(bounds)),
+        Err(IntervalError::UnsupportedExpression | IntervalError::ExponentTooLarge) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+fn trigonometric_endpoint_bounds(
+    lower: &Rational,
+    upper: &Rational,
+    precision_bits: u32,
+    evaluator: fn(&Rational, u32) -> Result<CertifiedInterval, IntervalError>,
+) -> Result<(Rational, Rational), IntervalError> {
+    if compare_rationals(lower, upper) == Ordering::Greater {
+        return Err(IntervalError::InvalidBounds);
+    }
+    let lower_value = evaluator(lower, precision_bits)?;
+    let upper_value = evaluator(upper, precision_bits)?;
+    let mut result_lower = dyadic_to_rational(&lower_value.lower)?;
+    let mut result_upper = dyadic_to_rational(&lower_value.upper)?;
+    include_interval_bounds(&mut result_lower, &mut result_upper, &upper_value)?;
+    Ok((result_lower, result_upper))
+}
+
+fn include_interval_bounds(
+    lower: &mut Rational,
+    upper: &mut Rational,
+    value: &CertifiedInterval,
+) -> Result<(), IntervalError> {
+    include_rational_candidate(lower, upper, &dyadic_to_rational(&value.lower)?);
+    include_rational_candidate(lower, upper, &dyadic_to_rational(&value.upper)?);
+    Ok(())
+}
+
+fn include_rational_candidate(lower: &mut Rational, upper: &mut Rational, candidate: &Rational) {
+    if compare_rationals(candidate, lower) == Ordering::Less {
+        *lower = candidate.clone();
+    }
+    if compare_rationals(candidate, upper) == Ordering::Greater {
+        *upper = candidate.clone();
+    }
+}
+
+fn include_sine_extrema(
+    lower: &Rational,
+    upper: &Rational,
+    result_lower: &mut Rational,
+    result_upper: &mut Rational,
+    precision_bits: u32,
+) -> Result<bool, IntervalError> {
+    let Some(limit) = half_pi_scan_limit(lower, upper, precision_bits)? else {
+        return Ok(false);
+    };
+    for index in -limit..=limit {
+        if index % 2 == 0 {
+            continue;
+        }
+        match half_pi_multiple_containment(index, lower, upper, precision_bits)? {
+            HalfPiContainment::ProvenInside => {
+                if index.rem_euclid(4) == 1 {
+                    include_rational_candidate(result_lower, result_upper, &Rational::one());
+                } else {
+                    include_rational_candidate(result_lower, result_upper, &rational_integer(-1));
+                }
+            }
+            HalfPiContainment::ProvenOutside => {}
+            HalfPiContainment::Uncertain => return Ok(false),
+        }
+    }
+    Ok(true)
+}
+
+fn include_cosine_extrema(
+    lower: &Rational,
+    upper: &Rational,
+    result_lower: &mut Rational,
+    result_upper: &mut Rational,
+    precision_bits: u32,
+) -> Result<bool, IntervalError> {
+    let Some(limit) = half_pi_scan_limit(lower, upper, precision_bits)? else {
+        return Ok(false);
+    };
+    for index in -limit..=limit {
+        if index % 2 != 0 {
+            continue;
+        }
+        match half_pi_multiple_containment(index, lower, upper, precision_bits)? {
+            HalfPiContainment::ProvenInside => {
+                if index.rem_euclid(4) == 0 {
+                    include_rational_candidate(result_lower, result_upper, &Rational::one());
+                } else {
+                    include_rational_candidate(result_lower, result_upper, &rational_integer(-1));
+                }
+            }
+            HalfPiContainment::ProvenOutside => {}
+            HalfPiContainment::Uncertain => return Ok(false),
+        }
+    }
+    Ok(true)
+}
+
+fn contains_possible_tangent_pole(
+    lower: &Rational,
+    upper: &Rational,
+    precision_bits: u32,
+) -> Result<bool, IntervalError> {
+    let Some(limit) = half_pi_scan_limit(lower, upper, precision_bits)? else {
+        return Ok(true);
+    };
+    for index in -limit..=limit {
+        if index % 2 == 0 {
+            continue;
+        }
+        match half_pi_multiple_containment(index, lower, upper, precision_bits)? {
+            HalfPiContainment::ProvenOutside => {}
+            HalfPiContainment::ProvenInside | HalfPiContainment::Uncertain => return Ok(true),
+        }
+    }
+    Ok(false)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HalfPiContainment {
+    ProvenInside,
+    ProvenOutside,
+    Uncertain,
+}
+
+fn half_pi_multiple_containment(
+    index: i64,
+    lower: &Rational,
+    upper: &Rational,
+    precision_bits: u32,
+) -> Result<HalfPiContainment, IntervalError> {
+    let (point_lower, point_upper) = half_pi_multiple_bounds(index, precision_bits)?;
+    if compare_rationals(&point_upper, lower) == Ordering::Less
+        || compare_rationals(&point_lower, upper) == Ordering::Greater
+    {
+        return Ok(HalfPiContainment::ProvenOutside);
+    }
+    if compare_rationals(&point_lower, lower) != Ordering::Less
+        && compare_rationals(&point_upper, upper) != Ordering::Greater
+    {
+        return Ok(HalfPiContainment::ProvenInside);
+    }
+    Ok(HalfPiContainment::Uncertain)
+}
+
+fn half_pi_multiple_bounds(
+    index: i64,
+    precision_bits: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    let (pi_lower, pi_upper) = pi_bounds(precision_bits)?;
+    let multiplier = rational_integer(index);
+    ordered_rational_bounds(
+        halve_rational(&multiplier.multiply(&pi_lower))?,
+        halve_rational(&multiplier.multiply(&pi_upper))?,
+    )
+}
+
+fn half_pi_scan_limit(
+    lower: &Rational,
+    upper: &Rational,
+    precision_bits: u32,
+) -> Result<Option<i64>, IntervalError> {
+    if compare_rationals(lower, upper) == Ordering::Greater {
+        return Err(IntervalError::InvalidBounds);
+    }
+    let lower_abs = abs_rational(lower);
+    let upper_abs = abs_rational(upper);
+    let max_abs = if compare_rationals(&lower_abs, &upper_abs) == Ordering::Greater {
+        lower_abs
+    } else {
+        upper_abs
+    };
+    let (pi_lower, _) = pi_bounds(precision_bits)?;
+    let half_pi_lower = halve_rational(&pi_lower)?;
+    let ratio = divide_rational(&max_abs, &half_pi_lower)?;
+    let index = match ceil_nonnegative_rational_to_u32(&ratio) {
+        Ok(index) => index,
+        Err(IntervalError::ExponentTooLarge) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let Some(limit) = index.checked_add(2) else {
+        return Ok(None);
+    };
+    if limit > MAX_TRIG_RANGE_REDUCTION_STEPS {
+        return Ok(None);
+    }
+    Ok(Some(i64::from(limit)))
+}
+
 fn subtract(
     left: &CertifiedInterval,
     right: &CertifiedInterval,
@@ -979,21 +1176,6 @@ fn intersect_with_rational_bounds(
         upper
     };
     from_rational_bounds(&lower, &upper, precision_bits)
-}
-
-fn unit_trigonometric_rational_bounds(
-    value: &CertifiedInterval,
-) -> Result<Option<(Rational, Rational)>, IntervalError> {
-    let lower = dyadic_to_rational(&value.lower)?;
-    let upper = dyadic_to_rational(&value.upper)?;
-    let minus_one = rational_integer(-1);
-    if compare_rationals(&lower, &minus_one) == Ordering::Less
-        || compare_rationals(&upper, &Rational::one()) == Ordering::Greater
-    {
-        Ok(None)
-    } else {
-        Ok(Some((lower, upper)))
-    }
 }
 
 fn full_trigonometric_range(precision_bits: u32) -> Result<CertifiedInterval, IntervalError> {
@@ -1615,22 +1797,61 @@ mod tests {
     }
 
     #[test]
-    fn sin_cos_outside_unit_range_fall_back_to_full_range() {
-        let interval = sin(
-            &from_rational_bounds(&rational(0, 1), &rational(2, 1), 16).unwrap(),
-            16,
+    fn periodic_sin_cos_intervals_include_internal_extrema() {
+        let sine = sin(
+            &from_rational_bounds(&rational(0, 1), &rational(2, 1), 128).unwrap(),
+            128,
         )
         .unwrap();
-        assert!(contains_rational(&interval, &rational(-1, 1)).unwrap());
-        assert!(contains_rational(&interval, &rational(1, 1)).unwrap());
+        assert_eq!(
+            compare_dyadic_to_rational(&sine.lower, &rational(0, 1)).unwrap(),
+            Ordering::Equal
+        );
+        assert!(contains_rational(&sine, &rational(1, 1)).unwrap());
 
-        let interval = cos(
-            &from_rational_bounds(&rational(-2, 1), &rational(0, 1), 16).unwrap(),
-            16,
+        let cosine = cos(
+            &from_rational_bounds(&rational(0, 1), &rational(4, 1), 128).unwrap(),
+            128,
+        )
+        .unwrap();
+        assert!(contains_rational(&cosine, &rational(-1, 1)).unwrap());
+        assert!(contains_rational(&cosine, &rational(1, 1)).unwrap());
+    }
+
+    #[test]
+    fn wide_sin_cos_intervals_still_use_full_range() {
+        let interval = sin(
+            &from_rational_bounds(&rational(0, 1), &rational(7, 1), 128).unwrap(),
+            128,
         )
         .unwrap();
         assert!(contains_rational(&interval, &rational(-1, 1)).unwrap());
         assert!(contains_rational(&interval, &rational(1, 1)).unwrap());
+    }
+
+    #[test]
+    fn periodic_tan_intervals_detect_possible_poles_and_monotone_branches() {
+        assert_eq!(
+            tan(
+                &from_rational_bounds(&rational(1, 1), &rational(2, 1), 128).unwrap(),
+                128,
+            ),
+            Err(IntervalError::UnsupportedExpression)
+        );
+
+        let branch = tan(
+            &from_rational_bounds(&rational(2, 1), &rational(3, 1), 128).unwrap(),
+            128,
+        )
+        .unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&branch.lower, &rational(-9, 4)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&branch.upper, &rational(-1, 10)).unwrap(),
+            Ordering::Less
+        );
     }
 
     #[test]
