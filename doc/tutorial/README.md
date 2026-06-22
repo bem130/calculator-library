@@ -87,6 +87,8 @@ const request: CalculationRequest = {
 
 重要な点は、exact / scientific / enclosure を個別に要求することである。UI で常に3つの出力欄を見せたい場合は、上のように3つとも `include` にする。
 
+`request.limits` は入力だけでなく、生成される presentation tree と出力文字列にも効く。巨大な式の preview や巨大な exact/enclosure 表示を UI へ流し込まないため、必要なら `maxPresentationNodes` と `maxOutputBytes` を `limits: { tag: "custom", value: ... }` で調整する。
+
 `exactOutput.format` は exact value の表示候補を選ぶ。`auto` と `rational` は canonical exact 表示を返す。`finiteDecimal` は `0.1 + 0.2 = 0.3` のように有限小数で正確に書ける rational だけを小数表示し、`1/3` のように有限小数で書けない値は `1/3` のまま返す。`mixedFraction` は `7/3 = 2 1/3` のような improper rational を帯分数で表示する。
 
 `decimalScientific` の certified interval は、下端を下向き、上端を上向きに丸めた `x.xxx × 10^n` 形式の presentation tree として返る。UI は `renderPlainText(result.calculation.enclosure.value.presentation)` や `renderMathMl(...)` を使えばよく、dyadic endpoint の丸めを UI 側で再実装しない。
@@ -115,7 +117,7 @@ function renderInputPreview(source: string): void {
 }
 ```
 
-`presentInput()` は parse と入力制限の検査を行うが、計算結果は作らない。したがって、入力途中の preview と calculate button の責務を分けられる。
+`presentInput()` は parse、入力制限、presentation 出力制限の検査を行うが、計算結果は作らない。したがって、入力途中の preview と calculate button の責務を分けられる。
 
 表示例:
 

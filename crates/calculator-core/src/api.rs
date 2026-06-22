@@ -39,22 +39,25 @@ pub fn calculate(
         context,
     )
     .map_err(CalculatorError::from)?;
-    let mut calculation = present(
+    let mut calculation = present_unchecked(
         &evaluation,
         &PresentationRequest {
             exact_output: request.exact_output,
             scientific_output: request.scientific_output,
             enclosure_output: request.enclosure_output,
+            limits: request.limits.clone(),
         },
     )
     .map_err(CalculatorError::from)?;
     apply_calculation_symbolic_presentation(&mut calculation, &parsed, request, &evaluation);
+    validate_calculation_output(&calculation, &limits).map_err(CalculatorError::from)?;
     if let Some(reason) = partial_reason(&calculation) {
+        let certified_enclosure =
+            partial_certified_enclosure(&evaluation, &limits).map_err(CalculatorError::from)?;
         return Ok(CalculationOutcome::Partial {
             calculation,
             reason,
-            certified_enclosure: partial_certified_enclosure(&evaluation)
-                .map_err(CalculatorError::from)?,
+            certified_enclosure,
         });
     }
     Ok(CalculationOutcome::Complete(calculation))
@@ -108,7 +111,9 @@ pub fn present_input(
     validate_input_bytes(source, &limits).map_err(CalculatorError::InputLimit)?;
     let parsed = parse(source, &request.parse).map_err(CalculatorError::Parse)?;
     validate_parsed_expression_limits(&parsed, &limits).map_err(CalculatorError::InputLimit)?;
-    Ok(source_presentation(&parsed.root).node)
+    let presentation = source_presentation(&parsed.root).node;
+    validate_presentation_node_output(&presentation, &limits).map_err(CalculatorError::from)?;
+    Ok(presentation)
 }
 
 pub fn evaluate(
@@ -415,6 +420,15 @@ pub fn present(
     evaluation: &EvaluationOutcome,
     request: &PresentationRequest,
 ) -> Result<Calculation, PresentationError> {
+    let calculation = present_unchecked(evaluation, request)?;
+    validate_calculation_output(&calculation, &resource_limits(&request.limits))?;
+    Ok(calculation)
+}
+
+fn present_unchecked(
+    evaluation: &EvaluationOutcome,
+    request: &PresentationRequest,
+) -> Result<Calculation, PresentationError> {
     let exact = match (&evaluation.value.recognized_exact, request.exact_output) {
         (_, ExactOutputRequest::Omit) => ExactOutput::Omitted,
         (RecognizedExact::Rational(rational), ExactOutputRequest::Include { format }) => {
@@ -611,6 +625,236 @@ fn validate_expression_dag_limits(
     Ok(())
 }
 
+#[derive(Default)]
+struct PresentationOutputStats {
+    presentation_nodes: usize,
+    output_bytes: usize,
+}
+
+fn validate_calculation_output(
+    calculation: &Calculation,
+    limits: &ResourceLimits,
+) -> Result<(), PresentationError> {
+    let mut stats = PresentationOutputStats::default();
+    collect_exact_output_stats(&calculation.exact, &mut stats)?;
+    collect_scientific_output_stats(&calculation.scientific, &mut stats)?;
+    collect_enclosure_output_stats(&calculation.enclosure, &mut stats)?;
+    validate_presentation_output_stats(&stats, limits)
+}
+
+fn validate_presentation_node_output(
+    presentation: &PresentationNode,
+    limits: &ResourceLimits,
+) -> Result<(), PresentationError> {
+    let mut stats = PresentationOutputStats::default();
+    collect_presentation_node_stats(presentation, &mut stats)?;
+    validate_presentation_output_stats(&stats, limits)
+}
+
+fn validate_certified_interval_output(
+    presentation: &CertifiedIntervalPresentation,
+    limits: &ResourceLimits,
+) -> Result<(), PresentationError> {
+    let mut stats = PresentationOutputStats::default();
+    collect_certified_interval_stats(presentation, &mut stats)?;
+    validate_presentation_output_stats(&stats, limits)
+}
+
+fn validate_presentation_output_stats(
+    stats: &PresentationOutputStats,
+    limits: &ResourceLimits,
+) -> Result<(), PresentationError> {
+    if stats.presentation_nodes > limits.max_presentation_nodes as usize {
+        return Err(presentation_nodes_limit_error());
+    }
+    if stats.output_bytes > limits.max_output_bytes as usize {
+        return Err(output_too_large_error());
+    }
+    Ok(())
+}
+
+fn collect_exact_output_stats(
+    output: &ExactOutput,
+    stats: &mut PresentationOutputStats,
+) -> Result<(), PresentationError> {
+    match output {
+        ExactOutput::Omitted => Ok(()),
+        ExactOutput::Included(value) => {
+            collect_presentation_node_stats(&value.presentation, stats)?;
+            add_output_text(stats, &value.plain_text)
+        }
+    }
+}
+
+fn collect_scientific_output_stats(
+    output: &ScientificOutput,
+    stats: &mut PresentationOutputStats,
+) -> Result<(), PresentationError> {
+    match output {
+        ScientificOutput::Omitted | ScientificOutput::Unavailable(_) => Ok(()),
+        ScientificOutput::Included(value) => {
+            add_output_text(stats, &value.significand)?;
+            add_output_text(stats, &value.exponent_ten)?;
+            collect_presentation_node_stats(&value.presentation, stats)
+        }
+    }
+}
+
+fn collect_enclosure_output_stats(
+    output: &EnclosureOutput,
+    stats: &mut PresentationOutputStats,
+) -> Result<(), PresentationError> {
+    match output {
+        EnclosureOutput::Omitted => Ok(()),
+        EnclosureOutput::Included(value) => collect_certified_interval_stats(value, stats),
+    }
+}
+
+fn collect_certified_interval_stats(
+    value: &CertifiedIntervalPresentation,
+    stats: &mut PresentationOutputStats,
+) -> Result<(), PresentationError> {
+    collect_presentation_node_stats(&value.presentation, stats)?;
+    match &value.bounds {
+        CertifiedIntervalBounds::ExactDyadic { lower, upper } => {
+            collect_exact_dyadic_stats(lower, stats)?;
+            collect_exact_dyadic_stats(upper, stats)
+        }
+        CertifiedIntervalBounds::DecimalScientific { lower, upper, .. } => {
+            collect_decimal_scientific_bound_stats(lower, stats)?;
+            collect_decimal_scientific_bound_stats(upper, stats)
+        }
+    }
+}
+
+fn collect_exact_dyadic_stats(
+    value: &ExactDyadic,
+    stats: &mut PresentationOutputStats,
+) -> Result<(), PresentationError> {
+    add_output_string(stats, value.coefficient.to_string())?;
+    add_output_string(stats, value.exponent_two.to_string())
+}
+
+fn collect_decimal_scientific_bound_stats(
+    value: &DecimalScientificBound,
+    stats: &mut PresentationOutputStats,
+) -> Result<(), PresentationError> {
+    add_output_text(stats, &value.significand)?;
+    add_output_text(stats, &value.exponent_ten)
+}
+
+fn collect_presentation_node_stats(
+    node: &PresentationNode,
+    stats: &mut PresentationOutputStats,
+) -> Result<(), PresentationError> {
+    add_presentation_node(stats)?;
+    match node {
+        PresentationNode::Text(text) => add_output_text(stats, text),
+        PresentationNode::Row(children) => {
+            for child in children {
+                collect_presentation_node_stats(child, stats)?;
+            }
+            Ok(())
+        }
+        PresentationNode::Fraction {
+            numerator,
+            denominator,
+        } => {
+            add_output_bytes(stats, "/".len())?;
+            collect_presentation_node_stats(numerator, stats)?;
+            collect_presentation_node_stats(denominator, stats)
+        }
+        PresentationNode::Superscript { base, exponent } => {
+            add_output_bytes(stats, "^".len())?;
+            collect_presentation_node_stats(base, stats)?;
+            collect_presentation_node_stats(exponent, stats)
+        }
+        PresentationNode::Subscript { base, subscript } => {
+            add_output_bytes(stats, "_".len())?;
+            collect_presentation_node_stats(base, stats)?;
+            collect_presentation_node_stats(subscript, stats)
+        }
+        PresentationNode::Radical { index, radicand } => {
+            match index {
+                RadicalIndex::Square => add_output_bytes(stats, "sqrt".len())?,
+                RadicalIndex::Nth(value) => {
+                    add_output_bytes(stats, "root".len())?;
+                    add_output_string(stats, value.inner.inner.to_string())?;
+                }
+            }
+            collect_presentation_node_stats(radicand, stats)
+        }
+        PresentationNode::Function { name, argument } => {
+            add_output_bytes(stats, function_name_text(*name).len())?;
+            collect_presentation_node_stats(argument, stats)
+        }
+        PresentationNode::Parenthesized(value) => {
+            add_output_bytes(stats, "()".len())?;
+            collect_presentation_node_stats(value, stats)
+        }
+    }
+}
+
+fn add_presentation_node(stats: &mut PresentationOutputStats) -> Result<(), PresentationError> {
+    stats.presentation_nodes = stats
+        .presentation_nodes
+        .checked_add(1)
+        .ok_or_else(presentation_nodes_limit_error)?;
+    Ok(())
+}
+
+fn add_output_text(
+    stats: &mut PresentationOutputStats,
+    text: &str,
+) -> Result<(), PresentationError> {
+    add_output_bytes(stats, text.len())
+}
+
+fn add_output_string(
+    stats: &mut PresentationOutputStats,
+    text: String,
+) -> Result<(), PresentationError> {
+    add_output_bytes(stats, text.len())
+}
+
+fn add_output_bytes(
+    stats: &mut PresentationOutputStats,
+    bytes: usize,
+) -> Result<(), PresentationError> {
+    stats.output_bytes = stats
+        .output_bytes
+        .checked_add(bytes)
+        .ok_or_else(output_too_large_error)?;
+    Ok(())
+}
+
+fn presentation_nodes_limit_error() -> PresentationError {
+    PresentationError::ComputationLimit(ComputationLimitError {
+        kind: ComputationLimitKind::PresentationNodes,
+    })
+}
+
+fn output_too_large_error() -> PresentationError {
+    PresentationError::InputLimit(InputLimitError {
+        kind: InputLimitErrorKind::OutputTooLarge,
+    })
+}
+
+fn function_name_text(name: FunctionName) -> &'static str {
+    match name {
+        FunctionName::Sin => "sin",
+        FunctionName::Cos => "cos",
+        FunctionName::Tan => "tan",
+        FunctionName::Asin => "asin",
+        FunctionName::Acos => "acos",
+        FunctionName::Atan => "atan",
+        FunctionName::Sqrt => "sqrt",
+        FunctionName::Exp => "exp",
+        FunctionName::Log => "log",
+        FunctionName::Ln => "ln",
+    }
+}
+
 fn partial_reason(calculation: &Calculation) -> Option<IncompleteReason> {
     match &calculation.scientific {
         ScientificOutput::Unavailable(value) => Some(value.reason.clone()),
@@ -620,11 +864,14 @@ fn partial_reason(calculation: &Calculation) -> Option<IncompleteReason> {
 
 fn partial_certified_enclosure(
     evaluation: &EvaluationOutcome,
+    limits: &ResourceLimits,
 ) -> Result<CertifiedIntervalPresentation, PresentationError> {
-    certified_interval_state_presentation(
+    let certified_enclosure = certified_interval_state_presentation(
         &evaluation.value.certified_enclosure,
         EnclosureFormat::ExactDyadic,
-    )
+    )?;
+    validate_certified_interval_output(&certified_enclosure, limits)?;
+    Ok(certified_enclosure)
 }
 
 fn precision_bits_for_output_request(
@@ -2825,6 +3072,164 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn present_input_enforces_presentation_resource_limits() {
+        let output_limited_request = CalculationRequest {
+            limits: ResourceLimitRequest::Custom(ResourceLimits {
+                max_output_bytes: 1,
+                ..ResourceLimits::default()
+            }),
+            ..CalculationRequest::default()
+        };
+        let error = present_input("12345", &output_limited_request)
+            .expect_err("input presentation text should be checked against max_output_bytes");
+        assert_eq!(
+            error,
+            CalculatorError::InputLimit(InputLimitError {
+                kind: InputLimitErrorKind::OutputTooLarge,
+            })
+        );
+
+        let node_limited_request = CalculationRequest {
+            limits: ResourceLimitRequest::Custom(ResourceLimits {
+                max_presentation_nodes: 1,
+                ..ResourceLimits::default()
+            }),
+            ..CalculationRequest::default()
+        };
+        let error = present_input("1+2", &node_limited_request)
+            .expect_err("input presentation tree should be checked against max_presentation_nodes");
+        assert_eq!(
+            error,
+            CalculatorError::ComputationLimit(ComputationLimitError {
+                kind: ComputationLimitKind::PresentationNodes,
+            })
+        );
+    }
+
+    #[test]
+    fn present_enforces_presentation_resource_limits() {
+        let parsed = parse("12345", &ParseSettings::default()).unwrap();
+        let mut context = EvaluationContext::default();
+        let evaluation = evaluate(
+            &parsed,
+            &EvaluationRequest {
+                semantics: SemanticSettings::default(),
+                limits: ResourceLimitRequest::Default,
+            },
+            &mut context,
+        )
+        .unwrap();
+        let error = present(
+            &evaluation,
+            &PresentationRequest {
+                exact_output: ExactOutputRequest::Include {
+                    format: ExactFormatPreference::Auto,
+                },
+                scientific_output: ScientificOutputRequest::Omit,
+                enclosure_output: EnclosureOutputRequest::Omit,
+                limits: ResourceLimitRequest::Custom(ResourceLimits {
+                    max_output_bytes: 1,
+                    ..ResourceLimits::default()
+                }),
+            },
+        )
+        .expect_err("present should check exact output text against max_output_bytes");
+        assert_eq!(
+            error,
+            PresentationError::InputLimit(InputLimitError {
+                kind: InputLimitErrorKind::OutputTooLarge,
+            })
+        );
+    }
+
+    #[test]
+    fn calculate_enforces_output_presentation_resource_limits() {
+        let output_limited_request = CalculationRequest {
+            limits: ResourceLimitRequest::Custom(ResourceLimits {
+                max_output_bytes: 1,
+                ..ResourceLimits::default()
+            }),
+            ..exact_only_request()
+        };
+        let mut context = EvaluationContext::default();
+        let error = calculate("12345", &output_limited_request, &mut context)
+            .expect_err("calculation output should be checked against max_output_bytes");
+        assert_eq!(
+            error,
+            CalculatorError::InputLimit(InputLimitError {
+                kind: InputLimitErrorKind::OutputTooLarge,
+            })
+        );
+
+        let node_limited_request = CalculationRequest {
+            limits: ResourceLimitRequest::Custom(ResourceLimits {
+                max_presentation_nodes: 1,
+                ..ResourceLimits::default()
+            }),
+            ..exact_only_request()
+        };
+        let error = calculate("1/2", &node_limited_request, &mut context)
+            .expect_err("calculation output should be checked against max_presentation_nodes");
+        assert_eq!(
+            error,
+            CalculatorError::ComputationLimit(ComputationLimitError {
+                kind: ComputationLimitKind::PresentationNodes,
+            })
+        );
+    }
+
+    #[test]
+    fn calculate_checks_final_symbolic_presentation_not_intermediate_source_text() {
+        let request = CalculationRequest {
+            limits: ResourceLimitRequest::Custom(ResourceLimits {
+                max_output_bytes: 20,
+                ..ResourceLimits::default()
+            }),
+            ..exact_only_request()
+        };
+        let mut context = EvaluationContext::default();
+        let outcome = calculate(
+            "sin(                    pi/2+1/10                    )",
+            &request,
+            &mut context,
+        )
+        .expect("normalized symbolic output should fit the output byte limit");
+        let CalculationOutcome::Complete(calculation) = outcome else {
+            panic!("expected complete normalized symbolic calculation");
+        };
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("expected exact output");
+        };
+        assert_eq!(exact.plain_text, "cos(1/10)");
+    }
+
+    #[test]
+    fn partial_certified_enclosure_enforces_output_byte_limit() {
+        let request = CalculationRequest {
+            exact_output: ExactOutputRequest::Omit,
+            scientific_output: ScientificOutputRequest::Include {
+                significant_digits: core::num::NonZeroU32::new(50).unwrap(),
+                rounding_mode: DecimalRoundingMode::NearestTiesToEven,
+            },
+            enclosure_output: EnclosureOutputRequest::Omit,
+            limits: ResourceLimitRequest::Custom(ResourceLimits {
+                max_output_bytes: 1,
+                ..ResourceLimits::default()
+            }),
+            ..CalculationRequest::default()
+        };
+        let mut context = EvaluationContext::default();
+        let error = calculate("sqrt(2)", &request, &mut context)
+            .expect_err("partial certified enclosure should be checked against max_output_bytes");
+        assert_eq!(
+            error,
+            CalculatorError::InputLimit(InputLimitError {
+                kind: InputLimitErrorKind::OutputTooLarge,
+            })
+        );
     }
 
     fn assert_source_symbolic_fallback_with_limits(source: &str, limits: ResourceLimits) {
