@@ -80,6 +80,14 @@ svg {
     gap: 18px;
 }
 
+.app-shell > *,
+.workspace > *,
+.keypad > *,
+.key-grid > *,
+.result-stack > * {
+    min-width: 0;
+}
+
 .topbar {
     display: flex;
     align-items: center;
@@ -307,17 +315,49 @@ output {
 
 .keypad {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 8px;
+    grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(220px, 0.8fr));
+    align-items: start;
+    gap: 14px;
     padding: 14px;
 }
 
+.key-group {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+}
+
+.key-group h2 {
+    margin: 0;
+    color: #9eb0ad;
+    font-size: 12px;
+    font-weight: 720;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.key-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.key-group[data-columns="4"] .key-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.key-group[data-columns="6"] .key-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
 .keypad button {
-    aspect-ratio: 1.85;
     min-height: 44px;
+    padding: 0 8px;
+    overflow-wrap: anywhere;
     font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-    font-size: 17px;
+    font-size: 16px;
     font-weight: 760;
+    line-height: 1.1;
 }
 
 @media (max-width: 920px) {
@@ -327,6 +367,14 @@ output {
 
     .settings-panel {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .keypad {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .key-group[data-columns="6"] {
+        grid-column: 1 / -1;
     }
 }
 
@@ -355,6 +403,10 @@ output {
     }
 
     .keypad {
+        grid-template-columns: 1fr;
+    }
+
+    .key-group[data-columns="6"] .key-grid {
         grid-template-columns: repeat(4, minmax(0, 1fr));
     }
 }

@@ -112,6 +112,24 @@ async function runBrowserChecks(url, origin) {
         await page.click("#calculate");
         await waitForText(page, "#exact-output", "= 15");
 
+        await page.fill("#expression", "");
+        await page.click('button[data-key="asin("]');
+        await page.click('button[data-key="sqrt(2)/2"]');
+        await page.click('button[data-key=")"]');
+        await page.waitForFunction(() => {
+            const input = document.querySelector("#expression");
+            return input instanceof HTMLTextAreaElement && input.value === "asin(sqrt(2)/2)";
+        });
+        await page.click("#calculate");
+        await waitForText(page, "#exact-output", "= pi/4");
+
+        await page.fill("#expression", "");
+        await page.click('button[data-key="sin("]');
+        await page.click('button[data-key="pi/6"]');
+        await page.click('button[data-key=")"]');
+        await page.click("#calculate");
+        await waitForText(page, "#exact-output", "= 1/2");
+
         const previousExact = await textContent(page, "#exact-output");
         delayNextWorkerWasm = true;
         await page.fill("#expression", "0.1 + 0.2");
@@ -137,21 +155,21 @@ async function assertPhase2Outputs(page) {
     await page.check("#include-enclosure");
     await page.click("#calculate");
 
-    await waitForText(page, "#scientific-state", "50 digits");
+    await waitForText(page, "#scientific-state", "5 digits");
     await waitForText(
         page,
         "#scientific-output",
-        "3.0000000000000000000000000000000000000000000000000e-1",
+        "3.0000 × 10^-1",
     );
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
-    const interval = parseExactDyadicInterval(await textContent(page, "#enclosure-output"));
+    const interval = parseDecimalScientificInterval(await textContent(page, "#enclosure-output"));
     assert(
-        dyadicCompareWithRational(interval.lower, 3n, 10n) <= 0,
+        rationalCompareWithRational(interval.lower, 3n, 10n) <= 0,
         "certified enclosure lower bound is above 3/10",
     );
     assert(
-        dyadicCompareWithRational(interval.upper, 3n, 10n) >= 0,
+        rationalCompareWithRational(interval.upper, 3n, 10n) >= 0,
         "certified enclosure upper bound is below 3/10",
     );
 }
@@ -161,15 +179,15 @@ async function assertInitialExpLog(page) {
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= exp(1)");
     await waitForText(page, "#scientific-state", "PRECISION LIMIT");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
-    const interval = parseExactDyadicInterval(await textContent(page, "#enclosure-output"));
+    const interval = parseDecimalScientificInterval(await textContent(page, "#enclosure-output"));
     assert(
-        dyadicCompareWithRational(interval.lower, 2n, 1n) > 0,
+        rationalCompareWithRational(interval.lower, 2n, 1n) > 0,
         "exp(1) lower bound is not above 2",
     );
     assert(
-        dyadicCompareWithRational(interval.upper, 3n, 1n) < 0,
+        rationalCompareWithRational(interval.upper, 3n, 1n) < 0,
         "exp(1) upper bound is not below 3",
     );
 
@@ -215,15 +233,15 @@ async function assertRationalPowers(page) {
     await waitForText(page, "#exact-output", "= sqrt(2)");
     await waitForText(page, "#exact-kind", "RADICAL");
     await waitForText(page, "#scientific-state", "PRECISION LIMIT");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
-    const interval = parseExactDyadicInterval(await textContent(page, "#enclosure-output"));
+    const interval = parseDecimalScientificInterval(await textContent(page, "#enclosure-output"));
     assert(
-        dyadicSquareCompareWithRational(interval.lower, 2n, 1n) <= 0,
+        rationalSquareCompareWithRational(interval.lower, 2n, 1n) <= 0,
         "2^(1/2) lower bound squared is above 2",
     );
     assert(
-        dyadicSquareCompareWithRational(interval.upper, 2n, 1n) >= 0,
+        rationalSquareCompareWithRational(interval.upper, 2n, 1n) >= 0,
         "2^(1/2) upper bound squared is below 2",
     );
 
@@ -232,21 +250,21 @@ async function assertRationalPowers(page) {
     await waitForText(page, "#exact-output", "= 2^sqrt(2)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
     await waitForText(page, "#scientific-state", "PRECISION LIMIT");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
     await page.fill("#expression", "sqrt(2)^sqrt(2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sqrt(2)^sqrt(2)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
     await waitForText(page, "#scientific-state", "PRECISION LIMIT");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
     await page.fill("#expression", "2^(1/3)+1");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 2^(1/3)+1");
     await waitForText(page, "#exact-kind", "REAL ALGEBRAIC");
     await waitForText(page, "#scientific-state", "PRECISION LIMIT");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
     await page.fill("#expression", "1-2^(1/3)");
     await page.click("#calculate");
@@ -310,15 +328,15 @@ async function assertPiPartial(page) {
     await waitForText(page, "#exact-output", "= pi");
     await waitForText(page, "#exact-kind", "RATIONAL PI MULTIPLE");
     await waitForText(page, "#scientific-state", "PRECISION LIMIT");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
-    const interval = parseExactDyadicInterval(await textContent(page, "#enclosure-output"));
+    const interval = parseDecimalScientificInterval(await textContent(page, "#enclosure-output"));
     assert(
-        dyadicCompareWithRational(interval.lower, 3n, 1n) > 0,
+        rationalCompareWithRational(interval.lower, 3n, 1n) > 0,
         "pi lower bound is not above 3",
     );
     assert(
-        dyadicCompareWithRational(interval.upper, 22n, 7n) < 0,
+        rationalCompareWithRational(interval.upper, 22n, 7n) < 0,
         "pi upper bound is not below 22/7",
     );
 }
@@ -329,7 +347,7 @@ async function assertRationalPiMultiplePartial(page) {
     await waitForText(page, "#exact-output", "= pi/6");
     await waitForText(page, "#exact-kind", "RATIONAL PI MULTIPLE");
     await waitForText(page, "#scientific-state", "PRECISION LIMIT");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 }
 
 async function assertSpecialAngles(page) {
@@ -337,8 +355,8 @@ async function assertSpecialAngles(page) {
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 1/2");
     await waitForText(page, "#exact-kind", "RATIONAL");
-    await waitForText(page, "#scientific-state", "50 digits");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#scientific-state", "5 digits");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
     await page.fill("#expression", "tan(pi/2)");
     await page.click("#calculate");
@@ -364,70 +382,70 @@ async function assertSpecialAngles(page) {
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= tan(1)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
     await page.fill("#expression", "sin(1)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sin(1)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
     await page.fill("#expression", "sin(-1)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= -sin(1)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
     await page.fill("#expression", "sin(pi+1/10)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= -sin(1/10)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
     await page.fill("#expression", "cos(pi/2+1/10)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= -sin(1/10)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
     await page.fill("#expression", "tan(pi/2+1/10)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= -1/tan(1/10)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
     await page.fill("#expression", "exp(sin(-1))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= exp(-sin(1))");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
     await page.fill("#expression", "cos(1)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= cos(1)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
     await page.fill("#expression", "sin(2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sin(2)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
     await page.fill("#expression", "tan(2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= tan(2)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
     await page.fill("#expression", "asin(1/2)");
@@ -450,7 +468,7 @@ async function assertSpecialAngles(page) {
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= asin(1/3)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
     await page.fill("#expression", "sin(asin(1/3))");
@@ -469,7 +487,7 @@ async function assertSpecialAngles(page) {
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= acos(1/3)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
     await page.click('button[data-angle="degree"]');
     await page.fill("#expression", "sin(30)");
@@ -534,15 +552,15 @@ async function assertIrrationalSqrtPartial(page) {
     await waitForText(page, "#exact-kind", "RADICAL");
     await waitForText(page, "#scientific-state", "PRECISION LIMIT");
     await waitForText(page, "#scientific-output", "Requested decimal digits are not confirmed.");
-    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
-    const interval = parseExactDyadicInterval(await textContent(page, "#enclosure-output"));
+    const interval = parseDecimalScientificInterval(await textContent(page, "#enclosure-output"));
     assert(
-        dyadicSquareCompareWithRational(interval.lower, 2n, 1n) <= 0,
+        rationalSquareCompareWithRational(interval.lower, 2n, 1n) <= 0,
         "sqrt(2) lower bound squared is above 2",
     );
     assert(
-        dyadicSquareCompareWithRational(interval.upper, 2n, 1n) >= 0,
+        rationalSquareCompareWithRational(interval.upper, 2n, 1n) >= 0,
         "sqrt(2) upper bound squared is below 2",
     );
 }
@@ -666,34 +684,45 @@ async function textContent(page, selector) {
     return await page.locator(selector).evaluate((element) => element.textContent?.trim() ?? "");
 }
 
-function parseExactDyadicInterval(source) {
-    const match = /^\[(-?\d+) \* 2\^(-?\d+), (-?\d+) \* 2\^(-?\d+)\]$/u.exec(source);
+function parseDecimalScientificInterval(source) {
+    const match =
+        /^\[(-?\d+(?:\.\d+)?) × 10\^(-?\d+), (-?\d+(?:\.\d+)?) × 10\^(-?\d+)\]$/u.exec(
+            source,
+        );
     assert(match !== null, `unexpected enclosure output: ${JSON.stringify(source)}`);
     return {
-        lower: {
-            coefficient: BigInt(match[1]),
-            exponentTwo: Number.parseInt(match[2], 10),
-        },
-        upper: {
-            coefficient: BigInt(match[3]),
-            exponentTwo: Number.parseInt(match[4], 10),
-        },
+        lower: parseDecimalScientificRational(match[1], Number.parseInt(match[2], 10)),
+        upper: parseDecimalScientificRational(match[3], Number.parseInt(match[4], 10)),
     };
 }
 
-function dyadicCompareWithRational(dyadic, numerator, denominator) {
-    assert(denominator > 0n, "denominator must be positive");
-    const coefficient = dyadic.coefficient;
-    const exponentTwo = dyadic.exponentTwo;
-    let left;
-    let right;
-    if (exponentTwo >= 0) {
-        left = coefficient * (1n << BigInt(exponentTwo)) * denominator;
-        right = numerator;
+function parseDecimalScientificRational(significand, exponentTen) {
+    const negative = significand.startsWith("-");
+    const unsigned = negative ? significand.slice(1) : significand;
+    const [integerPart, fractionalPart = ""] = unsigned.split(".");
+    const digits = `${integerPart}${fractionalPart}`;
+    let numerator = BigInt(digits);
+    let denominator = pow10(fractionalPart.length);
+    if (exponentTen >= 0) {
+        numerator *= pow10(exponentTen);
     } else {
-        left = coefficient * denominator;
-        right = numerator * (1n << BigInt(-exponentTwo));
+        denominator *= pow10(-exponentTen);
     }
+    if (negative) {
+        numerator = -numerator;
+    }
+    const divisor = gcd(abs(numerator), denominator);
+    return {
+        numerator: numerator / divisor,
+        denominator: denominator / divisor,
+    };
+}
+
+function rationalCompareWithRational(value, numerator, denominator) {
+    assert(value.denominator > 0n, "left denominator must be positive");
+    assert(denominator > 0n, "right denominator must be positive");
+    const left = value.numerator * denominator;
+    const right = numerator * value.denominator;
     if (left < right) {
         return -1;
     }
@@ -703,15 +732,38 @@ function dyadicCompareWithRational(dyadic, numerator, denominator) {
     return 0;
 }
 
-function dyadicSquareCompareWithRational(dyadic, numerator, denominator) {
-    return dyadicCompareWithRational(
+function rationalSquareCompareWithRational(value, numerator, denominator) {
+    return rationalCompareWithRational(
         {
-            coefficient: dyadic.coefficient * dyadic.coefficient,
-            exponentTwo: dyadic.exponentTwo * 2,
+            numerator: value.numerator * value.numerator,
+            denominator: value.denominator * value.denominator,
         },
         numerator,
         denominator,
     );
+}
+
+function pow10(exponent) {
+    let value = 1n;
+    for (let index = 0; index < exponent; index += 1) {
+        value *= 10n;
+    }
+    return value;
+}
+
+function gcd(left, right) {
+    let a = left;
+    let b = right;
+    while (b !== 0n) {
+        const remainder = a % b;
+        a = b;
+        b = remainder;
+    }
+    return a;
+}
+
+function abs(value) {
+    return value < 0n ? -value : value;
 }
 
 function assert(condition, message) {
