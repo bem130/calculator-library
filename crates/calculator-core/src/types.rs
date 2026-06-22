@@ -527,11 +527,12 @@ pub struct EvaluationRequest {
     pub limits: ResourceLimitRequest,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PresentationRequest {
     pub exact_output: ExactOutputRequest,
     pub scientific_output: ScientificOutputRequest,
     pub enclosure_output: EnclosureOutputRequest,
+    pub limits: ResourceLimitRequest,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

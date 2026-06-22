@@ -1508,10 +1508,11 @@ pub struct PresentationRequest {
     pub exact_output: ExactOutputRequest,
     pub scientific_output: ScientificOutputRequest,
     pub enclosure_output: EnclosureOutputRequest,
+    pub limits: ResourceLimitRequest,
 }
 ```
 
-`calculate(source, request, context)` は、同じ `request.parse` で `parse` し、同じ `request.semantics` と `request.limits` で `evaluate` し、同じ出力requestで `present` する合成APIである。個別APIを使う場合でも、合成APIと同じDTOを生成しなければならない。
+`calculate(source, request, context)` は、同じ `request.parse` で `parse` し、同じ `request.semantics` と `request.limits` で `evaluate` し、同じ出力requestと `request.limits` で `present` する合成APIである。個別APIを使う場合でも、合成APIと同じDTOを生成しなければならない。
 
 初期版のformat指定は次で固定する。
 
@@ -1920,6 +1921,7 @@ pub struct ResourceLimits {
     pub max_source_depth: u32,
     pub max_expression_nodes: u32,
     pub max_integer_bits: u32,
+    pub max_cyclotomic_order: u32,
     pub max_algebraic_degree: u32,
     pub max_polynomial_coefficient_bits: u32,
     pub max_resultant_degree: u32,
@@ -1937,6 +1939,8 @@ pub struct ResourceLimits {
 Rust APIでは `max_logical_work_units` は `u64` とする。TypeScript DTOでは、この値だけは安全整数範囲を超え得るため、canonical unsigned decimal stringとして渡す。
 
 `logical_work_units` は実行時間ではなく、アルゴリズム上の操作へ決定的に課金する。
+
+`max_presentation_nodes` と `max_output_bytes` は、`present`、`present_input`、`calculate` の通常出力、および `Partial` に添付する certified enclosure に適用する。制限超過時は巨大な表示木や巨大な文字列を返さず、`computationLimit.presentationNodes` または `inputLimit.outputTooLarge` として返す。
 
 例えば、
 
@@ -2039,6 +2043,7 @@ export type ResourceLimitsDto = {
     maxSourceDepth: number;
     maxExpressionNodes: number;
     maxIntegerBits: number;
+    maxCyclotomicOrder: number;
     maxAlgebraicDegree: number;
     maxPolynomialCoefficientBits: number;
     maxResultantDegree: number;

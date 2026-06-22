@@ -61,7 +61,9 @@ Release で公開 surface を変える場合は、生成 DTO、protocol snapshot
 
 公開 error は `domain`、`parse`、`inputLimit`、`computationLimit`、`unsupportedFeature`、`internalInvariant`、`unsupportedProtocol` に分類する。Wasm 境界では unknown tag/code、`null` / `undefined`、非 canonical number などを `unsupportedProtocol` または input limit として typed error に変換する。
 
-Resource limits は公開契約であり、入力 byte 数、source AST nodes/depth、expression nodes、integer bits、cyclotomic order、algebraic degree、polynomial coefficient bits、root isolation steps、logical work units を制限する。制限超過時に近似値へ破壊的に落としてはならない。
+Resource limits は公開契約であり、入力 byte 数、source AST nodes/depth、expression nodes、integer bits、cyclotomic order、algebraic degree、polynomial coefficient bits、resultant degree、factorization work、root isolation steps、rewrite steps、precision bits、refinement rounds、logical work units、presentation nodes、output bytes を制限する。制限超過時に近似値へ破壊的に落としてはならない。
+
+`maxPresentationNodes` と `maxOutputBytes` は `calculate` の exact/scientific/enclosure output、`partial` outcome に添付する certified enclosure、Rust `present()` の出力、npm facade の `presentInput()` preview に適用する。表示 tree が大きすぎる場合は `computationLimit.presentationNodes`、表示 payload の可変文字列が大きすぎる場合は `inputLimit.outputTooLarge` として返す。
 
 ## Session And Worker
 
