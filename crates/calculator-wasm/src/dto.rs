@@ -143,9 +143,12 @@ pub enum EnclosureOutputRequestDto {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
 pub enum EnclosureFormatDto {
+    #[serde(rename = "exactDyadic")]
     ExactDyadic,
+    #[serde(rename = "decimalScientific")]
+    DecimalScientific { significant_digits: u32 },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -268,10 +271,31 @@ pub struct UnavailableScientificOutputDto {
 #[serde(rename_all = "camelCase")]
 pub struct CertifiedIntervalPresentationDto {
     pub relation: ResultRelationDto,
-    pub lower: ExactDyadicDto,
-    pub upper: ExactDyadicDto,
-    pub format: EnclosureFormatDto,
+    pub bounds: CertifiedIntervalBoundsDto,
     pub presentation: PresentationNodeDto,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "tag")]
+pub enum CertifiedIntervalBoundsDto {
+    #[serde(rename = "exactDyadic")]
+    ExactDyadic {
+        lower: ExactDyadicDto,
+        upper: ExactDyadicDto,
+    },
+    #[serde(rename = "decimalScientific")]
+    DecimalScientific {
+        lower: DecimalScientificBoundDto,
+        upper: DecimalScientificBoundDto,
+        requested_significant_digits: u32,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DecimalScientificBoundDto {
+    pub significand: String,
+    pub exponent_ten: String,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]

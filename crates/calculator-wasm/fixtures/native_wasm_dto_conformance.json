@@ -78,8 +78,8 @@
               "confirmedSignificantDigits": 0,
               "assurance": "exact",
               "protocolVersion": {
-                "major": 1,
-                "minor": 1
+                "major": 2,
+                "minor": 0
               }
             }
           }

@@ -80,7 +80,14 @@ export type EnclosureOutputRequest =
         readonly format: EnclosureFormat;
     };
 
-export type EnclosureFormat = "exactDyadic";
+export type EnclosureFormat =
+    | {
+        readonly tag: "exactDyadic";
+    }
+    | {
+        readonly tag: "decimalScientific";
+        readonly significantDigits: number;
+    };
 
 export type ResourceLimitRequest =
     | {
@@ -187,10 +194,26 @@ export type UnavailableScientificOutput = {
 
 export type CertifiedIntervalPresentation = {
     readonly relation: ResultRelation;
-    readonly lower: ExactDyadic;
-    readonly upper: ExactDyadic;
-    readonly format: EnclosureFormat;
+    readonly bounds: CertifiedIntervalBounds;
     readonly presentation: PresentationNodeDto;
+};
+
+export type CertifiedIntervalBounds =
+    | {
+        readonly tag: "exactDyadic";
+        readonly lower: ExactDyadic;
+        readonly upper: ExactDyadic;
+    }
+    | {
+        readonly tag: "decimalScientific";
+        readonly lower: DecimalScientificBound;
+        readonly upper: DecimalScientificBound;
+        readonly requestedSignificantDigits: number;
+    };
+
+export type DecimalScientificBound = {
+    readonly significand: string;
+    readonly exponentTen: string;
 };
 
 export type ExactDyadic = {

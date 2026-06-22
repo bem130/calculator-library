@@ -172,12 +172,15 @@ export const defaultCalculationRequest: CalculationRequest = {
     ...exactOnlyCalculationRequest,
     scientificOutput: {
         tag: "include",
-        significantDigits: 50,
+        significantDigits: 5,
         roundingMode: "nearestTiesToEven",
     },
     enclosureOutput: {
         tag: "include",
-        format: "exactDyadic",
+        format: {
+            tag: "decimalScientific",
+            significantDigits: 5,
+        },
     },
 };
 

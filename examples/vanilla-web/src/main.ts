@@ -21,8 +21,6 @@ import { createWorkerCalculator } from "@bem130/exact-calculator/worker";
 import "./styles.css";
 
 type AngleUnit = CalculationRequest["semantics"]["angleUnit"];
-type CertifiedInterval = Extract<Calculation["enclosure"], { tag: "included" }>["value"];
-type ExactDyadicDto = CertifiedInterval["lower"];
 
 type CalculatorState = {
     expression: string;
@@ -511,7 +509,10 @@ function buildRequest(): CalculationRequest {
         },
         enclosureOutput: {
             tag: "include",
-            format: "exactDyadic",
+            format: {
+                tag: "decimalScientific",
+                significantDigits: state.significantDigits,
+            },
         },
     };
 }
@@ -745,144 +746,13 @@ function renderEnclosure(calculation: Calculation): void {
             return;
         case "included":
             enclosureState.textContent = "DECIMAL SCIENTIFIC";
-            enclosureOutput.textContent = formatCertifiedInterval(calculation.enclosure.value);
+            enclosureOutput.textContent = renderPlainText(calculation.enclosure.value.presentation);
             return;
     }
 }
 
 function formatScientificDecimal(significand: string, exponentTen: string): string {
     return `${significand} × 10^${exponentTen}`;
-}
-
-function formatCertifiedInterval(interval: CertifiedInterval): string {
-    return `[${formatDyadicBound(interval.lower, state.significantDigits, "down")}, ${formatDyadicBound(
-        interval.upper,
-        state.significantDigits,
-        "up",
-    )}]`;
-}
-
-function formatDyadicBound(
-    dyadic: ExactDyadicDto,
-    significantDigits: number,
-    direction: "down" | "up",
-): string {
-    const digits = clamp(Math.trunc(significantDigits), 1, 200);
-    const coefficient = BigInt(dyadic.coefficient);
-    if (coefficient === 0n) {
-        return formatRoundedScientific(1, 0n, digits, 0);
-    }
-
-    const sign = coefficient < 0n ? -1 : 1;
-    let numerator = coefficient < 0n ? -coefficient : coefficient;
-    let denominator = 1n;
-    const exponentTwo = parseExactInteger(dyadic.exponentTwo);
-    if (exponentTwo >= 0) {
-        numerator *= 1n << BigInt(exponentTwo);
-    } else {
-        denominator = 1n << BigInt(-exponentTwo);
-    }
-
-    let exponentTen = decimalExponent(numerator, denominator);
-    const scaleExponent = digits - 1 - exponentTen;
-    const scaled = scaledQuotientAndRemainder(numerator, denominator, scaleExponent);
-    let significand = scaled.quotient;
-    if (scaled.remainder !== 0n && shouldRoundAwayFromZero(sign, direction)) {
-        significand += 1n;
-    }
-    if (significand >= pow10(digits)) {
-        significand /= 10n;
-        exponentTen += 1;
-    }
-    return formatRoundedScientific(sign, significand, digits, exponentTen);
-}
-
-function scaledQuotientAndRemainder(
-    numerator: bigint,
-    denominator: bigint,
-    scaleExponent: number,
-): { quotient: bigint; remainder: bigint } {
-    if (scaleExponent >= 0) {
-        const scaledNumerator = numerator * pow10(scaleExponent);
-        return {
-            quotient: scaledNumerator / denominator,
-            remainder: scaledNumerator % denominator,
-        };
-    }
-    const scaledDenominator = denominator * pow10(-scaleExponent);
-    return {
-        quotient: numerator / scaledDenominator,
-        remainder: numerator % scaledDenominator,
-    };
-}
-
-function shouldRoundAwayFromZero(sign: number, direction: "down" | "up"): boolean {
-    return direction === "up" ? sign > 0 : sign < 0;
-}
-
-function decimalExponent(numerator: bigint, denominator: bigint): number {
-    let exponent = numerator.toString().length - denominator.toString().length;
-    while (compareRationalToPowerOfTen(numerator, denominator, exponent) < 0) {
-        exponent -= 1;
-    }
-    while (compareRationalToPowerOfTen(numerator, denominator, exponent + 1) >= 0) {
-        exponent += 1;
-    }
-    return exponent;
-}
-
-function compareRationalToPowerOfTen(
-    numerator: bigint,
-    denominator: bigint,
-    exponent: number,
-): number {
-    const left = exponent >= 0 ? numerator : numerator * pow10(-exponent);
-    const right = exponent >= 0 ? denominator * pow10(exponent) : denominator;
-    if (left < right) {
-        return -1;
-    }
-    if (left > right) {
-        return 1;
-    }
-    return 0;
-}
-
-const pow10Cache = new Map<number, bigint>([[0, 1n]]);
-
-function pow10(exponent: number): bigint {
-    if (!Number.isSafeInteger(exponent) || exponent < 0) {
-        throw new Error(`invalid decimal exponent: ${exponent}`);
-    }
-    const cached = pow10Cache.get(exponent);
-    if (cached !== undefined) {
-        return cached;
-    }
-    let value = 1n;
-    for (let index = 0; index < exponent; index += 1) {
-        value *= 10n;
-    }
-    pow10Cache.set(exponent, value);
-    return value;
-}
-
-function formatRoundedScientific(
-    sign: number,
-    significand: bigint,
-    digits: number,
-    exponentTen: number,
-): string {
-    const padded = significand.toString().padStart(digits, "0");
-    const unsigned = digits === 1 ? padded : `${padded[0]}.${padded.slice(1)}`;
-    const signed = sign < 0 && significand !== 0n ? `-${unsigned}` : unsigned;
-    return formatScientificDecimal(signed, String(exponentTen));
-}
-
-function parseExactInteger(value: string): number {
-    const parsed = Number.parseInt(value, 10);
-    if (!Number.isSafeInteger(parsed) || String(parsed) !== value) {
-        throw new Error(`invalid integer: ${value}`);
-    }
-    return parsed;
 }
 
 function renderStatus(): void {

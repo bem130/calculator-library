@@ -470,12 +470,7 @@ pub fn present(
             ScientificOutput::Included,
         ),
     };
-    let dyadic_precision_bits = match request.scientific_output {
-        ScientificOutputRequest::Include {
-            significant_digits, ..
-        } => precision_bits_for_decimal_digits(significant_digits.get())?,
-        ScientificOutputRequest::Omit => 128,
-    };
+    let dyadic_precision_bits = precision_bits_for_output_request(request)?;
     let enclosure = match (&evaluation.value.recognized_exact, request.enclosure_output) {
         (_, EnclosureOutputRequest::Omit) => EnclosureOutput::Omitted,
         (RecognizedExact::Rational(rational), EnclosureOutputRequest::Include { format }) => {
@@ -626,6 +621,29 @@ fn partial_certified_enclosure(
         &evaluation.value.certified_enclosure,
         EnclosureFormat::ExactDyadic,
     )
+}
+
+fn precision_bits_for_output_request(
+    request: &PresentationRequest,
+) -> Result<u32, PresentationError> {
+    let mut digits = 0;
+    if let ScientificOutputRequest::Include {
+        significant_digits, ..
+    } = request.scientific_output
+    {
+        digits = digits.max(significant_digits.get());
+    }
+    if let EnclosureOutputRequest::Include {
+        format: EnclosureFormat::DecimalScientific { significant_digits },
+    } = request.enclosure_output
+    {
+        digits = digits.max(significant_digits.get());
+    }
+    if digits == 0 {
+        Ok(128)
+    } else {
+        precision_bits_for_decimal_digits(digits)
+    }
 }
 
 fn exact_presentation(rational: &Rational) -> ExactPresentation {
@@ -2134,7 +2152,7 @@ fn dyadic_interval_presentation(
             },
         ));
     }
-    Ok(certified_interval_presentation(&interval, format))
+    certified_interval_presentation(&interval, format)
 }
 
 fn certified_interval_state_presentation(
@@ -2143,7 +2161,7 @@ fn certified_interval_state_presentation(
 ) -> Result<CertifiedIntervalPresentation, PresentationError> {
     match state {
         CertifiedEnclosureState::Available(interval) => {
-            Ok(certified_interval_presentation(interval, format))
+            certified_interval_presentation(interval, format)
         }
         CertifiedEnclosureState::NotRequested | CertifiedEnclosureState::Unavailable => Err(
             PresentationError::InternalInvariant(InternalInvariantError {
@@ -2156,22 +2174,75 @@ fn certified_interval_state_presentation(
 fn certified_interval_presentation(
     interval: &CertifiedInterval,
     format: EnclosureFormat,
-) -> CertifiedIntervalPresentation {
-    let lower = interval.lower.clone();
-    let upper = interval.upper.clone();
-    CertifiedIntervalPresentation {
-        relation: ResultRelation::ElementOf,
-        presentation: PresentationNode::Row(vec![
-            PresentationNode::Text(String::from("[")),
-            dyadic_text_node(&lower),
-            PresentationNode::Text(String::from(", ")),
-            dyadic_text_node(&upper),
-            PresentationNode::Text(String::from("]")),
-        ]),
-        lower,
-        upper,
-        format,
+) -> Result<CertifiedIntervalPresentation, PresentationError> {
+    match format {
+        EnclosureFormat::ExactDyadic => {
+            let lower = interval.lower.clone();
+            let upper = interval.upper.clone();
+            Ok(CertifiedIntervalPresentation {
+                relation: ResultRelation::ElementOf,
+                presentation: PresentationNode::Row(vec![
+                    PresentationNode::Text(String::from("[")),
+                    dyadic_text_node(&lower),
+                    PresentationNode::Text(String::from(", ")),
+                    dyadic_text_node(&upper),
+                    PresentationNode::Text(String::from("]")),
+                ]),
+                bounds: CertifiedIntervalBounds::ExactDyadic { lower, upper },
+            })
+        }
+        EnclosureFormat::DecimalScientific { significant_digits } => {
+            let lower = decimal_scientific_bound_from_dyadic(
+                &interval.lower,
+                significant_digits,
+                DecimalRoundingMode::TowardNegativeInfinity,
+            )?;
+            let upper = decimal_scientific_bound_from_dyadic(
+                &interval.upper,
+                significant_digits,
+                DecimalRoundingMode::TowardPositiveInfinity,
+            )?;
+            Ok(CertifiedIntervalPresentation {
+                relation: ResultRelation::ElementOf,
+                presentation: PresentationNode::Row(vec![
+                    PresentationNode::Text(String::from("[")),
+                    decimal_scientific_bound_presentation(&lower),
+                    PresentationNode::Text(String::from(", ")),
+                    decimal_scientific_bound_presentation(&upper),
+                    PresentationNode::Text(String::from("]")),
+                ]),
+                bounds: CertifiedIntervalBounds::DecimalScientific {
+                    lower,
+                    upper,
+                    requested_significant_digits: significant_digits,
+                },
+            })
+        }
     }
+}
+
+fn decimal_scientific_bound_from_dyadic(
+    value: &ExactDyadic,
+    significant_digits: core::num::NonZeroU32,
+    rounding_mode: DecimalRoundingMode,
+) -> Result<DecimalScientificBound, PresentationError> {
+    let rational = interval::dyadic_to_rational(value).map_err(|_| precision_limit_error())?;
+    let presentation = scientific_presentation(&rational, significant_digits, rounding_mode)?;
+    Ok(DecimalScientificBound {
+        significand: presentation.significand,
+        exponent_ten: presentation.exponent_ten,
+    })
+}
+
+fn decimal_scientific_bound_presentation(value: &DecimalScientificBound) -> PresentationNode {
+    PresentationNode::Row(vec![
+        PresentationNode::Text(value.significand.clone()),
+        PresentationNode::Text(String::from(" × ")),
+        PresentationNode::Superscript {
+            base: Box::new(PresentationNode::Text(String::from("10"))),
+            exponent: Box::new(PresentationNode::Text(value.exponent_ten.clone())),
+        },
+    ])
 }
 
 fn decimal_exponent(numerator: &BigInt, denominator: &BigInt) -> Result<i64, PresentationError> {
@@ -2409,6 +2480,100 @@ mod tests {
         }
     }
 
+    fn high_precision_enclosure_request() -> CalculationRequest {
+        CalculationRequest {
+            scientific_output: ScientificOutputRequest::Include {
+                significant_digits: core::num::NonZeroU32::new(50).unwrap(),
+                rounding_mode: DecimalRoundingMode::NearestTiesToEven,
+            },
+            enclosure_output: EnclosureOutputRequest::Include {
+                format: EnclosureFormat::ExactDyadic,
+            },
+            ..CalculationRequest::default()
+        }
+    }
+
+    fn exact_dyadic_interval(enclosure: &CertifiedIntervalPresentation) -> CertifiedInterval {
+        let CertifiedIntervalBounds::ExactDyadic { lower, upper } = &enclosure.bounds else {
+            panic!("expected exact dyadic certified interval bounds");
+        };
+        CertifiedInterval {
+            lower: lower.clone(),
+            upper: upper.clone(),
+        }
+    }
+
+    fn decimal_scientific_plain_text(source: &str) -> String {
+        let mut context = EvaluationContext::default();
+        let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+        let calculation = match outcome {
+            CalculationOutcome::Complete(calculation) => calculation,
+            CalculationOutcome::Partial { calculation, .. } => calculation,
+        };
+        let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
+            panic!("expected enclosure output");
+        };
+        let CertifiedIntervalBounds::DecimalScientific {
+            requested_significant_digits,
+            ..
+        } = enclosure.bounds
+        else {
+            panic!("expected decimal scientific certified interval bounds");
+        };
+        assert_eq!(requested_significant_digits.get(), 5);
+        render_plain_text_for_test(&enclosure.presentation)
+    }
+
+    fn render_plain_text_for_test(node: &PresentationNode) -> String {
+        match node {
+            PresentationNode::Text(text) => text.clone(),
+            PresentationNode::Row(children) => children
+                .iter()
+                .map(render_plain_text_for_test)
+                .collect::<String>(),
+            PresentationNode::Fraction {
+                numerator,
+                denominator,
+            } => {
+                format!(
+                    "{}/{}",
+                    render_plain_text_for_test(numerator),
+                    render_plain_text_for_test(denominator)
+                )
+            }
+            PresentationNode::Superscript { base, exponent } => {
+                format!(
+                    "{}^{}",
+                    render_plain_text_for_test(base),
+                    render_plain_text_for_test(exponent)
+                )
+            }
+            PresentationNode::Subscript { base, subscript } => {
+                format!(
+                    "{}_{}",
+                    render_plain_text_for_test(base),
+                    render_plain_text_for_test(subscript)
+                )
+            }
+            PresentationNode::Radical { index, radicand } => match index {
+                RadicalIndex::Square => format!("sqrt({})", render_plain_text_for_test(radicand)),
+                RadicalIndex::Nth(value) => {
+                    format!(
+                        "root({}, {})",
+                        value.inner.inner,
+                        render_plain_text_for_test(radicand)
+                    )
+                }
+            },
+            PresentationNode::Function { name, argument } => {
+                format!("{name:?}({})", render_plain_text_for_test(argument))
+            }
+            PresentationNode::Parenthesized(value) => {
+                format!("({})", render_plain_text_for_test(value))
+            }
+        }
+    }
+
     fn exact_plain_text(source: &str) -> String {
         let mut context = EvaluationContext::default();
         let outcome = calculate(source, &exact_only_request(), &mut context).expect(source);
@@ -2512,10 +2677,8 @@ mod tests {
     }
 
     fn assert_source_symbolic_fallback_with_limits(source: &str, limits: ResourceLimits) {
-        let request = CalculationRequest {
-            limits: ResourceLimitRequest::Custom(limits),
-            ..CalculationRequest::default()
-        };
+        let mut request = high_precision_enclosure_request();
+        request.limits = ResourceLimitRequest::Custom(limits);
         let mut context = EvaluationContext::default();
         let outcome = calculate(source, &request, &mut context)
             .expect("bounded algebraic fallback should calculate");
@@ -2908,8 +3071,12 @@ mod tests {
     #[test]
     fn inverse_trigonometric_radian_values_return_partial_with_certified_enclosure() {
         let mut context = EvaluationContext::default();
-        let outcome = calculate("asin(1/2)", &CalculationRequest::default(), &mut context)
-            .expect("asin(1/2)");
+        let outcome = calculate(
+            "asin(1/2)",
+            &high_precision_enclosure_request(),
+            &mut context,
+        )
+        .expect("asin(1/2)");
         let CalculationOutcome::Partial {
             calculation,
             reason,
@@ -3092,7 +3259,8 @@ mod tests {
     #[test]
     fn irrational_sqrt_returns_partial_with_certified_enclosure() {
         let mut context = EvaluationContext::default();
-        let outcome = calculate("sqrt(2)", &CalculationRequest::default(), &mut context).unwrap();
+        let outcome =
+            calculate("sqrt(2)", &high_precision_enclosure_request(), &mut context).unwrap();
         let CalculationOutcome::Partial {
             calculation,
             reason,
@@ -3121,10 +3289,7 @@ mod tests {
             panic!("expected requested enclosure output");
         };
         assert_eq!(certified_enclosure, enclosure);
-        let interval = CertifiedInterval {
-            lower: certified_enclosure.lower,
-            upper: certified_enclosure.upper,
-        };
+        let interval = exact_dyadic_interval(&certified_enclosure);
         let squared = interval::multiply(&interval, &interval).unwrap();
         assert!(
             interval::contains_rational(&squared, &Rational::from_integer(Integer::from(2)),)
@@ -3156,9 +3321,18 @@ mod tests {
     }
 
     #[test]
+    fn default_request_uses_five_digit_decimal_scientific_enclosure() {
+        assert_eq!(
+            decimal_scientific_plain_text("sqrt(2)"),
+            "[1.4142 × 10^0, 1.4143 × 10^0]"
+        );
+    }
+
+    #[test]
     fn irrational_rational_power_returns_partial_with_certified_enclosure() {
         let mut context = EvaluationContext::default();
-        let outcome = calculate("2^(1/2)", &CalculationRequest::default(), &mut context).unwrap();
+        let outcome =
+            calculate("2^(1/2)", &high_precision_enclosure_request(), &mut context).unwrap();
         let CalculationOutcome::Partial {
             calculation,
             reason,
@@ -3183,10 +3357,7 @@ mod tests {
             panic!("expected requested enclosure output");
         };
         assert_eq!(certified_enclosure, enclosure);
-        let interval = CertifiedInterval {
-            lower: certified_enclosure.lower,
-            upper: certified_enclosure.upper,
-        };
+        let interval = exact_dyadic_interval(&certified_enclosure);
         let squared = interval::multiply(&interval, &interval).unwrap();
         assert!(
             interval::contains_rational(&squared, &Rational::from_integer(Integer::from(2)),)
@@ -3207,7 +3378,7 @@ mod tests {
     fn positive_base_general_powers_return_partial_with_certified_enclosure() {
         let mut context = EvaluationContext::default();
         for source in ["2^sqrt(2)", "sqrt(2)^sqrt(2)"] {
-            let outcome = calculate(source, &CalculationRequest::default(), &mut context)
+            let outcome = calculate(source, &high_precision_enclosure_request(), &mut context)
                 .unwrap_or_else(|error| panic!("{source}: {error:?}"));
             let CalculationOutcome::Partial {
                 calculation,
@@ -3294,7 +3465,8 @@ mod tests {
             .methods
             .contains(&MethodTag::AlgebraicRootIsolation));
 
-        let outcome = calculate("2^(1/3)", &CalculationRequest::default(), &mut context).unwrap();
+        let outcome =
+            calculate("2^(1/3)", &high_precision_enclosure_request(), &mut context).unwrap();
         let CalculationOutcome::Partial {
             calculation,
             reason,
@@ -3331,10 +3503,7 @@ mod tests {
             .metadata
             .methods
             .contains(&MethodTag::AlgebraicRootIsolation));
-        let interval = CertifiedInterval {
-            lower: certified_enclosure.lower,
-            upper: certified_enclosure.upper,
-        };
+        let interval = exact_dyadic_interval(&certified_enclosure);
         let cubed = interval::pow_i64(&interval, 3, 128).unwrap();
         assert!(
             interval::contains_rational(&cubed, &Rational::from_integer(Integer::from(2)),)
@@ -3423,7 +3592,7 @@ mod tests {
             1
         );
 
-        let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+        let outcome = calculate(source, &high_precision_enclosure_request(), &mut context).unwrap();
         let CalculationOutcome::Partial {
             calculation,
             certified_enclosure,
@@ -3437,10 +3606,7 @@ mod tests {
         };
         assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
         assert_eq!(exact.plain_text, source);
-        let interval = CertifiedInterval {
-            lower: certified_enclosure.lower,
-            upper: certified_enclosure.upper,
-        };
+        let interval = exact_dyadic_interval(&certified_enclosure);
         let shifted = interval::add(
             &interval,
             &interval::from_rational(&Rational::from_integer(Integer::from(-1)), 128),
@@ -3522,7 +3688,8 @@ mod tests {
                 1
             );
 
-            let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+            let outcome =
+                calculate(source, &high_precision_enclosure_request(), &mut context).unwrap();
             let CalculationOutcome::Partial { calculation, .. } = outcome else {
                 panic!("{source}: expected partial calculation");
             };
@@ -3569,7 +3736,7 @@ mod tests {
             1
         );
 
-        let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+        let outcome = calculate(source, &high_precision_enclosure_request(), &mut context).unwrap();
         let CalculationOutcome::Partial { calculation, .. } = outcome else {
             panic!("expected partial calculation for root-sum algebraic number");
         };
@@ -3615,7 +3782,7 @@ mod tests {
             1
         );
 
-        let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+        let outcome = calculate(source, &high_precision_enclosure_request(), &mut context).unwrap();
         let CalculationOutcome::Partial { calculation, .. } = outcome else {
             panic!("expected partial calculation for product algebraic number");
         };
@@ -3687,7 +3854,8 @@ mod tests {
                 "{source}: cubed enclosure should contain {cube}"
             );
 
-            let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+            let outcome =
+                calculate(source, &high_precision_enclosure_request(), &mut context).unwrap();
             let CalculationOutcome::Partial { calculation, .. } = outcome else {
                 panic!("{source}: expected partial calculation for algebraic integer power");
             };
@@ -3780,7 +3948,8 @@ mod tests {
                 "{source}: powered enclosure should contain 2"
             );
 
-            let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+            let outcome =
+                calculate(source, &high_precision_enclosure_request(), &mut context).unwrap();
             let CalculationOutcome::Partial { calculation, .. } = outcome else {
                 panic!("{source}: expected partial calculation for algebraic square root");
             };
@@ -3880,7 +4049,8 @@ mod tests {
                 "{source}: powered enclosure should contain target"
             );
 
-            let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+            let outcome =
+                calculate(source, &high_precision_enclosure_request(), &mut context).unwrap();
             let CalculationOutcome::Partial { calculation, .. } = outcome else {
                 panic!("{source}: expected partial calculation for algebraic nth root");
             };
@@ -3977,7 +4147,8 @@ mod tests {
                 "{source}: powered enclosure should contain target"
             );
 
-            let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+            let outcome =
+                calculate(source, &high_precision_enclosure_request(), &mut context).unwrap();
             let CalculationOutcome::Partial { calculation, .. } = outcome else {
                 panic!("{source}: expected partial calculation for algebraic nth root");
             };
@@ -4024,7 +4195,7 @@ mod tests {
             1
         );
 
-        let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+        let outcome = calculate(source, &high_precision_enclosure_request(), &mut context).unwrap();
         let CalculationOutcome::Partial { calculation, .. } = outcome else {
             panic!("expected partial calculation for quotient algebraic number");
         };
@@ -4068,7 +4239,8 @@ mod tests {
                 .methods
                 .contains(&MethodTag::AlgebraicRootIsolation));
 
-            let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+            let outcome =
+                calculate(source, &high_precision_enclosure_request(), &mut context).unwrap();
             let CalculationOutcome::Complete(calculation) = outcome else {
                 panic!("{source}: expected complete rational calculation");
             };
@@ -4116,7 +4288,8 @@ mod tests {
                 .unwrap()
             );
 
-            let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+            let outcome =
+                calculate(source, &high_precision_enclosure_request(), &mut context).unwrap();
             let CalculationOutcome::Partial { calculation, .. } = outcome else {
                 panic!("{source}: expected partial calculation for algebraic value");
             };
@@ -4268,7 +4441,7 @@ mod tests {
     fn constants_return_partial_with_certified_enclosures() {
         let source = "e";
         let mut context = EvaluationContext::default();
-        let outcome = calculate(source, &CalculationRequest::default(), &mut context)
+        let outcome = calculate(source, &high_precision_enclosure_request(), &mut context)
             .unwrap_or_else(|error| panic!("{source}: {error:?}"));
         let CalculationOutcome::Partial {
             calculation,
@@ -4311,7 +4484,7 @@ mod tests {
     fn non_rational_pi_multiples_return_partial_with_certified_enclosures() {
         for source in ["pi", "pi/6"] {
             let mut context = EvaluationContext::default();
-            let outcome = calculate(source, &CalculationRequest::default(), &mut context)
+            let outcome = calculate(source, &high_precision_enclosure_request(), &mut context)
                 .unwrap_or_else(|error| panic!("{source}: {error:?}"));
             let CalculationOutcome::Partial {
                 calculation,
@@ -4612,7 +4785,8 @@ mod tests {
     #[test]
     fn exp_one_returns_partial_euler_enclosure() {
         let mut context = EvaluationContext::default();
-        let outcome = calculate("exp(1)", &CalculationRequest::default(), &mut context).unwrap();
+        let outcome =
+            calculate("exp(1)", &high_precision_enclosure_request(), &mut context).unwrap();
         let CalculationOutcome::Partial {
             calculation,
             reason,
@@ -4669,7 +4843,8 @@ mod tests {
             ("cos(pi/2+1/10)", "-sin(1/10)"),
             ("tan(pi/2+1/10)", "-1/tan(1/10)"),
         ] {
-            let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+            let outcome =
+                calculate(source, &high_precision_enclosure_request(), &mut context).unwrap();
             let CalculationOutcome::Partial {
                 calculation,
                 certified_enclosure,
@@ -4790,14 +4965,9 @@ mod tests {
             panic!("expected enclosure output");
         };
         let rational = Rational::new(Integer::from(3), Integer::from(10)).unwrap();
-        assert!(interval::contains_rational(
-            &CertifiedInterval {
-                lower: enclosure.lower,
-                upper: enclosure.upper,
-            },
-            &rational
-        )
-        .unwrap());
+        assert!(
+            interval::contains_rational(&exact_dyadic_interval(&enclosure), &rational).unwrap()
+        );
         assert!(calculation
             .metadata
             .methods

@@ -11,7 +11,7 @@
 * Rust core: `calculator-core` の公開型と `calculate` / `evaluate` / `parse` / `present` / `present_input` / `reduce_input` / `apply_calculation_result`。
 * Wasm DTO: `crates/calculator-wasm/src/dto.rs` と生成 TypeScript `packages/calculator/src/generated/dto.ts`。
 * npm facade: package root `packages/calculator/src/index.ts` と worker subpath `packages/calculator/src/worker.ts` から export される型・関数。
-* protocol snapshot: `crates/xtask/snapshots/protocol-1.1.dto.ts`。
+* protocol snapshot: `crates/xtask/snapshots/protocol-2.0.dto.ts`。
 
 `doc/design.md` は最終設計の目標であり、現行リリースの完全実装リストではない。
 
@@ -39,13 +39,13 @@ author は `bem130`、license は `MIT` とする。license 本文は repository
 
 Exact output は presentation tree、plain text、MathML、representation kind、simplification status、method tags を持つ。npm facade は `renderPlainText` と `renderMathMl` を公開し、sample UI はこの public facade だけを使用する。`presentInput` は入力式そのものの presentation tree を返し、評価結果とは混同しない。
 
-Scientific output は significant digits と rounding mode を要求として受ける。rounding mode は DTO と Rust enum の両方で明示 variant として扱う。
+Scientific output は significant digits と rounding mode を要求として受ける。rounding mode は DTO と Rust enum の両方で明示 variant として扱う。既定の `CalculationRequest` は 5 significant digits を要求する。
 
-Enclosure output は現行では exact dyadic interval を公開する。
+Enclosure output は `exactDyadic` または `decimalScientific` を明示して要求する。既定の `CalculationRequest` は 5 significant digits の `decimalScientific` enclosure を要求する。`decimalScientific` enclosure は下端を下向き、上端を上向きに丸め、presentation tree は `x.xxx × 10^n` 形式で返す。
 
 ## Protocol And Release Policy
 
-`ProtocolVersion` は現行 DTO surface を識別するための version であり、Cargo crate や npm package の semver とは別に扱う。現行 protocol snapshot は `1.1` である。
+`ProtocolVersion` は現行 DTO surface を識別するための version であり、Cargo crate や npm package の semver とは別に扱う。現行 protocol snapshot は `2.0` である。
 
 Protocol major/minor の運用は、後方互換保証ではなく、DTO surface の変更を見落とさないための識別子として扱う。
 
