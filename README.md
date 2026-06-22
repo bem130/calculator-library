@@ -7,7 +7,7 @@ License: `MIT`
 
 ## Current Status
 
-The implementation is following [doc/design.md](doc/design.md). The current working surface includes Phase 1 exact rational arithmetic plus selected Phase 2 and Phase 3 exact/certified behavior:
+The implementation is following [doc/design.md](doc/design.md). The current working surface includes exact rational arithmetic, certified interval evaluation, selected symbolic simplification, special values, bounded real algebraic recognition, Wasm/npm facades, and a deployed browser example:
 
 - `calculator-core` parses and evaluates rational expressions without `f32` / `f64`.
 - Rational evaluation carries an internal exact-dyadic certified interval and can produce exact significant-digit scientific notation.
@@ -20,12 +20,14 @@ The implementation is following [doc/design.md](doc/design.md). The current work
 - Rational and simple-radical special angles are exact when the DAG proves the argument is a supported rational multiple of `pi`: examples include `sin(pi/6) = 1/2`, `cos(pi/3) = 1/2`, `sin(pi/4) = sqrt(2)/2`, `sin(pi/12) = sqrt(6)/4 - sqrt(2)/4`, `tan(pi/12) = 2 - sqrt(3)`, and `tan(pi/2)` as `domain.tangentPole`.
 - Forward trigonometric functions lower degree and gradian inputs to exact radian expressions before evaluation, so `sin(30)` in degree mode is exact `1/2`.
 - Inverse trigonometric known values are exact for supported rational and simple-radical arguments: examples include `asin(1/2) = pi/6`, `asin(sqrt(2)/2) = pi/4`, `atan(sqrt(3)) = pi/3` in radian mode, and `asin(1/2) = 30` / `atan(sqrt(3)) = 60` in degree mode.
+- Certified interval evaluation covers constants, supported elementary functions, rational point trigonometric range reduction, periodic `sin` / `cos` extrema, and `tan` pole-aware monotone branches.
+- Bounded real algebraic recognition covers supported prime rational powers, algebraic sums/products/quotients/integer powers, cyclotomic exact trigonometric values such as `sin(pi/5)`, `cos(pi/5)`, and `tan(pi/5)`, and rational collapse of degree-one algebraic results such as `2^(1/3)-2^(1/3) = 0` and `2^(1/3)/2^(1/3) = 1`. Nested rational collapses are propagated into later algebraic operations, for example `(2^(1/3)-2^(1/3))+2^(1/3)` and `((2^(1/3)-2^(1/3))+2)^(1/3)` remain recognized as real algebraic values.
 - `calculator-cli` evaluates exact expressions such as `0.1 + 0.2`.
 - `calculator-wasm` exposes DTO-based calculation through `wasm-bindgen`.
 - `packages/calculator` provides TypeScript facades for calculation and headless session dispatch over the Wasm module.
 - `examples/vanilla-web` is a browser example using the public npm facade.
 
-Later phases in the design document, including broader transcendental interval evaluation, symbolic simplification, full square-free factorization, cyclotomic exact trig, and algebraic numbers, are still in progress.
+Remaining design work includes broader transcendental interval evaluation, wider symbolic simplification, algebraic operation coverage beyond the current bounded supported cases, and the final public API 1.0 release policy.
 
 ## Native CLI
 
@@ -67,6 +69,10 @@ The TypeScript facade exposes `createCalculator()` for direct expression calcula
 
 ## Vanilla Web Example
 
+Public GitHub Pages deployment:
+
+https://bem130.github.io/calculator-library/
+
 Install dependencies:
 
 ```sh
@@ -92,7 +98,7 @@ clipboard copy, worker cancellation, rational scientific/enclosure output,
 guarded `exp` / `log` identities, exact rational power semantics, and rational
 `pi` multiple output, rational and radical special-angle output, inverse
 trigonometric known values, simple radical output and algebra, mixed radical
-linear combinations, and `tan` pole errors.
+linear combinations, bounded real algebraic output, and `tan` pole errors.
 
 ## Verification
 
@@ -100,15 +106,22 @@ Common local checks:
 
 ```sh
 cargo fmt --all --check
-cargo test --workspace
 cargo clippy --all-targets --all-features -- -D warnings
+cargo clippy -p calculator-wasm --target wasm32-unknown-unknown --all-features -- -D warnings
+cargo test --workspace
 cargo check -p calculator-core --no-default-features
 cargo test -p calculator-core --no-default-features
+wasm-pack test --node crates/calculator-wasm
 cargo deny check
 cargo xtask generate-types
 cargo xtask check-generated
+cargo xtask check-protocol-compatibility
 cargo xtask check-no-floats
+node --no-warnings tools/oracle/check-rational-oracle.mjs
+cargo xtask check-package-size
 git diff --exit-code
+corepack pnpm --dir packages/calculator audit --audit-level low
+corepack pnpm --dir examples/vanilla-web audit --audit-level low
 corepack pnpm --dir packages/calculator run check
 corepack pnpm --dir examples/vanilla-web run build
 corepack pnpm --dir examples/vanilla-web run test:e2e
