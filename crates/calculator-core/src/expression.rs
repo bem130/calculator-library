@@ -601,7 +601,8 @@ fn evaluate_real_algebraic_node(
             }
             Function::Exp => evaluate_real_algebraic_exp_function(dag, *argument, limits),
             Function::Log => evaluate_real_algebraic_log_function(dag, *argument, limits),
-            Function::Asin | Function::Acos | Function::Atan | Function::Sqrt => Ok(None),
+            Function::Sqrt => evaluate_real_algebraic_sqrt_function(dag, *argument, limits),
+            Function::Asin | Function::Acos | Function::Atan => Ok(None),
         },
         ExpressionNode::Rational(_) | ExpressionNode::Constant(_) => Ok(None),
     }
@@ -632,6 +633,9 @@ fn evaluate_real_algebraic_power(
                     evaluate_collapsed_rational_power(base, exponent, limits)
                 }
                 RealAlgebraicEvaluation::Algebraic(base) => {
+                    if exponent.value() == &rational(1, 2) {
+                        return real_algebraic_square_root(base, limits);
+                    }
                     if !exponent.value().is_integer() {
                         return Ok(None);
                     }
@@ -1019,6 +1023,57 @@ fn real_algebraic_positive_integer_power(
         }
     }
     Ok(result)
+}
+
+fn evaluate_real_algebraic_sqrt_function(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
+    let Some(value) = evaluate_rational_or_real_algebraic_node(dag, argument, limits)? else {
+        return Ok(None);
+    };
+    match value {
+        RealAlgebraicEvaluation::Rational(value) => evaluate_collapsed_rational_power(
+            value,
+            RationalEvaluation::direct(rational(1, 2)),
+            limits,
+        ),
+        RealAlgebraicEvaluation::Algebraic(value) => real_algebraic_square_root(value, limits),
+    }
+}
+
+fn real_algebraic_square_root(
+    value: RealAlgebraic,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
+    match value.sign_bounded(limits.max_root_isolation_steps) {
+        Ok(Some(Ordering::Greater)) => {}
+        Ok(Some(Ordering::Equal)) => {
+            return Ok(Some(RealAlgebraicEvaluation::rational(Rational::zero())));
+        }
+        Ok(Some(Ordering::Less)) => {
+            return Err(domain_error(DomainErrorKind::EvenRootOfNegative));
+        }
+        Ok(None)
+        | Err(RealAlgebraicConstructionError::RootIsolation(
+            PrimitivePolynomialRootIsolationError::StepLimitExceeded,
+        )) => return Ok(None),
+        Err(error) => return Err(real_algebraic_construction_error(error)),
+    }
+
+    match value.principal_square_root_bounded(
+        limits.max_algebraic_degree,
+        limits.max_polynomial_coefficient_bits,
+        limits.max_factorization_work,
+        limits.max_root_isolation_steps,
+    ) {
+        Ok(value) => Ok(value.map(RealAlgebraicEvaluation::from_algebraic)),
+        Err(RealAlgebraicConstructionError::RootIsolation(
+            PrimitivePolynomialRootIsolationError::StepLimitExceeded,
+        )) => Ok(None),
+        Err(error) => Err(real_algebraic_construction_error(error)),
+    }
 }
 
 fn evaluate_real_algebraic_exp_function(
