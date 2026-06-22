@@ -2299,17 +2299,29 @@ fn evaluate_log_function(
 
 const MAX_EXACT_LOG_BASE_ABS_EXPONENT: i64 = 256;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RationalPowerPattern {
+    basis: RationalEvaluation,
+    exponent: RationalEvaluation,
+}
+
+impl RationalPowerPattern {
+    fn used_special_angle(&self) -> bool {
+        self.basis.used_special_angle() || self.exponent.used_special_angle()
+    }
+}
+
 fn evaluate_log_base_function(
     dag: &ExactExpressionDag,
     argument: ExprId,
     base: ExprId,
 ) -> Result<RationalEvaluation, EvaluationError> {
-    let base = evaluate_node(dag, base)?;
-    ensure_log_base_domain(base.value())?;
-
-    if let Some(value) = evaluate_log_base_power_identity(dag, argument, &base)? {
+    if let Some(value) = evaluate_log_base_common_power_identity(dag, argument, base)? {
         return Ok(value);
     }
+
+    let base = evaluate_node(dag, base)?;
+    ensure_log_base_domain(base.value())?;
 
     let argument = evaluate_node(dag, argument)?;
     if argument.value().is_negative() || argument.value().is_zero() {
@@ -2330,38 +2342,107 @@ fn evaluate_log_base_function(
         ));
     }
 
-    for exponent in 2..=MAX_EXACT_LOG_BASE_ABS_EXPONENT {
-        if base.value().pow_i64(exponent).map_err(arithmetic_error)? == *argument.value() {
-            return Ok(RationalEvaluation::with_origin(
-                Rational::from_integer(Integer::from(exponent)),
-                used_special_angle,
-            ));
-        }
-        if base.value().pow_i64(-exponent).map_err(arithmetic_error)? == *argument.value() {
-            return Ok(RationalEvaluation::with_origin(
-                Rational::from_integer(Integer::from(-exponent)),
-                used_special_angle,
-            ));
-        }
+    if let Some(exponent) = integer_log_exponent(argument.value(), base.value())? {
+        return Ok(RationalEvaluation::with_origin(
+            Rational::from_integer(Integer::from(exponent)),
+            used_special_angle,
+        ));
     }
 
     Err(unsupported_function_evaluation())
 }
 
-fn evaluate_log_base_power_identity(
+fn evaluate_log_base_common_power_identity(
     dag: &ExactExpressionDag,
     argument: ExprId,
-    base: &RationalEvaluation,
+    base: ExprId,
 ) -> Result<Option<RationalEvaluation>, EvaluationError> {
-    match dag.node(argument) {
+    let Some(base_pattern) = evaluate_positive_rational_power_pattern(dag, base)? else {
+        return Ok(None);
+    };
+    ensure_log_base_pattern_domain(&base_pattern)?;
+
+    match evaluate_node(dag, argument) {
+        Ok(value) => {
+            if value.value().is_negative() || value.value().is_zero() {
+                return Err(logarithm_of_non_positive_error());
+            }
+            if value.value() == &Rational::one() {
+                return Ok(Some(RationalEvaluation::with_origin(
+                    Rational::zero(),
+                    value.used_special_angle() || base_pattern.used_special_angle(),
+                )));
+            }
+        }
+        Err(error) if is_unsupported_exact_expression(&error) => {}
+        Err(error) => return Err(error),
+    }
+
+    let Some(argument_pattern) = evaluate_positive_rational_power_pattern(dag, argument)? else {
+        return Ok(None);
+    };
+    finish_common_power_log_identity(argument_pattern, base_pattern)
+}
+
+fn finish_common_power_log_identity(
+    argument: RationalPowerPattern,
+    base: RationalPowerPattern,
+) -> Result<Option<RationalEvaluation>, EvaluationError> {
+    if argument.basis.value() == base.basis.value() {
+        return log_power_exponent_quotient(argument, 1, base, 1);
+    }
+
+    if let Some(argument_basis_exponent) =
+        integer_log_exponent(argument.basis.value(), base.basis.value())?
+    {
+        return log_power_exponent_quotient(argument, argument_basis_exponent, base, 1);
+    }
+
+    if let Some(base_basis_exponent) =
+        integer_log_exponent(base.basis.value(), argument.basis.value())?
+    {
+        return log_power_exponent_quotient(argument, 1, base, base_basis_exponent);
+    }
+
+    Ok(None)
+}
+
+fn log_power_exponent_quotient(
+    argument: RationalPowerPattern,
+    argument_basis_exponent: i64,
+    base: RationalPowerPattern,
+    base_basis_exponent: i64,
+) -> Result<Option<RationalEvaluation>, EvaluationError> {
+    let numerator = argument
+        .exponent
+        .value()
+        .multiply(&Rational::from_integer(Integer::from(
+            argument_basis_exponent,
+        )));
+    let denominator = base
+        .exponent
+        .value()
+        .multiply(&Rational::from_integer(Integer::from(base_basis_exponent)));
+    let value = numerator.divide(&denominator).map_err(arithmetic_error)?;
+    Ok(Some(RationalEvaluation::with_origin(
+        value,
+        argument.used_special_angle() || base.used_special_angle(),
+    )))
+}
+
+fn evaluate_positive_rational_power_pattern(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+) -> Result<Option<RationalPowerPattern>, EvaluationError> {
+    match dag.node(id) {
         ExpressionNode::Power {
             base: power_base,
             exponent,
-        } => evaluate_log_base_explicit_power_identity(dag, *power_base, *exponent, base),
+        } => evaluate_explicit_positive_rational_power_pattern(dag, *power_base, *exponent),
         ExpressionNode::Function {
             function: Function::Sqrt,
             argument,
-        } => evaluate_log_base_square_root_identity(dag, *argument, base),
+        } => evaluate_square_root_positive_rational_power_pattern(dag, *argument),
         ExpressionNode::Rational(_)
         | ExpressionNode::Constant(_)
         | ExpressionNode::Add(_)
@@ -2380,22 +2461,21 @@ fn evaluate_log_base_power_identity(
                 | Function::Log
                 | Function::Ln,
             ..
-        } => Ok(None),
+        } => evaluate_direct_positive_rational_power_pattern(dag, id),
     }
 }
 
-fn evaluate_log_base_explicit_power_identity(
+fn evaluate_explicit_positive_rational_power_pattern(
     dag: &ExactExpressionDag,
     power_base: ExprId,
     exponent: ExprId,
-    base: &RationalEvaluation,
-) -> Result<Option<RationalEvaluation>, EvaluationError> {
+) -> Result<Option<RationalPowerPattern>, EvaluationError> {
     let power_base = match evaluate_node(dag, power_base) {
         Ok(value) => value,
         Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
         Err(error) => return Err(error),
     };
-    if power_base.value() != base.value() {
+    if power_base.value().is_negative() || power_base.value().is_zero() {
         return Ok(None);
     }
 
@@ -2404,32 +2484,82 @@ fn evaluate_log_base_explicit_power_identity(
         Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
         Err(error) => return Err(error),
     };
-    let used_special_angle = base.used_special_angle()
-        || power_base.used_special_angle()
-        || exponent.used_special_angle();
-    Ok(Some(RationalEvaluation::with_origin(
-        exponent.into_value(),
-        used_special_angle,
-    )))
+    Ok(Some(RationalPowerPattern {
+        basis: power_base,
+        exponent,
+    }))
 }
 
-fn evaluate_log_base_square_root_identity(
+fn evaluate_square_root_positive_rational_power_pattern(
     dag: &ExactExpressionDag,
     radicand: ExprId,
-    base: &RationalEvaluation,
-) -> Result<Option<RationalEvaluation>, EvaluationError> {
+) -> Result<Option<RationalPowerPattern>, EvaluationError> {
     let radicand = match evaluate_node(dag, radicand) {
         Ok(value) => value,
         Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
         Err(error) => return Err(error),
     };
-    if radicand.value() != base.value() {
+    if radicand.value().is_negative() || radicand.value().is_zero() {
         return Ok(None);
     }
-    Ok(Some(RationalEvaluation::with_origin(
-        rational(1, 2),
-        base.used_special_angle() || radicand.used_special_angle(),
-    )))
+    Ok(Some(RationalPowerPattern {
+        basis: radicand,
+        exponent: RationalEvaluation::direct(rational(1, 2)),
+    }))
+}
+
+fn evaluate_direct_positive_rational_power_pattern(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+) -> Result<Option<RationalPowerPattern>, EvaluationError> {
+    let value = match evaluate_node(dag, id) {
+        Ok(value) => value,
+        Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if value.value().is_negative() || value.value().is_zero() {
+        return Ok(None);
+    }
+    Ok(Some(RationalPowerPattern {
+        basis: value,
+        exponent: RationalEvaluation::direct(Rational::one()),
+    }))
+}
+
+fn ensure_log_base_pattern_domain(base: &RationalPowerPattern) -> Result<(), EvaluationError> {
+    if base.basis.value() == &Rational::one() || base.exponent.value().is_zero() {
+        return Err(domain_error(DomainErrorKind::LogarithmBaseOne));
+    }
+    Ok(())
+}
+
+fn integer_log_exponent(
+    argument: &Rational,
+    base: &Rational,
+) -> Result<Option<i64>, EvaluationError> {
+    if argument.is_negative()
+        || argument.is_zero()
+        || base.is_negative()
+        || base.is_zero()
+        || base == &Rational::one()
+    {
+        return Ok(None);
+    }
+    if argument == &Rational::one() {
+        return Ok(Some(0));
+    }
+    if argument == base {
+        return Ok(Some(1));
+    }
+    for exponent in 2..=MAX_EXACT_LOG_BASE_ABS_EXPONENT {
+        if base.pow_i64(exponent).map_err(arithmetic_error)? == *argument {
+            return Ok(Some(exponent));
+        }
+        if base.pow_i64(-exponent).map_err(arithmetic_error)? == *argument {
+            return Ok(Some(-exponent));
+        }
+    }
+    Ok(None)
 }
 
 fn ensure_log_base_domain(base: &Rational) -> Result<(), EvaluationError> {
