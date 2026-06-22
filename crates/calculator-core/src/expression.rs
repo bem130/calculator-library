@@ -2304,12 +2304,17 @@ fn evaluate_log_base_function(
     argument: ExprId,
     base: ExprId,
 ) -> Result<RationalEvaluation, EvaluationError> {
-    let argument = evaluate_node(dag, argument)?;
     let base = evaluate_node(dag, base)?;
+    ensure_log_base_domain(base.value())?;
+
+    if let Some(value) = evaluate_log_base_power_identity(dag, argument, &base)? {
+        return Ok(value);
+    }
+
+    let argument = evaluate_node(dag, argument)?;
     if argument.value().is_negative() || argument.value().is_zero() {
         return Err(logarithm_of_non_positive_error());
     }
-    ensure_log_base_domain(base.value())?;
 
     let used_special_angle = argument.used_special_angle() || base.used_special_angle();
     if argument.value() == &Rational::one() {
@@ -2341,6 +2346,72 @@ fn evaluate_log_base_function(
     }
 
     Err(unsupported_function_evaluation())
+}
+
+fn evaluate_log_base_power_identity(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+    base: &RationalEvaluation,
+) -> Result<Option<RationalEvaluation>, EvaluationError> {
+    match dag.node(argument) {
+        ExpressionNode::Power {
+            base: power_base,
+            exponent,
+        } => evaluate_log_base_explicit_power_identity(dag, *power_base, *exponent, base),
+        ExpressionNode::Function {
+            function: Function::Sqrt,
+            argument,
+        } => evaluate_log_base_square_root_identity(dag, *argument, base),
+        _ => Ok(None),
+    }
+}
+
+fn evaluate_log_base_explicit_power_identity(
+    dag: &ExactExpressionDag,
+    power_base: ExprId,
+    exponent: ExprId,
+    base: &RationalEvaluation,
+) -> Result<Option<RationalEvaluation>, EvaluationError> {
+    let power_base = match evaluate_node(dag, power_base) {
+        Ok(value) => value,
+        Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if power_base.value() != base.value() {
+        return Ok(None);
+    }
+
+    let exponent = match evaluate_node(dag, exponent) {
+        Ok(value) => value,
+        Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let used_special_angle = base.used_special_angle()
+        || power_base.used_special_angle()
+        || exponent.used_special_angle();
+    Ok(Some(RationalEvaluation::with_origin(
+        exponent.into_value(),
+        used_special_angle,
+    )))
+}
+
+fn evaluate_log_base_square_root_identity(
+    dag: &ExactExpressionDag,
+    radicand: ExprId,
+    base: &RationalEvaluation,
+) -> Result<Option<RationalEvaluation>, EvaluationError> {
+    let radicand = match evaluate_node(dag, radicand) {
+        Ok(value) => value,
+        Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if radicand.value() != base.value() {
+        return Ok(None);
+    }
+    Ok(Some(RationalEvaluation::with_origin(
+        rational(1, 2),
+        base.used_special_angle() || radicand.used_special_angle(),
+    )))
 }
 
 fn ensure_log_base_domain(base: &Rational) -> Result<(), EvaluationError> {

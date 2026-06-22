@@ -2123,6 +2123,13 @@ mod tests {
     fn arbitrary_base_logarithm_and_exponential_have_exact_cases() {
         assert_eq!(exact_presentation_for("log(8,2)").plain_text, "3");
         assert_eq!(exact_presentation_for("log(1/8,2)").plain_text, "-3");
+        assert_eq!(exact_presentation_for("log(2^(1/3),2)").plain_text, "1/3");
+        assert_eq!(exact_presentation_for("log(2^(-2/3),2)").plain_text, "-2/3");
+        assert_eq!(exact_presentation_for("log(sqrt(2),2)").plain_text, "1/2");
+        assert_eq!(
+            exact_presentation_for("log((sin(pi/6)*4)^(3/2),2)").plain_text,
+            "3/2"
+        );
         assert_eq!(exact_presentation_for("exp(3,2)").plain_text, "8");
         assert_eq!(exact_presentation_for("ln(exp(2))").plain_text, "2");
         assert_eq!(exact_presentation_for("log(exp(2), e)").plain_text, "2");
