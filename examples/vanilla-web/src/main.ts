@@ -21,6 +21,8 @@ import { createWorkerCalculator } from "@bem130/exact-calculator/worker";
 import "./styles.css";
 
 type AngleUnit = CalculationRequest["semantics"]["angleUnit"];
+type CertifiedInterval = Extract<Calculation["enclosure"], { tag: "included" }>["value"];
+type ExactDyadicDto = CertifiedInterval["lower"];
 
 type CalculatorState = {
     expression: string;
@@ -43,7 +45,7 @@ const state: CalculatorState = {
     angleUnit: "radian",
     exactFormat: "auto",
     roundingMode: "nearestTiesToEven",
-    significantDigits: 50,
+    significantDigits: 5,
     includeExact: true,
     includeScientific: false,
     includeEnclosure: false,
@@ -217,35 +219,59 @@ const digits = required<HTMLInputElement>("#digits");
 const rounding = required<HTMLSelectElement>("#rounding");
 const keypad = required<HTMLElement>(".keypad");
 
-const keys = [
-    "7",
-    "8",
-    "9",
-    "/",
-    "(",
-    ")",
-    "4",
-    "5",
-    "6",
-    "*",
-    "^",
-    "%",
-    "1",
-    "2",
-    "3",
-    "-",
-    "pi",
-    "e",
-    "0",
-    ".",
-    "+",
-    "sin(",
-    "cos(",
-    "sqrt(",
+const keyGroups = [
+    {
+        title: "Numbers",
+        columns: 4,
+        keys: [
+            "7",
+            "8",
+            "9",
+            "/",
+            "4",
+            "5",
+            "6",
+            "*",
+            "1",
+            "2",
+            "3",
+            "-",
+            "0",
+            ".",
+            "+",
+            "^",
+            "(",
+            ")",
+            "%",
+            "pi",
+            "e",
+        ],
+    },
+    {
+        title: "Functions",
+        columns: 3,
+        keys: ["sin(", "cos(", "tan(", "asin(", "acos(", "atan(", "sqrt(", "exp(", "log("],
+    },
+    {
+        title: "Known values",
+        columns: 3,
+        keys: ["pi/6", "pi/4", "pi/3", "pi/2", "sqrt(2)/2", "sqrt(3)/2"],
+    },
 ] as const;
 
-keypad.innerHTML = keys
-    .map((key) => `<button type="button" data-key="${key}">${key}</button>`)
+keypad.innerHTML = keyGroups
+    .map(
+        (group) => `
+          <section class="key-group" data-columns="${group.columns}">
+            <h2>${group.title}</h2>
+            <div class="key-grid">
+              ${group.keys
+                  .map((key) => `<button type="button" data-key="${key}">${key}</button>`)
+                  .join("")}
+            </div>
+          </section>
+        `,
+    )
     .join("");
 
 expressionInput.addEventListener("input", () => {
@@ -334,8 +360,8 @@ async function calculateDirectly(operation: number): Promise<void> {
 }
 
 async function dispatchKey(key: string): Promise<void> {
-    const action = keyAction(key);
-    if (action === null) {
+    const actions = actionsForExpression(key);
+    if (actions.length === 0) {
         return;
     }
     const operation = beginOperation();
@@ -343,9 +369,11 @@ async function dispatchKey(key: string): Promise<void> {
     if (session === null || !isCurrentOperation(operation)) {
         return;
     }
-    await handleDispatchResult(session.dispatch(action), operation);
-    if (!isCurrentOperation(operation)) {
-        return;
+    for (const action of actions) {
+        await handleDispatchResult(session.dispatch(action), operation);
+        if (!isCurrentOperation(operation)) {
+            return;
+        }
     }
     expressionInput.focus();
     expressionInput.setSelectionRange(expressionInput.value.length, expressionInput.value.length);
@@ -628,8 +656,20 @@ function keyAction(key: string): InputActionDto | null {
             return { tag: "function", value: "sin" };
         case "cos(":
             return { tag: "function", value: "cos" };
+        case "tan(":
+            return { tag: "function", value: "tan" };
+        case "asin(":
+            return { tag: "function", value: "asin" };
+        case "acos(":
+            return { tag: "function", value: "acos" };
+        case "atan(":
+            return { tag: "function", value: "atan" };
         case "sqrt(":
             return { tag: "function", value: "sqrt" };
+        case "exp(":
+            return { tag: "function", value: "exp" };
+        case "log(":
+            return { tag: "function", value: "log" };
         default:
             return null;
     }
@@ -677,7 +717,10 @@ function renderScientific(calculation: Calculation): void {
             return;
         case "included":
             scientificState.textContent = `${calculation.scientific.value.confirmedSignificantDigits} digits`;
-            scientificOutput.textContent = `${calculation.scientific.value.significand}e${calculation.scientific.value.exponentTen}`;
+            scientificOutput.textContent = formatScientificDecimal(
+                calculation.scientific.value.significand,
+                calculation.scientific.value.exponentTen,
+            );
             return;
     }
 }
@@ -689,10 +732,145 @@ function renderEnclosure(calculation: Calculation): void {
             enclosureOutput.textContent = "No certified interval was requested or produced.";
             return;
         case "included":
-            enclosureState.textContent = formatLabel(calculation.enclosure.value.format);
-            enclosureOutput.textContent = `[${calculation.enclosure.value.lower.coefficient} * 2^${calculation.enclosure.value.lower.exponentTwo}, ${calculation.enclosure.value.upper.coefficient} * 2^${calculation.enclosure.value.upper.exponentTwo}]`;
+            enclosureState.textContent = "DECIMAL SCIENTIFIC";
+            enclosureOutput.textContent = formatCertifiedInterval(calculation.enclosure.value);
             return;
     }
+}
+
+function formatScientificDecimal(significand: string, exponentTen: string): string {
+    return `${significand} × 10^${exponentTen}`;
+}
+
+function formatCertifiedInterval(interval: CertifiedInterval): string {
+    return `[${formatDyadicBound(interval.lower, state.significantDigits, "down")}, ${formatDyadicBound(
+        interval.upper,
+        state.significantDigits,
+        "up",
+    )}]`;
+}
+
+function formatDyadicBound(
+    dyadic: ExactDyadicDto,
+    significantDigits: number,
+    direction: "down" | "up",
+): string {
+    const digits = clamp(Math.trunc(significantDigits), 1, 200);
+    const coefficient = BigInt(dyadic.coefficient);
+    if (coefficient === 0n) {
+        return formatRoundedScientific(1, 0n, digits, 0);
+    }
+
+    const sign = coefficient < 0n ? -1 : 1;
+    let numerator = coefficient < 0n ? -coefficient : coefficient;
+    let denominator = 1n;
+    const exponentTwo = parseExactInteger(dyadic.exponentTwo);
+    if (exponentTwo >= 0) {
+        numerator *= 1n << BigInt(exponentTwo);
+    } else {
+        denominator = 1n << BigInt(-exponentTwo);
+    }
+
+    let exponentTen = decimalExponent(numerator, denominator);
+    const scaleExponent = digits - 1 - exponentTen;
+    const scaled = scaledQuotientAndRemainder(numerator, denominator, scaleExponent);
+    let significand = scaled.quotient;
+    if (scaled.remainder !== 0n && shouldRoundAwayFromZero(sign, direction)) {
+        significand += 1n;
+    }
+    if (significand >= pow10(digits)) {
+        significand /= 10n;
+        exponentTen += 1;
+    }
+    return formatRoundedScientific(sign, significand, digits, exponentTen);
+}
+
+function scaledQuotientAndRemainder(
+    numerator: bigint,
+    denominator: bigint,
+    scaleExponent: number,
+): { quotient: bigint; remainder: bigint } {
+    if (scaleExponent >= 0) {
+        const scaledNumerator = numerator * pow10(scaleExponent);
+        return {
+            quotient: scaledNumerator / denominator,
+            remainder: scaledNumerator % denominator,
+        };
+    }
+    const scaledDenominator = denominator * pow10(-scaleExponent);
+    return {
+        quotient: numerator / scaledDenominator,
+        remainder: numerator % scaledDenominator,
+    };
+}
+
+function shouldRoundAwayFromZero(sign: number, direction: "down" | "up"): boolean {
+    return direction === "up" ? sign > 0 : sign < 0;
+}
+
+function decimalExponent(numerator: bigint, denominator: bigint): number {
+    let exponent = numerator.toString().length - denominator.toString().length;
+    while (compareRationalToPowerOfTen(numerator, denominator, exponent) < 0) {
+        exponent -= 1;
+    }
+    while (compareRationalToPowerOfTen(numerator, denominator, exponent + 1) >= 0) {
+        exponent += 1;
+    }
+    return exponent;
+}
+
+function compareRationalToPowerOfTen(
+    numerator: bigint,
+    denominator: bigint,
+    exponent: number,
+): number {
+    const left = exponent >= 0 ? numerator : numerator * pow10(-exponent);
+    const right = exponent >= 0 ? denominator * pow10(exponent) : denominator;
+    if (left < right) {
+        return -1;
+    }
+    if (left > right) {
+        return 1;
+    }
+    return 0;
+}
+
+const pow10Cache = new Map<number, bigint>([[0, 1n]]);
+
+function pow10(exponent: number): bigint {
+    if (!Number.isSafeInteger(exponent) || exponent < 0) {
+        throw new Error(`invalid decimal exponent: ${exponent}`);
+    }
+    const cached = pow10Cache.get(exponent);
+    if (cached !== undefined) {
+        return cached;
+    }
+    let value = 1n;
+    for (let index = 0; index < exponent; index += 1) {
+        value *= 10n;
+    }
+    pow10Cache.set(exponent, value);
+    return value;
+}
+
+function formatRoundedScientific(
+    sign: number,
+    significand: bigint,
+    digits: number,
+    exponentTen: number,
+): string {
+    const padded = significand.toString().padStart(digits, "0");
+    const unsigned = digits === 1 ? padded : `${padded[0]}.${padded.slice(1)}`;
+    const signed = sign < 0 && significand !== 0n ? `-${unsigned}` : unsigned;
+    return formatScientificDecimal(signed, String(exponentTen));
+}
+
+function parseExactInteger(value: string): number {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isSafeInteger(parsed) || String(parsed) !== value) {
+        throw new Error(`invalid integer: ${value}`);
+    }
+    return parsed;
 }
 
 function renderStatus(): void {
