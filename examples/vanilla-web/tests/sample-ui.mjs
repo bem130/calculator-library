@@ -48,6 +48,14 @@ async function assertPublicApiUsage() {
         "plain text copy must use renderPlainText",
     );
     assert(
+        mainSource.includes("calculation.scientific.value.presentation"),
+        "scientific output must render the DTO presentation tree",
+    );
+    assert(
+        !mainSource.includes("formatScientificDecimal"),
+        "sample UI must not reimplement scientific notation formatting",
+    );
+    assert(
         mainSource.includes("renderMathMl("),
         "MathML display must use renderMathMl",
     );

@@ -23,7 +23,7 @@ author は `bem130`、license は `MIT` とする。license 本文は repository
 
 公開 API は入力文字列と `CalculationRequest` を受け取り、`ApiResult<CalculationOutcome>` または Rust の `Result<CalculationOutcome, CalculatorError>` を返す。成功値は `Complete` または `Partial` であり、失敗値は typed error で返す。
 
-近似値は厳密値と混同しない。小数表示を返す場合は、要求された桁が保証区間から確定した場合だけ `ScientificOutput::Available` / DTO の scientific output として返す。確定できない場合は推測値を返さない。
+近似値は厳密値と混同しない。小数表示を返す場合は、要求された桁が保証区間から確定した場合だけ `ScientificOutput::Included` / DTO の scientific output として返す。確定できない場合は推測値を返さない。
 
 `Partial` は「計算が壊れた」ことを意味しない。厳密式または認識済み exact 表現を保持したまま、要求された出力の一部が未確定または未対応であることを表す。
 
@@ -39,7 +39,7 @@ author は `bem130`、license は `MIT` とする。license 本文は repository
 
 Exact output は relation、presentation tree、plain text、MathML、LaTeX、representation kind、simplification status、method tags を持つ。Scientific output と enclosure output も relation を持つ。npm facade は `renderPlainText`、`renderMathMl`、`renderLatex` と `renderResultRelationPlainText` / `renderResultRelationMathMl` / `renderResultRelationLatex` を公開し、sample UI はこの public facade だけを使用する。`presentInput` は入力式そのものの presentation tree を返し、評価結果とは混同しない。
 
-Scientific output は significant digits と rounding mode を要求として受ける。rounding mode は DTO と Rust enum の両方で明示 variant として扱う。既定の `CalculationRequest` は 5 significant digits を要求する。
+Scientific output は significant digits と rounding mode を要求として受ける。rounding mode は DTO と Rust enum の両方で明示 variant として扱う。既定の `CalculationRequest` は 5 significant digits を要求する。`ScientificPresentation` は機械可読な `significand` / `exponentTen` に加えて、UI 表示用の presentation tree を `x.xxx × 10^n` 形式で返す。
 
 Enclosure output は `exactDyadic` または `decimalScientific` を明示して要求する。既定の `CalculationRequest` は 5 significant digits の `decimalScientific` enclosure を要求する。`decimalScientific` enclosure は下端を下向き、上端を上向きに丸め、presentation tree は `x.xxx × 10^n` 形式で返す。
 

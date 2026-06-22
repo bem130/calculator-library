@@ -87,7 +87,7 @@ const request: CalculationRequest = {
 
 重要な点は、exact / scientific / enclosure を個別に要求することである。UI で常に3つの出力欄を見せたい場合は、上のように3つとも `include` にする。
 
-`decimalScientific` の certified interval は、下端を下向き、上端を上向きに丸めた `x.xxx * 10^n` 形式の presentation tree として返る。UI は `renderPlainText(result.calculation.enclosure.value.presentation)` や `renderMathMl(...)` を使えばよく、dyadic endpoint の丸めを UI 側で再実装しない。
+`decimalScientific` の certified interval は、下端を下向き、上端を上向きに丸めた `x.xxx × 10^n` 形式の presentation tree として返る。UI は `renderPlainText(result.calculation.enclosure.value.presentation)` や `renderMathMl(...)` を使えばよく、dyadic endpoint の丸めを UI 側で再実装しない。
 
 ---
 
@@ -160,7 +160,7 @@ function renderCalculation(calculation: Calculation): void {
         const scientific = calculation.scientific.value;
         document.querySelector("#scientific")!.textContent =
             `${renderResultRelationPlainText(scientific.relation)} ` +
-            `${scientific.significand} * 10^${scientific.exponentTen}`;
+            renderPlainText(scientific.presentation);
     } else if (calculation.scientific.tag === "unavailable") {
         document.querySelector("#scientific")!.textContent =
             "Requested decimal digits are not confirmed.";

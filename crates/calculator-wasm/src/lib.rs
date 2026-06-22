@@ -2066,10 +2066,25 @@ mod tests {
                                 requested_significant_digits: 50,
                                 confirmed_significant_digits: 50,
                                 rounding_mode: DecimalRoundingModeDto::NearestTiesToEven,
-                                presentation: PresentationNodeDto::Text {
-                                    text: String::from(
-                                        "3.0000000000000000000000000000000000000000000000000e-1",
-                                    ),
+                                presentation: PresentationNodeDto::Row {
+                                    children: vec![
+                                        PresentationNodeDto::Text {
+                                            text: String::from(
+                                                "3.0000000000000000000000000000000000000000000000000",
+                                            ),
+                                        },
+                                        PresentationNodeDto::Text {
+                                            text: String::from(" × "),
+                                        },
+                                        PresentationNodeDto::Superscript {
+                                            base: Box::new(PresentationNodeDto::Text {
+                                                text: String::from("10"),
+                                            }),
+                                            exponent: Box::new(PresentationNodeDto::Text {
+                                                text: String::from("-1"),
+                                            }),
+                                        },
+                                    ],
                                 },
                             },
                         },
