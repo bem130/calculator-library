@@ -1064,6 +1064,20 @@ fn evaluate_real_algebraic_trigonometric_function(
     argument: ExprId,
     limits: &ResourceLimits,
 ) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
+    if let Some(value) =
+        evaluate_real_algebraic_trigonometric_special_angle(dag, function, argument, limits)?
+    {
+        return Ok(Some(value));
+    }
+    evaluate_real_algebraic_inverse_trig_composition(dag, function, argument, limits)
+}
+
+fn evaluate_real_algebraic_trigonometric_special_angle(
+    dag: &ExactExpressionDag,
+    function: Function,
+    argument: ExprId,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
     let Some(coefficient) = evaluate_pi_coefficient(dag, argument)? else {
         return Ok(None);
     };
@@ -1369,6 +1383,17 @@ fn evaluate_radical_product(
 }
 
 fn evaluate_radical_trigonometric_function(
+    dag: &ExactExpressionDag,
+    function: Function,
+    argument: ExprId,
+) -> Result<Option<RadicalReduction>, EvaluationError> {
+    if let Some(value) = evaluate_radical_trigonometric_special_angle(dag, function, argument)? {
+        return Ok(Some(value));
+    }
+    evaluate_radical_inverse_trig_composition(dag, function, argument)
+}
+
+fn evaluate_radical_trigonometric_special_angle(
     dag: &ExactExpressionDag,
     function: Function,
     argument: ExprId,
@@ -2000,6 +2025,91 @@ fn real_algebraic_log_domain_proof(
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UnitIntervalDomainProof {
+    InRange,
+    OutOfRange,
+    Unknown,
+}
+
+fn rational_unit_interval_domain_proof(value: &Rational) -> UnitIntervalDomainProof {
+    if value.compare(&rational_integer(-1)) == Ordering::Less
+        || value.compare(&Rational::one()) == Ordering::Greater
+    {
+        UnitIntervalDomainProof::OutOfRange
+    } else {
+        UnitIntervalDomainProof::InRange
+    }
+}
+
+fn radical_unit_interval_domain_proof(value: &RadicalReduction) -> UnitIntervalDomainProof {
+    let minus_one = RadicalReduction::rational(rational_integer(-1), false);
+    let one = RadicalReduction::rational(Rational::one(), false);
+    let lower_margin = subtract_radical_reductions(value, &minus_one);
+    let upper_margin = subtract_radical_reductions(&one, value);
+    let lower_sign = radical_reduction_sign(&lower_margin);
+    let upper_sign = radical_reduction_sign(&upper_margin);
+
+    if matches!(lower_sign, Some(Ordering::Less)) || matches!(upper_sign, Some(Ordering::Less)) {
+        UnitIntervalDomainProof::OutOfRange
+    } else if lower_sign.is_some() && upper_sign.is_some() {
+        UnitIntervalDomainProof::InRange
+    } else {
+        UnitIntervalDomainProof::Unknown
+    }
+}
+
+fn real_algebraic_unit_interval_domain_proof(
+    value: &RealAlgebraicEvaluation,
+    limits: &ResourceLimits,
+) -> Result<UnitIntervalDomainProof, EvaluationError> {
+    let lower_comparison =
+        compare_real_algebraic_evaluation_to_rational(value, &rational_integer(-1), limits)?;
+    let upper_comparison =
+        compare_real_algebraic_evaluation_to_rational(value, &Rational::one(), limits)?;
+
+    if matches!(lower_comparison, Some(Ordering::Less))
+        || matches!(upper_comparison, Some(Ordering::Greater))
+    {
+        Ok(UnitIntervalDomainProof::OutOfRange)
+    } else if lower_comparison.is_some() && upper_comparison.is_some() {
+        Ok(UnitIntervalDomainProof::InRange)
+    } else {
+        Ok(UnitIntervalDomainProof::Unknown)
+    }
+}
+
+fn compare_real_algebraic_evaluation_to_rational(
+    value: &RealAlgebraicEvaluation,
+    rhs: &Rational,
+    limits: &ResourceLimits,
+) -> Result<Option<Ordering>, EvaluationError> {
+    match value {
+        RealAlgebraicEvaluation::Rational(value) => Ok(Some(value.value().compare(rhs))),
+        RealAlgebraicEvaluation::Algebraic(value) => {
+            let difference = match value.add_rational_bounded(
+                &rhs.negate(),
+                limits.max_polynomial_coefficient_bits,
+                limits.max_root_isolation_steps,
+            ) {
+                Ok(Some(value)) => value,
+                Ok(None)
+                | Err(RealAlgebraicConstructionError::RootIsolation(
+                    PrimitivePolynomialRootIsolationError::StepLimitExceeded,
+                )) => return Ok(None),
+                Err(error) => return Err(real_algebraic_construction_error(error)),
+            };
+            match difference.sign_bounded(limits.max_root_isolation_steps) {
+                Ok(sign) => Ok(sign),
+                Err(RealAlgebraicConstructionError::RootIsolation(
+                    PrimitivePolynomialRootIsolationError::StepLimitExceeded,
+                )) => Ok(None),
+                Err(error) => Err(real_algebraic_construction_error(error)),
+            }
+        }
+    }
+}
+
 fn evaluate_rational_power(
     base: &Rational,
     exponent: &Rational,
@@ -2120,9 +2230,27 @@ fn evaluate_trigonometric_function(
     function: Function,
     argument: ExprId,
 ) -> Result<RationalEvaluation, EvaluationError> {
+    if let Some(value) = evaluate_rational_trigonometric_special_angle(dag, function, argument)? {
+        return Ok(value);
+    }
+    if let Some(value) = evaluate_rational_inverse_trig_composition(dag, function, argument)? {
+        return Ok(value);
+    }
+    Err(unsupported_function_evaluation())
+}
+
+fn evaluate_rational_trigonometric_special_angle(
+    dag: &ExactExpressionDag,
+    function: Function,
+    argument: ExprId,
+) -> Result<Option<RationalEvaluation>, EvaluationError> {
     let coefficient = match evaluate_pi_coefficient(dag, argument)? {
         Some(coefficient) => coefficient,
-        None => PiCoefficientEvaluation::direct(rational_zero_as_pi_coefficient(dag, argument)?),
+        None => match rational_zero_as_pi_coefficient(dag, argument) {
+            Ok(coefficient) => PiCoefficientEvaluation::direct(coefficient),
+            Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+            Err(error) => return Err(error),
+        },
     };
     let value = match function {
         Function::Sin => sine_special_angle(coefficient.coefficient()),
@@ -2134,11 +2262,182 @@ fn evaluate_trigonometric_function(
         | Function::Sqrt
         | Function::Exp
         | Function::Log => {
-            return Err(unsupported_function_evaluation());
+            return Ok(None);
         }
     }
-    .ok_or_else(unsupported_function_evaluation)?;
-    Ok(RationalEvaluation::special_angle(value))
+    .map(RationalEvaluation::special_angle);
+    Ok(value)
+}
+
+fn evaluate_rational_inverse_trig_composition(
+    dag: &ExactExpressionDag,
+    function: Function,
+    argument: ExprId,
+) -> Result<Option<RationalEvaluation>, EvaluationError> {
+    let Some((domain, inner_argument)) =
+        inverse_trig_composition_inner_argument(dag, function, argument)?
+    else {
+        return Ok(None);
+    };
+    let value = match evaluate_node(dag, inner_argument) {
+        Ok(value) => value,
+        Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    match domain {
+        InverseTrigCompositionDomain::UnitInterval => {
+            match rational_unit_interval_domain_proof(value.value()) {
+                UnitIntervalDomainProof::InRange => Ok(Some(value)),
+                UnitIntervalDomainProof::OutOfRange => Err(inverse_trig_out_of_range_error()),
+                UnitIntervalDomainProof::Unknown => Ok(None),
+            }
+        }
+        InverseTrigCompositionDomain::RealLine => Ok(Some(value)),
+    }
+}
+
+fn evaluate_radical_inverse_trig_composition(
+    dag: &ExactExpressionDag,
+    function: Function,
+    argument: ExprId,
+) -> Result<Option<RadicalReduction>, EvaluationError> {
+    let Some((domain, inner_argument)) =
+        inverse_trig_composition_inner_argument(dag, function, argument)?
+    else {
+        return Ok(None);
+    };
+    let Some(value) = evaluate_radical_reduction(dag, inner_argument)? else {
+        return Ok(None);
+    };
+    match domain {
+        InverseTrigCompositionDomain::UnitInterval => {
+            match radical_unit_interval_domain_proof(&value) {
+                UnitIntervalDomainProof::InRange => Ok(Some(value)),
+                UnitIntervalDomainProof::OutOfRange => Err(inverse_trig_out_of_range_error()),
+                UnitIntervalDomainProof::Unknown => Ok(None),
+            }
+        }
+        InverseTrigCompositionDomain::RealLine => Ok(Some(value)),
+    }
+}
+
+fn evaluate_real_algebraic_inverse_trig_composition(
+    dag: &ExactExpressionDag,
+    function: Function,
+    argument: ExprId,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
+    let Some((domain, inner_argument)) =
+        inverse_trig_composition_inner_argument(dag, function, argument)?
+    else {
+        return Ok(None);
+    };
+    let Some(value) = evaluate_rational_or_real_algebraic_node(dag, inner_argument, limits)? else {
+        return Ok(None);
+    };
+    match domain {
+        InverseTrigCompositionDomain::UnitInterval => {
+            match real_algebraic_unit_interval_domain_proof(&value, limits)? {
+                UnitIntervalDomainProof::InRange => Ok(Some(value)),
+                UnitIntervalDomainProof::OutOfRange => Err(inverse_trig_out_of_range_error()),
+                UnitIntervalDomainProof::Unknown => Ok(None),
+            }
+        }
+        InverseTrigCompositionDomain::RealLine => Ok(Some(value)),
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InverseTrigCompositionDomain {
+    UnitInterval,
+    RealLine,
+}
+
+fn inverse_trig_composition_inner_argument(
+    dag: &ExactExpressionDag,
+    outer_function: Function,
+    argument: ExprId,
+) -> Result<Option<(InverseTrigCompositionDomain, ExprId)>, EvaluationError> {
+    match dag.semantics().angle_unit {
+        AngleUnit::Radian => Ok(direct_inverse_trig_composition_inner_argument(
+            dag,
+            outer_function,
+            argument,
+        )),
+        AngleUnit::Degree => {
+            scaled_inverse_trig_composition_inner_argument(dag, outer_function, argument, 180)
+        }
+        AngleUnit::Gradian => {
+            scaled_inverse_trig_composition_inner_argument(dag, outer_function, argument, 200)
+        }
+    }
+}
+
+fn direct_inverse_trig_composition_inner_argument(
+    dag: &ExactExpressionDag,
+    outer_function: Function,
+    argument: ExprId,
+) -> Option<(InverseTrigCompositionDomain, ExprId)> {
+    let ExpressionNode::Function {
+        function: inner_function,
+        argument: inner_argument,
+    } = dag.node(argument)
+    else {
+        return None;
+    };
+    inverse_trig_composition_domain(outer_function, *inner_function)
+        .map(|domain| (domain, *inner_argument))
+}
+
+fn scaled_inverse_trig_composition_inner_argument(
+    dag: &ExactExpressionDag,
+    outer_function: Function,
+    argument: ExprId,
+    unit_denominator: i64,
+) -> Result<Option<(InverseTrigCompositionDomain, ExprId)>, EvaluationError> {
+    let ExpressionNode::Multiply(list_id) = dag.node(argument) else {
+        return Ok(None);
+    };
+    let mut composition = None;
+    let mut scale = Rational::one();
+    for child in dag.list(*list_id) {
+        if let ExpressionNode::Function {
+            function: inner_function,
+            argument: inner_argument,
+        } = dag.node(*child)
+        {
+            if let Some(domain) = inverse_trig_composition_domain(outer_function, *inner_function) {
+                if composition.replace((domain, *inner_argument)).is_some() {
+                    return Ok(None);
+                }
+                continue;
+            }
+        }
+
+        let Some(coefficient) = evaluate_pi_coefficient(dag, *child)? else {
+            return Ok(None);
+        };
+        scale = scale.multiply(coefficient.coefficient());
+    }
+
+    if scale == rational(1, unit_denominator) {
+        Ok(composition)
+    } else {
+        Ok(None)
+    }
+}
+
+fn inverse_trig_composition_domain(
+    outer_function: Function,
+    inner_function: Function,
+) -> Option<InverseTrigCompositionDomain> {
+    match (outer_function, inner_function) {
+        (Function::Sin, Function::Asin) | (Function::Cos, Function::Acos) => {
+            Some(InverseTrigCompositionDomain::UnitInterval)
+        }
+        (Function::Tan, Function::Atan) => Some(InverseTrigCompositionDomain::RealLine),
+        _ => None,
+    }
 }
 
 fn rational_zero_as_pi_coefficient(
@@ -2609,14 +2908,10 @@ fn has_radicand(argument: &SimpleRadical, radicand: i64) -> bool {
 }
 
 fn ensure_inverse_sine_cosine_rational_domain(argument: &Rational) -> Result<(), EvaluationError> {
-    if argument.compare(&rational_integer(-1)) == Ordering::Less
-        || argument.compare(&Rational::one()) == Ordering::Greater
-    {
-        Err(domain_error(
-            DomainErrorKind::InverseTrigonometricOutOfRange,
-        ))
-    } else {
-        Ok(())
+    match rational_unit_interval_domain_proof(argument) {
+        UnitIntervalDomainProof::InRange => Ok(()),
+        UnitIntervalDomainProof::OutOfRange => Err(inverse_trig_out_of_range_error()),
+        UnitIntervalDomainProof::Unknown => Ok(()),
     }
 }
 
@@ -2673,6 +2968,10 @@ fn exponent_too_large_error() -> EvaluationError {
 
 fn logarithm_of_non_positive_error() -> EvaluationError {
     domain_error(DomainErrorKind::LogarithmOfNonPositive)
+}
+
+fn inverse_trig_out_of_range_error() -> EvaluationError {
+    domain_error(DomainErrorKind::InverseTrigonometricOutOfRange)
 }
 
 fn domain_error(kind: DomainErrorKind) -> EvaluationError {

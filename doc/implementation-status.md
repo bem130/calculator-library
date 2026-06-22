@@ -12,10 +12,10 @@
 * `0.1 + 0.2 = 3/10` などの decimal lossless evaluation。
 * real principal power semantics に基づく rational power の exact root / domain error / symbolic fallback。
 * exact dyadic certified interval と adaptive scientific rounding。
-* `pi`、`e`、exp/log の証明可能な恒等式。`exp(log(x))` は正性を証明できる supported rational/radical/radical-linear/algebraic `x` で exact にし、`log(exp(x))` は supported exact `x` で exact にする。bounded rational/dyadic endpoint に対する exp/log/asin/acos/atan、rational point trigonometric range reduction、周期的な sin/cos extrema、tan pole-aware branch、正の底が証明できる一般実数指数 `x^y` の certified interval。
+* `pi`、`e`、exp/log と逆三角関数合成の証明可能な恒等式。`exp(log(x))` は正性を証明できる supported rational/radical/radical-linear/algebraic `x` で exact にし、`log(exp(x))` は supported exact `x` で exact にする。`sin(asin(x))` と `cos(acos(x))` は `x in [-1, 1]` を証明できる supported exact `x` で exact にし、`tan(atan(x))` は supported exact real `x` で exact にする。bounded rational/dyadic endpoint に対する exp/log/asin/acos/atan、rational point trigonometric range reduction、周期的な sin/cos extrema、tan pole-aware branch、正の底が証明できる一般実数指数 `x^y` の certified interval。
 * GeneralSymbolic exact presentation における安全な奇偶性、整数 `pi` シフト、`sin` / `cos` の半整数 `pi` cofunction shift の正規化。例: `sin(-1) = -sin(1)`、`cos(-1) = cos(1)`、`sin(pi+1/10) = -sin(1/10)`、`cos(pi/2+1/10) = -sin(1/10)`、`exp(sin(pi/2+1/10)) = exp(cos(1/10))`。
 * rational pi multiple recognition。
-* simple radical と radical linear combination の exact presentation、積・商・整数累乗の bounded reduction。
+* simple radical と radical linear combination の exact presentation、積・商・整数累乗の bounded reduction。recognized exact radical/radical-linear/algebraic 値の certified enclosure は、再度元式全体を区間評価せず、証明済み exact 値から構築する。
 * rational/simple-radical special angles と inverse trigonometric known values。
 * bounded real algebraic recognition for supported polynomial operations、整数累乗、cyclotomic trigonometric cases、degree-one algebraic result の rational collapse と後続の代数的演算への伝播。
 * parser/session/DTO/native-Wasm/browser conformance tests。
