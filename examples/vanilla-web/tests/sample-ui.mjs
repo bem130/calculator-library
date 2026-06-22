@@ -212,6 +212,20 @@ async function assertRationalPowers(page) {
         "2^(1/2) upper bound squared is below 2",
     );
 
+    await page.fill("#expression", "2^sqrt(2)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 2^sqrt(2)");
+    await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
+    await waitForText(page, "#scientific-state", "PRECISION LIMIT");
+    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+
+    await page.fill("#expression", "sqrt(2)^sqrt(2)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= sqrt(2)^sqrt(2)");
+    await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
+    await waitForText(page, "#scientific-state", "PRECISION LIMIT");
+    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+
     await page.fill("#expression", "2^(1/3)+1");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 2^(1/3)+1");

@@ -1935,6 +1935,54 @@ mod tests {
     }
 
     #[test]
+    fn positive_base_general_powers_return_partial_with_certified_enclosure() {
+        let mut context = EvaluationContext::default();
+        for source in ["2^sqrt(2)", "sqrt(2)^sqrt(2)", "sqrt(2)^(1/2)"] {
+            let outcome = calculate(source, &CalculationRequest::default(), &mut context)
+                .unwrap_or_else(|error| panic!("{source}: {error:?}"));
+            let CalculationOutcome::Partial {
+                calculation,
+                reason,
+                certified_enclosure,
+            } = outcome
+            else {
+                panic!("{source}: expected partial symbolic calculation");
+            };
+            assert_eq!(
+                reason,
+                IncompleteReason::PrecisionLimit {
+                    requested_digits: core::num::NonZeroU32::new(50).unwrap(),
+                    confirmed_digits: 0,
+                }
+            );
+            let ExactOutput::Included(exact) = calculation.exact else {
+                panic!("{source}: expected retained exact expression");
+            };
+            assert_eq!(
+                exact.representation,
+                ExactRepresentationKind::GeneralSymbolic
+            );
+            assert_eq!(exact.plain_text, source);
+            let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
+                panic!("{source}: expected requested enclosure output");
+            };
+            assert_eq!(certified_enclosure, enclosure);
+            assert_eq!(
+                calculation.metadata.assurance,
+                AssuranceLevel::CertifiedEnclosure
+            );
+            assert!(calculation
+                .metadata
+                .methods
+                .contains(&MethodTag::SymbolicRetention));
+            assert!(calculation
+                .metadata
+                .methods
+                .contains(&MethodTag::CertifiedIntervalEvaluation));
+        }
+    }
+
+    #[test]
     fn prime_root_rational_power_is_real_algebraic() {
         let parsed = parse("2^(1/3)", &ParseSettings::default()).unwrap();
         let mut context = EvaluationContext::default();

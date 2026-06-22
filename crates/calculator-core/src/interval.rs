@@ -354,6 +354,20 @@ pub(crate) fn pow_rational(
     pow_i64(&root, exponent_numerator, precision_bits)
 }
 
+pub(crate) fn pow_positive_base(
+    base: &CertifiedInterval,
+    exponent: &CertifiedInterval,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    if base.lower.coefficient.sign() != Sign::Plus {
+        return Err(IntervalError::UnsupportedExpression);
+    }
+    exp(
+        &multiply(&log(base, precision_bits)?, exponent)?,
+        precision_bits,
+    )
+}
+
 pub(crate) fn contains_rational(
     interval: &CertifiedInterval,
     value: &Rational,
@@ -1606,6 +1620,31 @@ mod tests {
         let cube_root = pow_rational(&rational(-2, 1), &rational(1, 3), 32).unwrap();
         let cubed = pow_i64(&cube_root, 3, 32).unwrap();
         assert!(contains_rational(&cubed, &rational(-2, 1)).unwrap());
+    }
+
+    #[test]
+    fn positive_base_general_power_interval_uses_exp_log_composition() {
+        let exponent = pow_rational(&rational(2, 1), &rational(1, 2), 96).unwrap();
+        let two_to_sqrt_two =
+            pow_positive_base(&from_rational(&rational(2, 1), 96), &exponent, 96).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&two_to_sqrt_two.lower, &rational(2, 1)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&two_to_sqrt_two.upper, &rational(3, 1)).unwrap(),
+            Ordering::Less
+        );
+
+        let sqrt_two_to_sqrt_two = pow_positive_base(&exponent, &exponent, 96).unwrap();
+        assert_eq!(
+            compare_dyadic_to_rational(&sqrt_two_to_sqrt_two.lower, &rational(1, 1)).unwrap(),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_dyadic_to_rational(&sqrt_two_to_sqrt_two.upper, &rational(2, 1)).unwrap(),
+            Ordering::Less
+        );
     }
 
     #[test]

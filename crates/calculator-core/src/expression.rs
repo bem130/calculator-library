@@ -2489,19 +2489,7 @@ fn evaluate_interval_node(
             precision_bits,
         ),
         ExpressionNode::Power { base, exponent } => {
-            let exponent =
-                evaluate_node(dag, *exponent).map_err(|_| IntervalError::UnsupportedExpression)?;
-            if let Some(exponent) = exponent.value().as_i64_if_integer() {
-                interval::pow_i64(
-                    &evaluate_interval_node(dag, *base, precision_bits)?,
-                    exponent,
-                    precision_bits,
-                )
-            } else {
-                let base =
-                    evaluate_node(dag, *base).map_err(|_| IntervalError::UnsupportedExpression)?;
-                interval::pow_rational(base.value(), exponent.value(), precision_bits)
-            }
+            evaluate_interval_power(dag, *base, *exponent, precision_bits)
         }
         ExpressionNode::Function { function, argument } => match function {
             Function::Sqrt => interval::sqrt(
@@ -2532,6 +2520,43 @@ fn evaluate_interval_node(
                 precision_bits,
             ),
         },
+    }
+}
+
+fn evaluate_interval_power(
+    dag: &ExactExpressionDag,
+    base: ExprId,
+    exponent: ExprId,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    let exponent = match evaluate_node(dag, exponent) {
+        Ok(exponent) => exponent,
+        Err(error) if is_unsupported_exact_expression(&error) => {
+            return interval::pow_positive_base(
+                &evaluate_interval_node(dag, base, precision_bits)?,
+                &evaluate_interval_node(dag, exponent, precision_bits)?,
+                precision_bits,
+            );
+        }
+        Err(error) => return Err(evaluation_error_to_interval_error(error)),
+    };
+
+    if let Some(exponent_integer) = exponent.value().as_i64_if_integer() {
+        return interval::pow_i64(
+            &evaluate_interval_node(dag, base, precision_bits)?,
+            exponent_integer,
+            precision_bits,
+        );
+    }
+
+    match evaluate_node(dag, base) {
+        Ok(base) => interval::pow_rational(base.value(), exponent.value(), precision_bits),
+        Err(error) if is_unsupported_exact_expression(&error) => interval::pow_positive_base(
+            &evaluate_interval_node(dag, base, precision_bits)?,
+            &interval::from_rational(exponent.value(), precision_bits),
+            precision_bits,
+        ),
+        Err(error) => Err(evaluation_error_to_interval_error(error)),
     }
 }
 

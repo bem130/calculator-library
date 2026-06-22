@@ -12,7 +12,7 @@
 * `0.1 + 0.2 = 3/10` などの decimal lossless evaluation。
 * real principal power semantics に基づく rational power の exact root / domain error / symbolic fallback。
 * exact dyadic certified interval と adaptive scientific rounding。
-* `pi`、`e`、exp/log の証明可能な恒等式と、bounded rational/dyadic endpoint に対する exp/log/asin/acos/atan、rational point trigonometric range reduction、周期的な sin/cos extrema と tan pole-aware branch の certified interval。
+* `pi`、`e`、exp/log の証明可能な恒等式と、bounded rational/dyadic endpoint に対する exp/log/asin/acos/atan、rational point trigonometric range reduction、周期的な sin/cos extrema、tan pole-aware branch、正の底が証明できる一般実数指数 `x^y` の certified interval。
 * rational pi multiple recognition。
 * simple radical と radical linear combination の exact presentation、積・商・整数累乗の bounded reduction。
 * rational/simple-radical special angles と inverse trigonometric known values。
@@ -47,6 +47,6 @@ Phase 5 の堅牢化として、次を CI に入れている。
 
 ## In Progress
 
-`design.md` の最終目標には、より広い transcendental interval evaluation、一般実代数的数の完全な演算閉包、より広い symbolic simplification、公開 API の 1.0 release policy が含まれる。現行実装はこれらをすべて完了したとは扱わない。
+`design.md` の最終目標には、さらに広い transcendental interval evaluation、一般実代数的数の完全な演算閉包、より広い symbolic simplification、公開 API の 1.0 release policy が含まれる。現行実装はこれらをすべて完了したとは扱わない。
 
 未対応または制限超過の領域では、厳密式を破壊して近似値へ落とさず、`Partial`、`unsupportedFeature`、`computationLimit`、または `inputLimit` として返す。

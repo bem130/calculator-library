@@ -596,6 +596,19 @@ mod dto_differential {
             },
         },
         Case {
+            id: "positive-base-general-power-with-enclosure",
+            source: "2^sqrt(2)",
+            request: RequestProfile::ScientificWithEnclosure,
+            expected: ExpectedOutcome::Partial {
+                representation: ExactRepresentationKindDto::GeneralSymbolic,
+                plain_text: "2^sqrt(2)",
+                methods: &[
+                    MethodTagDto::SymbolicRetention,
+                    MethodTagDto::CertifiedIntervalEvaluation,
+                ],
+            },
+        },
+        Case {
             id: "domain-tangent-pole",
             source: "tan(pi/2)",
             request: RequestProfile::ExactOnly,

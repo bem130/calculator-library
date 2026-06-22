@@ -12,6 +12,7 @@ The implementation is following [doc/design.md](doc/design.md). The current work
 - `calculator-core` parses and evaluates rational expressions without `f32` / `f64`.
 - Rational evaluation carries an internal exact-dyadic certified interval and can produce exact significant-digit scientific notation.
 - Integer powers and rational powers follow the `RealPrincipal` semantics: perfect roots such as `(-8)^(1/3)` and `(-8)^(2/3)` are exact, non-perfect roots such as `2^(1/2)` return certified enclosures with `Partial`, and negative bases with non-rational exponents report `NonRealPower`.
+- General real powers with a certified positive base use interval composition through `exp(y log(x))`, so expressions such as `2^sqrt(2)` and `sqrt(2)^sqrt(2)` retain exact symbolic output while returning certified enclosures.
 - `sqrt` preserves perfect-square rational results exactly, recognizes simple radicals such as `sqrt(72) = 6sqrt(2)`, `sqrt(6962) = 59sqrt(2)`, `sqrt(1/2) = sqrt(2)/2`, and `2^(1/2) = sqrt(2)`, and reduces simple-radical products, quotients, and like terms such as `sqrt(2) * sqrt(2) = 2`, `sqrt(2) * sqrt(3) = sqrt(6)`, and `sqrt(8) / sqrt(2) = 2`.
 - Radical exact output supports linear combinations of rational and simple-radical terms, such as `sin(pi/6) + sqrt(2) = 1/2 + sqrt(2)` and `sqrt(3) + sqrt(2) = sqrt(2) + sqrt(3)`.
 - `pi`, `pi/6`, and other rational multiples of `pi` are recognized structurally as exact `RationalPiMultiple` values and return certified enclosures with `Partial` until requested decimal digits are confirmed.
@@ -20,14 +21,14 @@ The implementation is following [doc/design.md](doc/design.md). The current work
 - Rational and simple-radical special angles are exact when the DAG proves the argument is a supported rational multiple of `pi`: examples include `sin(pi/6) = 1/2`, `cos(pi/3) = 1/2`, `sin(pi/4) = sqrt(2)/2`, `sin(pi/12) = sqrt(6)/4 - sqrt(2)/4`, `tan(pi/12) = 2 - sqrt(3)`, and `tan(pi/2)` as `domain.tangentPole`.
 - Forward trigonometric functions lower degree and gradian inputs to exact radian expressions before evaluation, so `sin(30)` in degree mode is exact `1/2`.
 - Inverse trigonometric known values are exact for supported rational and simple-radical arguments: examples include `asin(1/2) = pi/6`, `asin(sqrt(2)/2) = pi/4`, `atan(sqrt(3)) = pi/3` in radian mode, and `asin(1/2) = 30` / `atan(sqrt(3)) = 60` in degree mode.
-- Certified interval evaluation covers constants, supported elementary functions, rational point trigonometric range reduction, periodic `sin` / `cos` extrema, and `tan` pole-aware monotone branches.
+- Certified interval evaluation covers constants, supported elementary functions, rational point trigonometric range reduction, periodic `sin` / `cos` extrema, `tan` pole-aware monotone branches, and positive-base general powers.
 - Bounded real algebraic recognition covers supported prime rational powers, algebraic sums/products/quotients/integer powers, cyclotomic exact trigonometric values such as `sin(pi/5)`, `cos(pi/5)`, and `tan(pi/5)`, and rational collapse of degree-one algebraic results such as `2^(1/3)-2^(1/3) = 0` and `2^(1/3)/2^(1/3) = 1`. Nested rational collapses are propagated into later algebraic operations, for example `(2^(1/3)-2^(1/3))+2^(1/3)` and `((2^(1/3)-2^(1/3))+2)^(1/3)` remain recognized as real algebraic values.
 - `calculator-cli` evaluates exact expressions such as `0.1 + 0.2`.
 - `calculator-wasm` exposes DTO-based calculation through `wasm-bindgen`.
 - `packages/calculator` provides TypeScript facades for calculation and headless session dispatch over the Wasm module.
 - `examples/vanilla-web` is a browser example using the public npm facade.
 
-Remaining design work includes broader transcendental interval evaluation, wider symbolic simplification, algebraic operation coverage beyond the current bounded supported cases, and the final public API 1.0 release policy.
+Remaining design work includes broader transcendental interval evaluation beyond the current supported function set, wider symbolic simplification, algebraic operation coverage beyond the current bounded supported cases, and the final public API 1.0 release policy.
 
 ## Native CLI
 
@@ -95,7 +96,8 @@ The Pages workflow in [.github/workflows/pages.yml](.github/workflows/pages.yml)
 
 The example e2e test covers the public worker API path, MathML rendering,
 clipboard copy, worker cancellation, rational scientific/enclosure output,
-guarded `exp` / `log` identities, exact rational power semantics, and rational
+guarded `exp` / `log` identities, exact rational power semantics, positive-base
+general power intervals, and rational
 `pi` multiple output, rational and radical special-angle output, inverse
 trigonometric known values, simple radical output and algebra, mixed radical
 linear combinations, bounded real algebraic output, and `tan` pole errors.
