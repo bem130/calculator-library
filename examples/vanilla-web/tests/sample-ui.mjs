@@ -52,6 +52,10 @@ async function assertPublicApiUsage() {
         "MathML display must use renderMathMl",
     );
     assert(
+        mainSource.includes("renderResultRelationPlainText("),
+        "result relation text must use the public relation renderer",
+    );
+    assert(
         mainSource.includes("presentInput("),
         "input preview must use the public presentInput facade",
     );
@@ -95,15 +99,16 @@ async function runBrowserChecks(url, origin) {
             "input preview radical was not rendered",
         );
         await waitForText(page, "#scientific-state", "5 digits");
-        await waitForText(page, "#scientific-output", "1.4142 × 10^0");
+        await waitForText(page, "#scientific-output", "≈ 1.4142 × 10^0");
         await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
+        await waitForText(page, "#enclosure-output", "∈ [1.4142 × 10^0, 1.4143 × 10^0]");
         assert(await page.locator("#include-scientific").count() === 0, "output toggles remain");
         await assertPhase2Outputs(page);
 
         await page.click("#copy");
         await waitForText(page, "#status", "Copied");
         const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
-        assert(clipboardText === "3/10", `clipboard text was ${JSON.stringify(clipboardText)}`);
+        assert(clipboardText === "= 3/10", `clipboard text was ${JSON.stringify(clipboardText)}`);
 
         await assertIrrationalSqrtPartial(page);
         await assertPiPartial(page);
@@ -172,7 +177,7 @@ async function assertPhase2Outputs(page) {
     await waitForText(
         page,
         "#scientific-output",
-        "3.0000 × 10^-1",
+        "≈ 3.0000 × 10^-1",
     );
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
@@ -598,7 +603,7 @@ async function assertIrrationalSqrtPartial(page) {
     await waitForText(page, "#exact-output", "= sqrt(2)");
     await waitForText(page, "#exact-kind", "RADICAL");
     await waitForText(page, "#scientific-state", "5 digits");
-    await waitForText(page, "#scientific-output", "1.4142 × 10^0");
+    await waitForText(page, "#scientific-output", "≈ 1.4142 × 10^0");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
     const interval = parseDecimalScientificInterval(await textContent(page, "#enclosure-output"));
@@ -733,7 +738,7 @@ async function textContent(page, selector) {
 
 function parseDecimalScientificInterval(source) {
     const match =
-        /^\[(-?\d+(?:\.\d+)?) × 10\^(-?\d+), (-?\d+(?:\.\d+)?) × 10\^(-?\d+)\]$/u.exec(
+        /^(?:∈ )?\[(-?\d+(?:\.\d+)?) × 10\^(-?\d+), (-?\d+(?:\.\d+)?) × 10\^(-?\d+)\]$/u.exec(
             source,
         );
     assert(match !== null, `unexpected enclosure output: ${JSON.stringify(source)}`);

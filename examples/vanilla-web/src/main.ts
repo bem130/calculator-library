@@ -5,6 +5,8 @@ import {
     defaultInputPolicy,
     renderMathMl,
     renderPlainText,
+    renderResultRelationMathMl,
+    renderResultRelationPlainText,
     type ApiResult,
     type Calculation,
     type CalculationOutcome,
@@ -714,8 +716,10 @@ function renderExact(calculation: Calculation): void {
         return;
     }
     exactKind.textContent = formatLabel(calculation.exact.value.representation);
-    exactOutput.textContent = `= ${calculation.exact.value.plainText}`;
-    mathmlOutput.innerHTML = `<math display="inline">${renderMathMl(calculation.exact.value.presentation)}</math>`;
+    exactOutput.textContent =
+        `${renderResultRelationPlainText(calculation.exact.value.relation)} ${calculation.exact.value.plainText}`;
+    mathmlOutput.innerHTML =
+        `<math display="inline">${renderResultRelationMathMl(calculation.exact.value.relation)}${renderMathMl(calculation.exact.value.presentation)}</math>`;
 }
 
 function renderScientific(calculation: Calculation): void {
@@ -730,10 +734,11 @@ function renderScientific(calculation: Calculation): void {
             return;
         case "included":
             scientificState.textContent = `${calculation.scientific.value.confirmedSignificantDigits} digits`;
-            scientificOutput.textContent = formatScientificDecimal(
-                calculation.scientific.value.significand,
-                calculation.scientific.value.exponentTen,
-            );
+            scientificOutput.textContent =
+                `${renderResultRelationPlainText(calculation.scientific.value.relation)} ${formatScientificDecimal(
+                    calculation.scientific.value.significand,
+                    calculation.scientific.value.exponentTen,
+                )}`;
             return;
     }
 }
@@ -746,7 +751,10 @@ function renderEnclosure(calculation: Calculation): void {
             return;
         case "included":
             enclosureState.textContent = "DECIMAL SCIENTIFIC";
-            enclosureOutput.textContent = renderPlainText(calculation.enclosure.value.presentation);
+            enclosureOutput.textContent =
+                `${renderResultRelationPlainText(calculation.enclosure.value.relation)} ${renderPlainText(
+                    calculation.enclosure.value.presentation,
+                )}`;
             return;
     }
 }
@@ -787,7 +795,9 @@ function currentPlainText(): string {
     }
     const calculation = state.result.value.calculation;
     if (calculation.exact.tag === "included") {
-        return renderPlainText(calculation.exact.value.presentation);
+        return `${renderResultRelationPlainText(calculation.exact.value.relation)} ${renderPlainText(
+            calculation.exact.value.presentation,
+        )}`;
     }
     return "";
 }
