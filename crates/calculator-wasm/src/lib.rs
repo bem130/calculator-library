@@ -526,6 +526,34 @@ mod dto_differential {
             },
         },
         Case {
+            id: "nested-real-algebraic-rational-collapse",
+            source: "(2^(1/3)-2^(1/3))+2^(1/3)-2^(1/3)",
+            request: RequestProfile::ExactOnly,
+            expected: ExpectedOutcome::Complete {
+                representation: ExactRepresentationKindDto::Integer,
+                plain_text: "0",
+                methods: &[
+                    MethodTagDto::AlgebraicMinimalPolynomial,
+                    MethodTagDto::AlgebraicRootIsolation,
+                    MethodTagDto::CertifiedIntervalEvaluation,
+                ],
+            },
+        },
+        Case {
+            id: "nested-real-algebraic-collapse-feeds-power",
+            source: "((2^(1/3)-2^(1/3))+2)^(1/3)",
+            request: RequestProfile::ExactOnly,
+            expected: ExpectedOutcome::Complete {
+                representation: ExactRepresentationKindDto::RealAlgebraic,
+                plain_text: "((2^(1/3)-2^(1/3))+2)^(1/3)",
+                methods: &[
+                    MethodTagDto::AlgebraicMinimalPolynomial,
+                    MethodTagDto::AlgebraicRootIsolation,
+                    MethodTagDto::CertifiedIntervalEvaluation,
+                ],
+            },
+        },
+        Case {
             id: "cyclotomic-real-algebraic",
             source: "sin(pi/5)",
             request: RequestProfile::ExactOnly,
