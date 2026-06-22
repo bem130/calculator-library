@@ -2288,9 +2288,12 @@ export function createSession(policy: InputPolicyDto): CalculatorSession;
 export function renderPlainText(node: PresentationNodeDto): string;
 export function renderMathMl(node: PresentationNodeDto): string;
 export function renderLatex(node: PresentationNodeDto): string;
+export function renderResultRelationPlainText(relation: ResultRelation): string;
+export function renderResultRelationMathMl(relation: ResultRelation): string;
+export function renderResultRelationLatex(relation: ResultRelation): string;
 ```
 
-`renderMathMl` と `renderLatex` は文字列を返すが、DOMへ挿入する責務は持たない。DOM sanitization、clipboard、ARIA属性、LaTeX rendererへの投入可否判断はsample UIまたは利用側の責務とする。
+presentation renderer は `PresentationNodeDto` と `ResultRelation` を分けて扱う。UI は exact / scientific / enclosure の各 output に付いた `relation` を `renderResultRelation*` で表示し、その後に presentation tree を `renderPlainText` / `renderMathMl` / `renderLatex` で表示する。`renderMathMl` と `renderLatex` は文字列を返すが、DOMへ挿入する責務は持たない。DOM sanitization、clipboard、ARIA属性、LaTeX rendererへの投入可否判断はsample UIまたは利用側の責務とする。
 
 公開facadeで使う補助DTOは次の形を正本とする。詳細なfieldはgenerated DTOから再exportするが、`tag` と `code` の値はこの文書のRust enumとcamelCaseで対応する。
 

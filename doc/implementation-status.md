@@ -20,7 +20,7 @@
 * bounded real algebraic recognition for supported polynomial operations、整数累乗、符号を証明できる real algebraic の主 n 乗根と有理指数、cyclotomic trigonometric cases、degree-one algebraic result の rational collapse と後続の代数的演算への伝播。
 * parser/session/DTO/native-Wasm/browser conformance tests。
 * resource limit enforcement before or during expensive evaluation paths。
-* npm facade の `presentInput` による、評価とは独立した入力式 presentation tree。presentation tree は `renderPlainText`、`renderMathMl`、`renderLatex` で利用側の表示形式へ変換できる。
+* npm facade の `presentInput` による、評価とは独立した入力式 presentation tree。presentation tree は `renderPlainText`、`renderMathMl`、`renderLatex` で、result relation は `renderResultRelationPlainText`、`renderResultRelationMathMl`、`renderResultRelationLatex` で利用側の表示形式へ変換できる。
 
 ## Hardened Gates
 

@@ -26,7 +26,7 @@ The implementation is following [doc/design.md](doc/design.md). The current work
 - Bounded real algebraic recognition covers supported prime rational powers, algebraic sums/products/quotients/integer powers, cyclotomic exact trigonometric values such as `sin(pi/5)`, `cos(pi/5)`, and `tan(pi/5)`, and rational collapse of degree-one algebraic results such as `2^(1/3)-2^(1/3) = 0` and `2^(1/3)/2^(1/3) = 1`. Nested rational collapses are propagated into later algebraic operations, for example `(2^(1/3)-2^(1/3))+2^(1/3)` and `((2^(1/3)-2^(1/3))+2)^(1/3)` remain recognized as real algebraic values.
 - `calculator-cli` evaluates exact expressions such as `0.1 + 0.2`.
 - `calculator-wasm` exposes DTO-based calculation and input presentation through `wasm-bindgen`.
-- `packages/calculator` provides TypeScript facades for calculation, input presentation, presentation rendering to plain text / MathML / LaTeX, and headless session dispatch over the Wasm module.
+- `packages/calculator` provides TypeScript facades for calculation, input presentation, presentation and result-relation rendering to plain text / MathML / LaTeX, and headless session dispatch over the Wasm module.
 - `examples/vanilla-web` is a browser example using the public npm facade.
 
 Remaining design work includes broader transcendental interval evaluation beyond the current supported function set, wider symbolic simplification, algebraic operation coverage beyond the current bounded supported cases, and final 1.0 release hardening.

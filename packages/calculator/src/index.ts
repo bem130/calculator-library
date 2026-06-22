@@ -40,4 +40,11 @@ export {
     defaultInputPolicy,
     exactOnlyCalculationRequest,
 } from "./direct";
-export { renderLatex, renderMathMl, renderPlainText } from "./presentation";
+export {
+    renderLatex,
+    renderMathMl,
+    renderPlainText,
+    renderResultRelationLatex,
+    renderResultRelationMathMl,
+    renderResultRelationPlainText,
+} from "./presentation";

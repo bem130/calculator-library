@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 
-import { renderLatex, renderMathMl, renderPlainText } from "../src/presentation.ts";
+import {
+    renderLatex,
+    renderMathMl,
+    renderPlainText,
+    renderResultRelationLatex,
+    renderResultRelationMathMl,
+    renderResultRelationPlainText,
+} from "../src/presentation.ts";
 
 const logBase = {
     tag: "row",
@@ -78,3 +85,9 @@ assert.equal(
     renderLatex(decimalScientificInterval),
     "[1.4142 \\times 10^{0}, 1.4143 \\times 10^{0}]",
 );
+
+assert.equal(renderResultRelationPlainText("exactEqual"), "=");
+assert.equal(renderResultRelationPlainText("approximatelyEqual"), "≈");
+assert.equal(renderResultRelationPlainText("elementOf"), "∈");
+assert.equal(renderResultRelationMathMl("elementOf"), "<mo>∈</mo>");
+assert.equal(renderResultRelationLatex("approximatelyEqual"), "\\approx");

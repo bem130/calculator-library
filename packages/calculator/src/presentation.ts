@@ -1,4 +1,4 @@
-import type { FunctionNameDto, PresentationNodeDto } from "./generated/dto";
+import type { FunctionNameDto, PresentationNodeDto, ResultRelation } from "./generated/dto";
 
 export function renderPlainText(node: PresentationNodeDto): string {
     switch (node.tag) {
@@ -71,6 +71,32 @@ export function renderLatex(node: PresentationNodeDto): string {
             return `${latexFunctionName(node.name)}\\left(${renderLatex(node.argument)}\\right)`;
         case "parenthesized":
             return `\\left(${renderLatex(node.value)}\\right)`;
+    }
+}
+
+export function renderResultRelationPlainText(relation: ResultRelation): string {
+    switch (relation) {
+        case "exactEqual":
+            return "=";
+        case "approximatelyEqual":
+            return "≈";
+        case "elementOf":
+            return "∈";
+    }
+}
+
+export function renderResultRelationMathMl(relation: ResultRelation): string {
+    return `<mo>${escapeXml(renderResultRelationPlainText(relation))}</mo>`;
+}
+
+export function renderResultRelationLatex(relation: ResultRelation): string {
+    switch (relation) {
+        case "exactEqual":
+            return "=";
+        case "approximatelyEqual":
+            return "\\approx";
+        case "elementOf":
+            return "\\in";
     }
 }
 
