@@ -1195,8 +1195,10 @@ fn render_symbolic_shifted_trig_function(
                 rendered.negative = !rendered.negative;
                 Some(rendered)
             }
-            Function::Tan
-            | Function::Asin
+            Function::Tan => Some(render_symbolic_tangent_half_pi_shift(
+                shifted_argument.remainder,
+            )),
+            Function::Asin
             | Function::Acos
             | Function::Atan
             | Function::Sqrt
@@ -1219,8 +1221,10 @@ fn render_symbolic_shifted_trig_function(
                 Function::Sin,
                 shifted_argument.remainder,
             )),
-            Function::Tan
-            | Function::Asin
+            Function::Tan => Some(render_symbolic_tangent_half_pi_shift(
+                shifted_argument.remainder,
+            )),
+            Function::Asin
             | Function::Acos
             | Function::Atan
             | Function::Sqrt
@@ -1230,6 +1234,22 @@ fn render_symbolic_shifted_trig_function(
     }
 
     None
+}
+
+fn render_symbolic_tangent_half_pi_shift(
+    remainder: SignedRenderedSymbolic,
+) -> SignedRenderedSymbolic {
+    let tangent = render_signed_symbolic_function_from_signed_argument(Function::Tan, remainder);
+    SignedRenderedSymbolic {
+        negative: !tangent.negative,
+        value: RenderedSymbolic {
+            text: format!(
+                "1/{}",
+                parenthesize_symbolic(&tangent.value, SYMBOLIC_PRECEDENCE_MULTIPLY)
+            ),
+            precedence: SYMBOLIC_PRECEDENCE_MULTIPLY,
+        },
+    }
 }
 
 fn render_symbolic_function_value(
@@ -3798,7 +3818,10 @@ mod tests {
             ("cos(pi/2-1/10)", "sin(1/10)"),
             ("cos(3*pi/2+1/10)", "sin(1/10)"),
             ("cos(-pi/2+1/10)", "sin(1/10)"),
-            ("tan(pi/2+1/10)", "tan(pi/2+1/10)"),
+            ("tan(pi/2+1/10)", "-1/tan(1/10)"),
+            ("tan(pi/2-1/10)", "1/tan(1/10)"),
+            ("tan(3*pi/2+1/10)", "-1/tan(1/10)"),
+            ("tan(-pi/2+1/10)", "-1/tan(1/10)"),
             ("exp(sin(pi/2+1/10))", "exp(cos(1/10))"),
         ] {
             assert_eq!(exact_plain_text(source), expected, "{source}");
@@ -3862,7 +3885,7 @@ mod tests {
             ("tan(pi+1/10)", "tan(1/10)"),
             ("sin(pi/2+1/10)", "cos(1/10)"),
             ("cos(pi/2+1/10)", "-sin(1/10)"),
-            ("tan(pi/2+1/10)", "tan(pi/2+1/10)"),
+            ("tan(pi/2+1/10)", "-1/tan(1/10)"),
         ] {
             let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
             let CalculationOutcome::Partial {
