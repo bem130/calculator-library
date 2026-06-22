@@ -204,6 +204,17 @@ pub fn evaluate(
                 }
             }
             if let Some(algebraic) = evaluate_real_algebraic_dag(&dag, &limits)? {
+                if let Some(rational) = algebraic.rational_value() {
+                    return Ok(rational_evaluation_outcome_with_methods(
+                        expression,
+                        RationalEvaluation::direct(rational),
+                        request,
+                        &[
+                            MethodTag::AlgebraicMinimalPolynomial,
+                            MethodTag::AlgebraicRootIsolation,
+                        ],
+                    ));
+                }
                 let certified_enclosure =
                     real_algebraic_enclosure(&dag, &algebraic).map_err(|interval_error| {
                         interval_error_to_evaluation_error(interval_error, error.clone())
@@ -2411,6 +2422,51 @@ mod tests {
         };
         assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
         assert_eq!(exact.plain_text, source);
+    }
+
+    #[test]
+    fn degree_one_algebraic_results_collapse_to_rational() {
+        let mut context = EvaluationContext::default();
+        for (source, expected) in [
+            ("2^(1/3)-2^(1/3)", Rational::zero()),
+            ("2^(1/3)/2^(1/3)", Rational::one()),
+            ("2^(1/3)-2^(1/3)+1", Rational::one()),
+        ] {
+            let parsed = parse(source, &ParseSettings::default()).unwrap();
+            let evaluation = evaluate(
+                &parsed,
+                &EvaluationRequest {
+                    semantics: SemanticSettings::default(),
+                    limits: ResourceLimitRequest::Default,
+                },
+                &mut context,
+            )
+            .unwrap();
+            let RecognizedExact::Rational(value) = &evaluation.value.recognized_exact else {
+                panic!("{source}: expected rational recognition after algebraic reduction");
+            };
+            assert_eq!(value, &expected);
+            assert!(evaluation
+                .metadata
+                .methods
+                .contains(&MethodTag::AlgebraicMinimalPolynomial));
+            assert!(evaluation
+                .metadata
+                .methods
+                .contains(&MethodTag::AlgebraicRootIsolation));
+
+            let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+            let CalculationOutcome::Complete(calculation) = outcome else {
+                panic!("{source}: expected complete rational calculation");
+            };
+            let ExactOutput::Included(exact) = calculation.exact else {
+                panic!("{source}: expected exact rational output");
+            };
+            assert_eq!(
+                calculation.metadata.exact_representation,
+                exact.representation
+            );
+        }
     }
 
     #[test]

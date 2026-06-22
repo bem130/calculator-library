@@ -28,6 +28,19 @@ impl RealAlgebraic {
         &self.isolating_interval
     }
 
+    pub(crate) fn rational_value(&self) -> Option<Rational> {
+        if self.minimal_polynomial.degree() != Some(1) {
+            return None;
+        }
+        let coefficients =
+            effective_coefficients(&self.minimal_polynomial.coefficients_low_to_high);
+        Rational::new(
+            Integer::from_bigint(-coefficients[0].inner.clone()),
+            coefficients[1].clone(),
+        )
+        .ok()
+    }
+
     pub(crate) fn from_irreducible_polynomial(
         minimal_polynomial: PrimitivePolynomial,
         isolating_interval: RationalInterval,
@@ -2963,6 +2976,26 @@ mod tests {
 
         assert_eq!(positive_wide, positive_refined);
         assert_ne!(positive_wide, negative);
+    }
+
+    #[test]
+    fn real_algebraic_rational_value_extracts_linear_root_only() {
+        let rational_root = RealAlgebraic::from_irreducible_polynomial(
+            PrimitivePolynomial::new(integers(&[-3, 2])).expect("non-zero polynomial normalizes"),
+            rational_interval(1, 1, 2, 1),
+            64,
+        )
+        .expect("linear polynomial isolates one rational root");
+        assert_eq!(rational_root.rational_value(), Some(rational(3, 2)));
+
+        let irrational = RealAlgebraic::from_irreducible_polynomial(
+            PrimitivePolynomial::new(integers(&[-2, 0, 1]))
+                .expect("non-zero polynomial normalizes"),
+            rational_interval(1, 1, 2, 1),
+            64,
+        )
+        .expect("quadratic polynomial isolates one irrational root");
+        assert_eq!(irrational.rational_value(), None);
     }
 
     #[test]
