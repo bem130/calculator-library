@@ -2362,7 +2362,25 @@ fn evaluate_log_base_power_identity(
             function: Function::Sqrt,
             argument,
         } => evaluate_log_base_square_root_identity(dag, *argument, base),
-        _ => Ok(None),
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::Add(_)
+        | ExpressionNode::Multiply(_)
+        | ExpressionNode::Divide { .. }
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function {
+            function:
+                Function::Sin
+                | Function::Cos
+                | Function::Tan
+                | Function::Asin
+                | Function::Acos
+                | Function::Atan
+                | Function::Exp
+                | Function::Log
+                | Function::Ln,
+            ..
+        } => Ok(None),
     }
 }
 
@@ -3675,7 +3693,15 @@ impl DagBuilder {
                 }
                 let function = match function {
                     Function::Ln => Function::Log,
-                    other => *other,
+                    function @ (Function::Sin
+                    | Function::Cos
+                    | Function::Tan
+                    | Function::Asin
+                    | Function::Acos
+                    | Function::Atan
+                    | Function::Sqrt
+                    | Function::Exp
+                    | Function::Log) => *function,
                 };
                 Ok(self.push_node(ExpressionNode::Function { function, argument }))
             }
