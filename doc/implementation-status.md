@@ -11,7 +11,7 @@
 * 有理数の exact parse、四則演算、整数累乗、percent lowering。
 * `0.1 + 0.2 = 3/10` などの decimal lossless evaluation。
 * real principal power semantics に基づく rational power の exact root / domain error / symbolic fallback。
-* exact dyadic certified interval と adaptive scientific rounding。
+* exact dyadic certified interval と adaptive scientific rounding。scientific output は exact rational だけでなく、certified interval の上下端を同じ有効桁数・丸めモードで丸めて一致する場合にも confirmed digits として返す。
 * `pi`、`e`、exp/log と逆三角関数合成の証明可能な恒等式。`exp(log(x))` は正性を証明できる supported rational/radical/radical-linear/algebraic `x` で exact にし、`log(exp(x))` は supported exact `x` で exact にする。`sin(asin(x))` と `cos(acos(x))` は `x in [-1, 1]` を証明できる supported exact `x` で exact にし、`cos(asin(x))` と `sin(acos(x))` は `sqrt(1 - x^2)` を supported exact 値として構築できる場合に exact にし、`tan(atan(x))` は supported exact real `x` で exact にする。bounded rational/dyadic endpoint に対する exp/log/asin/acos/atan、rational point trigonometric range reduction、周期的な sin/cos extrema、tan pole-aware branch、正の底が証明できる一般実数指数 `x^y` の certified interval。
 * GeneralSymbolic exact presentation における安全な奇偶性、整数 `pi` シフト、`sin` / `cos` の半整数 `pi` cofunction shift、`tan` の半整数 `pi` reciprocal shift の正規化。例: `sin(-1) = -sin(1)`、`cos(-1) = cos(1)`、`sin(pi+1/10) = -sin(1/10)`、`cos(pi/2+1/10) = -sin(1/10)`、`tan(pi/2+1/10) = -1/tan(1/10)`、`exp(sin(pi/2+1/10)) = exp(cos(1/10))`。
 * rational pi multiple recognition。

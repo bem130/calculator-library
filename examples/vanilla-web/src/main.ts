@@ -2,7 +2,6 @@ import {
     createSession,
     defaultCalculationRequest,
     defaultInputPolicy,
-    exactOnlyCalculationRequest,
     renderMathMl,
     renderPlainText,
     type ApiResult,
@@ -30,9 +29,6 @@ type CalculatorState = {
     exactFormat: ExactFormatPreference;
     roundingMode: DecimalRoundingMode;
     significantDigits: number;
-    includeExact: boolean;
-    includeScientific: boolean;
-    includeEnclosure: boolean;
     busy: boolean;
     result: ApiResult<CalculationOutcome>;
     copied: boolean;
@@ -41,14 +37,11 @@ type CalculatorState = {
 };
 
 const state: CalculatorState = {
-    expression: "0.1 + 0.2",
+    expression: "sqrt(2)",
     angleUnit: "radian",
     exactFormat: "auto",
     roundingMode: "nearestTiesToEven",
     significantDigits: 5,
-    includeExact: true,
-    includeScientific: false,
-    includeEnclosure: false,
     busy: false,
     result: {
         tag: "error",
@@ -111,7 +104,48 @@ app.innerHTML = `
         </button>
         <span id="status" role="status" aria-live="polite"></span>
       </div>
+    </section>
 
+    <aside class="settings-panel" aria-label="Calculation settings">
+      <div class="settings-section">
+        <h2>Settings</h2>
+        <div class="segmented" role="group" aria-label="Angle unit">
+          <button data-angle="radian" type="button">rad</button>
+          <button data-angle="degree" type="button">deg</button>
+          <button data-angle="gradian" type="button">grad</button>
+        </div>
+      </div>
+
+      <div class="settings-grid">
+        <label>
+          <span>Exact format</span>
+          <select id="exact-format">
+            <option value="auto">Auto</option>
+            <option value="rational">Rational</option>
+            <option value="finiteDecimal">Finite decimal</option>
+            <option value="mixedFraction">Mixed fraction</option>
+            <option value="symbolic">Symbolic</option>
+          </select>
+        </label>
+        <label>
+          <span>Digits</span>
+          <input id="digits" type="number" min="1" max="200" step="1" />
+        </label>
+        <label>
+          <span>Rounding</span>
+          <select id="rounding">
+            <option value="nearestTiesToEven">Ties to even</option>
+            <option value="nearestTiesAwayFromZero">Ties away</option>
+            <option value="towardPositiveInfinity">Toward +infinity</option>
+            <option value="towardNegativeInfinity">Toward -infinity</option>
+            <option value="towardZero">Toward zero</option>
+            <option value="awayFromZero">Away from zero</option>
+          </select>
+        </label>
+      </div>
+    </aside>
+
+    <section class="result-panel" aria-label="Results">
       <div class="result-stack" aria-live="polite">
         <section class="result-block exact-block" aria-label="Exact result">
           <div class="block-heading">
@@ -137,62 +171,6 @@ app.innerHTML = `
         </section>
       </div>
     </section>
-
-    <aside class="settings-panel" aria-label="Calculation settings">
-      <div class="settings-section">
-        <h2>Settings</h2>
-        <label class="switch-row">
-          <input id="include-exact" type="checkbox" />
-          <span>Exact output</span>
-        </label>
-        <label class="switch-row">
-          <input id="include-scientific" type="checkbox" />
-          <span>Scientific output</span>
-        </label>
-        <label class="switch-row">
-          <input id="include-enclosure" type="checkbox" />
-          <span>Certified interval</span>
-        </label>
-      </div>
-
-      <div class="settings-section">
-        <h2>Angle unit</h2>
-        <div class="segmented" role="group" aria-label="Angle unit">
-          <button data-angle="radian" type="button">rad</button>
-          <button data-angle="degree" type="button">deg</button>
-          <button data-angle="gradian" type="button">grad</button>
-        </div>
-      </div>
-
-      <div class="settings-section">
-        <h2>Exact format</h2>
-        <select id="exact-format">
-          <option value="auto">Auto</option>
-          <option value="rational">Rational</option>
-          <option value="finiteDecimal">Finite decimal</option>
-          <option value="mixedFraction">Mixed fraction</option>
-          <option value="symbolic">Symbolic</option>
-        </select>
-      </div>
-
-      <div class="settings-grid">
-        <label>
-          <span>Digits</span>
-          <input id="digits" type="number" min="1" max="200" step="1" />
-        </label>
-        <label>
-          <span>Rounding</span>
-          <select id="rounding">
-            <option value="nearestTiesToEven">Ties to even</option>
-            <option value="nearestTiesAwayFromZero">Ties away</option>
-            <option value="towardPositiveInfinity">Toward +infinity</option>
-            <option value="towardNegativeInfinity">Toward -infinity</option>
-            <option value="towardZero">Toward zero</option>
-            <option value="awayFromZero">Away from zero</option>
-          </select>
-        </label>
-      </div>
-    </aside>
   </section>
 
   <section class="keypad" aria-label="Expression keypad"></section>
@@ -211,9 +189,6 @@ const scientificState = required<HTMLElement>("#scientific-state");
 const scientificOutput = required<HTMLOutputElement>("#scientific-output");
 const enclosureState = required<HTMLElement>("#enclosure-state");
 const enclosureOutput = required<HTMLOutputElement>("#enclosure-output");
-const includeExact = required<HTMLInputElement>("#include-exact");
-const includeScientific = required<HTMLInputElement>("#include-scientific");
-const includeEnclosure = required<HTMLInputElement>("#include-enclosure");
 const exactFormat = required<HTMLSelectElement>("#exact-format");
 const digits = required<HTMLInputElement>("#digits");
 const rounding = required<HTMLSelectElement>("#rounding");
@@ -281,18 +256,6 @@ expressionInput.addEventListener("input", () => {
 calculateButton.addEventListener("click", () => void calculateFromSession());
 cancelButton.addEventListener("click", cancelFromUi);
 copyButton.addEventListener("click", () => void copyPlainText());
-includeExact.addEventListener("change", () => {
-    state.includeExact = includeExact.checked;
-    invalidateSession();
-});
-includeScientific.addEventListener("change", () => {
-    state.includeScientific = includeScientific.checked;
-    invalidateSession();
-});
-includeEnclosure.addEventListener("change", () => {
-    state.includeEnclosure = includeEnclosure.checked;
-    invalidateSession();
-});
 exactFormat.addEventListener("change", () => {
     state.exactFormat = exactFormat.value as ExactFormatPreference;
     invalidateSession();
@@ -520,27 +483,19 @@ function buildRequest(): CalculationRequest {
             ...defaultCalculationRequest.semantics,
             angleUnit: state.angleUnit,
         },
-        exactOutput: state.includeExact
-            ? {
-                tag: "include",
-                format: state.exactFormat,
-            }
-            : {
-                tag: "omit",
-            },
-        scientificOutput: state.includeScientific
-            ? {
-                tag: "include",
-                significantDigits: state.significantDigits,
-                roundingMode: state.roundingMode,
-            }
-            : exactOnlyCalculationRequest.scientificOutput,
-        enclosureOutput: state.includeEnclosure
-            ? {
-                tag: "include",
-                format: "exactDyadic",
-            }
-            : exactOnlyCalculationRequest.enclosureOutput,
+        exactOutput: {
+            tag: "include",
+            format: state.exactFormat,
+        },
+        scientificOutput: {
+            tag: "include",
+            significantDigits: state.significantDigits,
+            roundingMode: state.roundingMode,
+        },
+        enclosureOutput: {
+            tag: "include",
+            format: "exactDyadic",
+        },
     };
 }
 
@@ -890,9 +845,6 @@ function renderStatus(): void {
 
 function syncControls(): void {
     expressionInput.value = state.expression;
-    includeExact.checked = state.includeExact;
-    includeScientific.checked = state.includeScientific;
-    includeEnclosure.checked = state.includeEnclosure;
     exactFormat.value = state.exactFormat;
     digits.value = String(state.significantDigits);
     rounding.value = state.roundingMode;

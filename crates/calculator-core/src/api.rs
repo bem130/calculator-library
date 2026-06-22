@@ -448,15 +448,15 @@ pub fn present(
                 significant_digits,
                 rounding_mode,
             },
-        ) => ScientificOutput::Unavailable(UnavailableScientificOutput {
-            requested_significant_digits: significant_digits,
-            confirmed_significant_digits: 0,
+        ) => scientific_presentation_from_certified_interval(
+            &evaluation.value.certified_enclosure,
+            significant_digits,
             rounding_mode,
-            reason: IncompleteReason::PrecisionLimit {
-                requested_digits: significant_digits,
-                confirmed_digits: 0,
-            },
-        }),
+        )?
+        .map_or_else(
+            || unavailable_scientific_output(significant_digits, rounding_mode),
+            ScientificOutput::Included,
+        ),
     };
     let dyadic_precision_bits = match request.scientific_output {
         ScientificOutputRequest::Include {
@@ -1547,6 +1547,46 @@ fn scientific_presentation(
     })
 }
 
+fn scientific_presentation_from_certified_interval(
+    state: &CertifiedEnclosureState,
+    significant_digits: core::num::NonZeroU32,
+    rounding_mode: DecimalRoundingMode,
+) -> Result<Option<ScientificPresentation>, PresentationError> {
+    let CertifiedEnclosureState::Available(interval) = state else {
+        return Ok(None);
+    };
+    let lower = match interval::dyadic_to_rational(&interval.lower) {
+        Ok(value) => value,
+        Err(_) => return Ok(None),
+    };
+    let upper = match interval::dyadic_to_rational(&interval.upper) {
+        Ok(value) => value,
+        Err(_) => return Ok(None),
+    };
+    let lower = scientific_presentation(&lower, significant_digits, rounding_mode)?;
+    let upper = scientific_presentation(&upper, significant_digits, rounding_mode)?;
+    if lower == upper {
+        Ok(Some(lower))
+    } else {
+        Ok(None)
+    }
+}
+
+fn unavailable_scientific_output(
+    significant_digits: core::num::NonZeroU32,
+    rounding_mode: DecimalRoundingMode,
+) -> ScientificOutput {
+    ScientificOutput::Unavailable(UnavailableScientificOutput {
+        requested_significant_digits: significant_digits,
+        confirmed_significant_digits: 0,
+        rounding_mode,
+        reason: IncompleteReason::PrecisionLimit {
+            requested_digits: significant_digits,
+            confirmed_digits: 0,
+        },
+    })
+}
+
 fn dyadic_interval_presentation(
     rational: &Rational,
     format: EnclosureFormat,
@@ -1810,6 +1850,19 @@ mod tests {
             enclosure_output: EnclosureOutputRequest::Omit,
             ..CalculationRequest::default()
         }
+    }
+
+    fn scientific_text_with_request(source: &str, request: &CalculationRequest) -> String {
+        let mut context = EvaluationContext::default();
+        let outcome = calculate(source, request, &mut context).expect(source);
+        let calculation = match outcome {
+            CalculationOutcome::Complete(calculation) => calculation,
+            CalculationOutcome::Partial { calculation, .. } => calculation,
+        };
+        let ScientificOutput::Included(scientific) = calculation.scientific else {
+            panic!("{source}: expected scientific output");
+        };
+        format!("{}e{}", scientific.significand, scientific.exponent_ten)
     }
 
     fn enclosure_request() -> CalculationRequest {
@@ -2480,6 +2533,24 @@ mod tests {
             .metadata
             .methods
             .contains(&MethodTag::RadicalExtraction));
+    }
+
+    #[test]
+    fn certified_enclosures_confirm_scientific_output_when_digits_are_resolved() {
+        let request = scientific_request(5, DecimalRoundingMode::NearestTiesToEven);
+        for (source, expected) in [
+            ("sqrt(2)", "1.4142e0"),
+            ("pi", "3.1416e0"),
+            ("pi/6", "5.2360e-1"),
+            ("exp(1)", "2.7183e0"),
+            ("sin(1)", "8.4147e-1"),
+        ] {
+            assert_eq!(
+                scientific_text_with_request(source, &request),
+                expected,
+                "{source}"
+            );
+        }
     }
 
     #[test]

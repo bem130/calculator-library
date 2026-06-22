@@ -1526,7 +1526,7 @@ fn compare_rationals(left: &Rational, right: &Rational) -> Ordering {
         .cmp(&(&right.numerator.inner * &left.denominator.inner.inner))
 }
 
-fn dyadic_to_rational(value: &ExactDyadic) -> Result<Rational, IntervalError> {
+pub(crate) fn dyadic_to_rational(value: &ExactDyadic) -> Result<Rational, IntervalError> {
     let exponent = &value.exponent_two.inner;
     if exponent.sign() == Sign::Minus {
         let denominator = BigInt::one()

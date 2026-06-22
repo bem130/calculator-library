@@ -81,11 +81,15 @@ async function runBrowserChecks(url, origin) {
 
     try {
         await page.goto(url);
-        await waitForText(page, "#exact-output", "= 3/10");
+        await waitForText(page, "#exact-output", "= sqrt(2)");
         assert(
-            await page.locator("#mathml-output math mfrac").count() > 0,
-            "MathML fraction was not rendered",
+            await page.locator("#mathml-output math msqrt").count() > 0,
+            "MathML radical was not rendered",
         );
+        await waitForText(page, "#scientific-state", "5 digits");
+        await waitForText(page, "#scientific-output", "1.4142 × 10^0");
+        await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
+        assert(await page.locator("#include-scientific").count() === 0, "output toggles remain");
         await assertPhase2Outputs(page);
 
         await page.click("#copy");
@@ -151,9 +155,9 @@ async function runBrowserChecks(url, origin) {
 }
 
 async function assertPhase2Outputs(page) {
-    await page.check("#include-scientific");
-    await page.check("#include-enclosure");
+    await page.fill("#expression", "0.1 + 0.2");
     await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 3/10");
 
     await waitForText(page, "#scientific-state", "5 digits");
     await waitForText(
@@ -178,7 +182,7 @@ async function assertInitialExpLog(page) {
     await page.fill("#expression", "exp(1)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= exp(1)");
-    await waitForText(page, "#scientific-state", "PRECISION LIMIT");
+    await waitForText(page, "#scientific-state", "5 digits");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
     const interval = parseDecimalScientificInterval(await textContent(page, "#enclosure-output"));
@@ -232,7 +236,7 @@ async function assertRationalPowers(page) {
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sqrt(2)");
     await waitForText(page, "#exact-kind", "RADICAL");
-    await waitForText(page, "#scientific-state", "PRECISION LIMIT");
+    await waitForText(page, "#scientific-state", "5 digits");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
     const interval = parseDecimalScientificInterval(await textContent(page, "#enclosure-output"));
@@ -249,14 +253,14 @@ async function assertRationalPowers(page) {
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 2^sqrt(2)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
-    await waitForText(page, "#scientific-state", "PRECISION LIMIT");
+    await waitForText(page, "#scientific-state", "5 digits");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
     await page.fill("#expression", "sqrt(2)^sqrt(2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sqrt(2)^sqrt(2)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
-    await waitForText(page, "#scientific-state", "PRECISION LIMIT");
+    await waitForText(page, "#scientific-state", "5 digits");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
     await page.fill("#expression", "2^(1/3)+1");
@@ -327,7 +331,7 @@ async function assertPiPartial(page) {
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= pi");
     await waitForText(page, "#exact-kind", "RATIONAL PI MULTIPLE");
-    await waitForText(page, "#scientific-state", "PRECISION LIMIT");
+    await waitForText(page, "#scientific-state", "5 digits");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
     const interval = parseDecimalScientificInterval(await textContent(page, "#enclosure-output"));
@@ -346,7 +350,7 @@ async function assertRationalPiMultiplePartial(page) {
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= pi/6");
     await waitForText(page, "#exact-kind", "RATIONAL PI MULTIPLE");
-    await waitForText(page, "#scientific-state", "PRECISION LIMIT");
+    await waitForText(page, "#scientific-state", "5 digits");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 }
 
@@ -550,8 +554,8 @@ async function assertIrrationalSqrtPartial(page) {
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sqrt(2)");
     await waitForText(page, "#exact-kind", "RADICAL");
-    await waitForText(page, "#scientific-state", "PRECISION LIMIT");
-    await waitForText(page, "#scientific-output", "Requested decimal digits are not confirmed.");
+    await waitForText(page, "#scientific-state", "5 digits");
+    await waitForText(page, "#scientific-output", "1.4142 × 10^0");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
     const interval = parseDecimalScientificInterval(await textContent(page, "#enclosure-output"));
