@@ -3292,6 +3292,9 @@ mod tests {
     fn guarded_exp_log_identities_are_exact_for_proven_radicals_and_algebraics() {
         for (source, expected) in [
             ("exp(log(sqrt(2)))", "sqrt(2)"),
+            ("exp(log(sqrt(2)+sqrt(3)))", "sqrt(2) + sqrt(3)"),
+            ("exp(log(sqrt(3)-sqrt(2)))", "sqrt(3) - sqrt(2)"),
+            ("exp(log(sqrt(2)+sqrt(3)-3))", "-3 + sqrt(2) + sqrt(3)"),
             ("log(exp(sqrt(2)))", "sqrt(2)"),
             ("log(exp(-sqrt(2)))", "-sqrt(2)"),
         ] {
@@ -3601,7 +3604,7 @@ mod tests {
 
     #[test]
     fn log_of_non_positive_is_domain_error() {
-        for source in ["log(0)", "log(-1)"] {
+        for source in ["log(0)", "log(-1)", "log(sqrt(2)-sqrt(3))"] {
             let mut context = EvaluationContext::default();
             let error = calculate(source, &exact_only_request(), &mut context).expect_err(source);
             assert_eq!(
@@ -3672,6 +3675,7 @@ mod tests {
             "exp(log(-1))",
             "exp(log(-sqrt(2)))",
             "exp(log(sqrt(2)-sqrt(2)))",
+            "exp(log(sqrt(2)-sqrt(3)))",
         ] {
             let mut context = EvaluationContext::default();
             let error = calculate(source, &exact_only_request(), &mut context).expect_err(source);

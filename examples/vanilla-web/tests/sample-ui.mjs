@@ -186,6 +186,11 @@ async function assertInitialExpLog(page) {
     await waitForText(page, "#exact-output", "= sqrt(2)");
     await waitForText(page, "#exact-kind", "RADICAL");
 
+    await page.fill("#expression", "exp(log(sqrt(2)+sqrt(3)))");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= sqrt(2) + sqrt(3)");
+    await waitForText(page, "#exact-kind", "RADICAL");
+
     await page.fill("#expression", "log(exp(2))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 2");

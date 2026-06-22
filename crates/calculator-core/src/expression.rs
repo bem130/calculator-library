@@ -1787,6 +1787,154 @@ fn scale_radical_linear_combination(
     radical_linear_combination_reduction(rational, radicals, used_special_angle)
 }
 
+const MAX_RADICAL_SIGN_PROOF_DEPTH: usize = 8;
+const MAX_RADICAL_SIGN_PROOF_TERMS: usize = 8;
+
+fn radical_reduction_sign(value: &RadicalReduction) -> Option<Ordering> {
+    radical_reduction_sign_with_depth(value, 0)
+}
+
+fn radical_reduction_sign_with_depth(value: &RadicalReduction, depth: usize) -> Option<Ordering> {
+    match value {
+        RadicalReduction::Rational(value) => Some(rational_sign(value.value())),
+        RadicalReduction::Radical(value) => Some(rational_sign(&value.value().coefficient)),
+        RadicalReduction::LinearCombination(value) => {
+            radical_linear_combination_sign(value.value(), depth)
+        }
+    }
+}
+
+fn radical_linear_combination_sign(
+    value: &RadicalLinearCombination,
+    depth: usize,
+) -> Option<Ordering> {
+    if let Some(sign) = radical_linear_combination_trivial_sign(value) {
+        return Some(sign);
+    }
+    if depth >= MAX_RADICAL_SIGN_PROOF_DEPTH
+        || radical_linear_combination_term_count(value) > MAX_RADICAL_SIGN_PROOF_TERMS
+    {
+        return None;
+    }
+
+    let (positive, negative) = split_radical_linear_combination_by_sign(value);
+    compare_nonnegative_radical_reductions(&positive, &negative, depth + 1)
+}
+
+fn radical_linear_combination_trivial_sign(value: &RadicalLinearCombination) -> Option<Ordering> {
+    let mut saw_positive = false;
+    let mut saw_negative = false;
+    update_component_sign(
+        rational_sign(&value.rational),
+        &mut saw_positive,
+        &mut saw_negative,
+    );
+    for radical in &value.radicals {
+        update_component_sign(
+            rational_sign(&radical.coefficient),
+            &mut saw_positive,
+            &mut saw_negative,
+        );
+    }
+
+    match (saw_positive, saw_negative) {
+        (false, false) => Some(Ordering::Equal),
+        (true, false) => Some(Ordering::Greater),
+        (false, true) => Some(Ordering::Less),
+        (true, true) => None,
+    }
+}
+
+fn update_component_sign(sign: Ordering, saw_positive: &mut bool, saw_negative: &mut bool) {
+    match sign {
+        Ordering::Less => *saw_negative = true,
+        Ordering::Equal => {}
+        Ordering::Greater => *saw_positive = true,
+    }
+}
+
+fn radical_linear_combination_term_count(value: &RadicalLinearCombination) -> usize {
+    usize::from(!value.rational.is_zero()) + value.radicals.len()
+}
+
+fn split_radical_linear_combination_by_sign(
+    value: &RadicalLinearCombination,
+) -> (RadicalReduction, RadicalReduction) {
+    let mut positive_rational = Rational::zero();
+    let mut negative_rational = Rational::zero();
+    if value.rational.is_negative() {
+        negative_rational = value.rational.negate();
+    } else {
+        positive_rational = value.rational.clone();
+    }
+
+    let mut positive_radicals = Vec::new();
+    let mut negative_radicals = Vec::new();
+    for radical in &value.radicals {
+        if radical.coefficient.is_negative() {
+            negative_radicals.push(SimpleRadical {
+                coefficient: radical.coefficient.negate(),
+                radicand: radical.radicand.clone(),
+            });
+        } else {
+            positive_radicals.push(radical.clone());
+        }
+    }
+
+    (
+        radical_linear_combination_reduction(positive_rational, positive_radicals, false),
+        radical_linear_combination_reduction(negative_rational, negative_radicals, false),
+    )
+}
+
+fn compare_nonnegative_radical_reductions(
+    left: &RadicalReduction,
+    right: &RadicalReduction,
+    depth: usize,
+) -> Option<Ordering> {
+    if depth >= MAX_RADICAL_SIGN_PROOF_DEPTH {
+        return None;
+    }
+    let left_terms =
+        radical_linear_combination_term_count(&radical_reduction_as_linear_combination(left));
+    let right_terms =
+        radical_linear_combination_term_count(&radical_reduction_as_linear_combination(right));
+    if left_terms + right_terms > MAX_RADICAL_SIGN_PROOF_TERMS {
+        return None;
+    }
+
+    let left_squared = multiply_radical_reductions(left, left, false).ok()??;
+    let right_squared = multiply_radical_reductions(right, right, false).ok()??;
+    let difference = subtract_radical_reductions(&left_squared, &right_squared);
+    radical_reduction_sign_with_depth(&difference, depth + 1)
+}
+
+fn subtract_radical_reductions(lhs: &RadicalReduction, rhs: &RadicalReduction) -> RadicalReduction {
+    let lhs = radical_reduction_as_linear_combination(lhs);
+    let rhs = radical_reduction_as_linear_combination(rhs);
+    let mut radicals = lhs.radicals;
+    for radical in rhs.radicals {
+        add_radical_term(
+            &mut radicals,
+            &SimpleRadical {
+                coefficient: radical.coefficient.negate(),
+                radicand: radical.radicand,
+            },
+        );
+    }
+    radical_linear_combination_reduction(lhs.rational.subtract(&rhs.rational), radicals, false)
+}
+
+fn rational_sign(value: &Rational) -> Ordering {
+    if value.is_negative() {
+        Ordering::Less
+    } else if value.is_zero() {
+        Ordering::Equal
+    } else {
+        Ordering::Greater
+    }
+}
+
 fn evaluate_power(
     dag: &ExactExpressionDag,
     base: ExprId,
@@ -1825,10 +1973,10 @@ fn rational_log_domain_proof(value: &Rational) -> LogDomainProof {
 }
 
 fn radical_log_domain_proof(value: &RadicalReduction) -> LogDomainProof {
-    match value {
-        RadicalReduction::Rational(value) => rational_log_domain_proof(value.value()),
-        RadicalReduction::Radical(value) => rational_log_domain_proof(&value.value().coefficient),
-        RadicalReduction::LinearCombination(_) => LogDomainProof::Unknown,
+    match radical_reduction_sign(value) {
+        Some(Ordering::Greater) => LogDomainProof::Positive,
+        Some(Ordering::Equal | Ordering::Less) => LogDomainProof::NonPositive,
+        None => LogDomainProof::Unknown,
     }
 }
 
