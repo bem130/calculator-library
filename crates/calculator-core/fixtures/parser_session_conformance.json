@@ -138,6 +138,18 @@
       "expectedExact": "1/2"
     },
     {
+      "id": "arbitrary_base_logarithm_exact_root_base",
+      "source": "log(8,sqrt(2))",
+      "expectedParseTree": "log(number(8),sqrt(number(2)))",
+      "expectedExact": "6"
+    },
+    {
+      "id": "arbitrary_base_logarithm_exact_power_base",
+      "source": "log(sqrt(2),8)",
+      "expectedParseTree": "log(sqrt(number(2)),number(8))",
+      "expectedExact": "1/6"
+    },
+    {
       "id": "natural_log_alias_composes_with_exp",
       "source": "ln(exp(2))",
       "expectedParseTree": "ln(exp(number(2)))",

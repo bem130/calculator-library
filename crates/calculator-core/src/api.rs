@@ -2126,6 +2126,14 @@ mod tests {
         assert_eq!(exact_presentation_for("log(2^(1/3),2)").plain_text, "1/3");
         assert_eq!(exact_presentation_for("log(2^(-2/3),2)").plain_text, "-2/3");
         assert_eq!(exact_presentation_for("log(sqrt(2),2)").plain_text, "1/2");
+        assert_eq!(exact_presentation_for("log(2,sqrt(2))").plain_text, "2");
+        assert_eq!(exact_presentation_for("log(8,sqrt(2))").plain_text, "6");
+        assert_eq!(exact_presentation_for("log(sqrt(2),8)").plain_text, "1/6");
+        assert_eq!(
+            exact_presentation_for("log(2^(1/3),sqrt(2))").plain_text,
+            "2/3"
+        );
+        assert_eq!(exact_presentation_for("log(1,sqrt(2))").plain_text, "0");
         assert_eq!(
             exact_presentation_for("log((sin(pi/6)*4)^(3/2),2)").plain_text,
             "3/2"
@@ -2138,15 +2146,18 @@ mod tests {
     #[test]
     fn logarithm_base_one_is_a_domain_error() {
         let mut context = EvaluationContext::default();
-        let error = calculate("log(2,1)", &exact_only_request(), &mut context)
-            .expect_err("log base one should be rejected");
-        assert_eq!(
-            error,
-            CalculatorError::Domain(DomainError {
-                kind: DomainErrorKind::LogarithmBaseOne,
-                span: None,
-            })
-        );
+        for source in ["log(2,1)", "log(2,2^0)"] {
+            let error = calculate(source, &exact_only_request(), &mut context)
+                .expect_err("log base one should be rejected");
+            assert_eq!(
+                error,
+                CalculatorError::Domain(DomainError {
+                    kind: DomainErrorKind::LogarithmBaseOne,
+                    span: None,
+                }),
+                "{source}"
+            );
+        }
     }
 
     #[test]

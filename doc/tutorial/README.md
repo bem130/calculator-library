@@ -306,7 +306,7 @@ const knownValueKeys = [
 ];
 ```
 
-`log(8,2)`、`log(2^(1/3),2)`、`ln(e)`、`exp(3,2)` は exact output でそれぞれ `3`、`1/3`、`1`、`8` になる。
+`log(8,2)`、`log(2^(1/3),2)`、`log(8,sqrt(2))`、`ln(e)`、`exp(3,2)` は exact output でそれぞれ `3`、`1/3`、`6`、`1`、`8` になる。
 
 ---
 
