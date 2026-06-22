@@ -898,6 +898,12 @@ struct SymbolicPiShiftArgument {
     remainder: SignedRenderedSymbolic,
 }
 
+#[derive(Clone, Debug)]
+struct SymbolicLogTerm {
+    coefficient: Rational,
+    argument: ExprId,
+}
+
 const SYMBOLIC_PRECEDENCE_ADD: u8 = 1;
 const SYMBOLIC_PRECEDENCE_MULTIPLY: u8 = 2;
 const SYMBOLIC_PRECEDENCE_POWER: u8 = 3;
@@ -1221,6 +1227,9 @@ fn render_signed_symbolic_sum_terms(terms: &[SignedRenderedSymbolic]) -> SignedR
             },
         };
     }
+    if terms.len() == 1 {
+        return terms[0].clone();
+    }
     if terms.iter().all(|term| term.negative) {
         let positive_terms = terms
             .iter()
@@ -1318,6 +1327,12 @@ fn render_signed_symbolic_function(
     function: Function,
     argument: ExprId,
 ) -> SignedRenderedSymbolic {
+    if matches!(function, Function::Log | Function::Ln) {
+        if let Some(rendered) = render_symbolic_log_expansion(dag, argument) {
+            return rendered;
+        }
+    }
+
     if matches!(function, Function::Sin | Function::Cos | Function::Tan) {
         if let Some(shifted_argument) = render_symbolic_pi_shift_argument(dag, argument) {
             if let Some(rendered) =
@@ -1367,6 +1382,198 @@ fn render_signed_symbolic_function_from_signed_argument(
                 value: render_symbolic_function_value(function, &argument),
             }
         }
+    }
+}
+
+fn render_symbolic_log_expansion(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+) -> Option<SignedRenderedSymbolic> {
+    let terms = symbolic_log_expansion_terms(dag, argument)?;
+    Some(render_symbolic_log_terms(dag, terms))
+}
+
+fn symbolic_log_expansion_terms(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+) -> Option<Vec<SymbolicLogTerm>> {
+    match dag.node(argument) {
+        ExpressionNode::Multiply(list_id) => {
+            let mut terms = Vec::new();
+            for factor in dag.list(*list_id) {
+                terms.extend(symbolic_log_expansion_terms(dag, *factor)?);
+            }
+            Some(terms)
+        }
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => {
+            let mut terms = symbolic_log_expansion_terms(dag, *numerator)?;
+            let mut denominator_terms = symbolic_log_expansion_terms(dag, *denominator)?;
+            for term in &mut denominator_terms {
+                term.coefficient = term.coefficient.negate();
+            }
+            terms.extend(denominator_terms);
+            Some(terms)
+        }
+        ExpressionNode::Power { base, exponent } => {
+            if !symbolic_positive_proof(dag, *base) {
+                return None;
+            }
+            let exponent = symbolic_rational_value(dag, *exponent)?;
+            let mut terms = symbolic_log_expansion_terms(dag, *base)?;
+            for term in &mut terms {
+                term.coefficient = term.coefficient.multiply(&exponent);
+            }
+            Some(terms)
+        }
+        ExpressionNode::Function {
+            function: Function::Sqrt,
+            argument: radicand,
+        } => {
+            if !symbolic_positive_proof(dag, *radicand) {
+                return None;
+            }
+            let mut terms = symbolic_log_expansion_terms(dag, *radicand)?;
+            for term in &mut terms {
+                term.coefficient = term.coefficient.multiply(&symbolic_rational(1, 2));
+            }
+            Some(terms)
+        }
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::Add(_)
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function {
+            function:
+                Function::Sin
+                | Function::Cos
+                | Function::Tan
+                | Function::Asin
+                | Function::Acos
+                | Function::Atan
+                | Function::Exp
+                | Function::Log
+                | Function::Ln,
+            ..
+        } => {
+            if !symbolic_positive_proof(dag, argument) {
+                return None;
+            }
+            if matches!(
+                symbolic_rational_value(dag, argument),
+                Some(value) if value == Rational::one()
+            ) {
+                return Some(Vec::new());
+            }
+            Some(vec![SymbolicLogTerm {
+                coefficient: Rational::one(),
+                argument,
+            }])
+        }
+    }
+}
+
+fn render_symbolic_log_terms(
+    dag: &ExactExpressionDag,
+    terms: Vec<SymbolicLogTerm>,
+) -> SignedRenderedSymbolic {
+    let mut rendered_terms: Vec<(Rational, RenderedSymbolic)> = Vec::new();
+    for term in terms {
+        if term.coefficient.is_zero() {
+            continue;
+        }
+        let argument = render_symbolic_node(dag, term.argument);
+        if argument.text == "1" {
+            continue;
+        }
+        if let Some((coefficient, _)) = rendered_terms
+            .iter_mut()
+            .find(|(_, existing)| existing.text == argument.text)
+        {
+            *coefficient = coefficient.add(&term.coefficient);
+        } else {
+            rendered_terms.push((term.coefficient, argument));
+        }
+    }
+
+    let terms = rendered_terms
+        .into_iter()
+        .filter(|(coefficient, _)| !coefficient.is_zero())
+        .map(|(coefficient, argument)| render_symbolic_log_term(coefficient, argument))
+        .collect::<Vec<_>>();
+    render_signed_symbolic_sum_terms(&terms)
+}
+
+fn render_symbolic_log_term(
+    coefficient: Rational,
+    argument: RenderedSymbolic,
+) -> SignedRenderedSymbolic {
+    let negative = coefficient.is_negative();
+    let magnitude = if negative {
+        coefficient.negate()
+    } else {
+        coefficient
+    };
+    let logarithm = render_symbolic_function_value(Function::Ln, &argument);
+    let value = if magnitude == Rational::one() {
+        logarithm
+    } else {
+        RenderedSymbolic {
+            text: format!(
+                "{}*{}",
+                magnitude,
+                parenthesize_symbolic(&logarithm, SYMBOLIC_PRECEDENCE_MULTIPLY)
+            ),
+            precedence: SYMBOLIC_PRECEDENCE_MULTIPLY,
+        }
+    };
+    SignedRenderedSymbolic { negative, value }
+}
+
+fn symbolic_positive_proof(dag: &ExactExpressionDag, id: ExprId) -> bool {
+    if let Some(value) = symbolic_rational_value(dag, id) {
+        return !value.is_negative() && !value.is_zero();
+    }
+
+    match dag.node(id) {
+        ExpressionNode::Constant(Constant::Pi | Constant::Euler) => true,
+        ExpressionNode::Add(list_id) => dag
+            .list(*list_id)
+            .iter()
+            .all(|child| symbolic_positive_proof(dag, *child)),
+        ExpressionNode::Multiply(list_id) => dag
+            .list(*list_id)
+            .iter()
+            .all(|child| symbolic_positive_proof(dag, *child)),
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => symbolic_positive_proof(dag, *numerator) && symbolic_positive_proof(dag, *denominator),
+        ExpressionNode::Power { base, .. } => symbolic_positive_proof(dag, *base),
+        ExpressionNode::Function {
+            function: Function::Sqrt,
+            argument,
+        } => symbolic_positive_proof(dag, *argument),
+        ExpressionNode::Function {
+            function: Function::Exp,
+            ..
+        } => true,
+        ExpressionNode::Rational(_)
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function {
+            function:
+                Function::Sin
+                | Function::Cos
+                | Function::Tan
+                | Function::Asin
+                | Function::Acos
+                | Function::Atan
+                | Function::Log
+                | Function::Ln,
+            ..
+        } => false,
     }
 }
 
@@ -2117,6 +2324,12 @@ mod tests {
             panic!("expected exact output");
         };
         exact
+    }
+
+    fn symbolic_plain_text_from_source(source: &str) -> String {
+        let parsed = parse(source, &ParseSettings::default()).unwrap();
+        let dag = lower_source_expression(&parsed.root, SemanticSettings::default()).unwrap();
+        symbolic_presentation_from_dag(&dag).plain_text
     }
 
     #[test]
@@ -4055,6 +4268,38 @@ mod tests {
     }
 
     #[test]
+    fn symbolic_logarithm_presentation_expands_only_proven_positive_factors() {
+        for (source, expected) in [
+            ("ln(2*3)", "ln(2)+ln(3)"),
+            ("ln(2*2*3)", "2*ln(2)+ln(3)"),
+            ("ln(2/3)", "ln(2)-ln(3)"),
+            ("ln(2^3)", "3*ln(2)"),
+            ("ln(2^(-3))", "-3*ln(2)"),
+            ("ln(sqrt(2))", "1/2*ln(2)"),
+            ("ln(sqrt(2)^2)", "ln(2)"),
+            ("ln((2+3)*5)", "ln(2+3)+ln(5)"),
+            ("ln(pi*e)", "ln(pi)+ln(e)"),
+        ] {
+            assert_eq!(
+                symbolic_plain_text_from_source(source),
+                expected,
+                "{source}"
+            );
+        }
+
+        for (source, expected) in [
+            ("ln((-2)*(-3))", "ln(2*3)"),
+            ("ln(sin(1)*2)", "ln(sin(1)*2)"),
+        ] {
+            assert_eq!(
+                symbolic_plain_text_from_source(source),
+                expected,
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
     fn guarded_inverse_trig_compositions_are_exact_for_proven_values() {
         for (source, expected) in [
             ("sin(asin(1/3))", "1/3"),
@@ -4238,10 +4483,10 @@ mod tests {
         let mut context = EvaluationContext::default();
         for (source, expected_plain_text) in [
             ("ln(2)", "ln(2)"),
-            ("ln(1/2)", "ln(1/2)"),
+            ("ln(1/2)", "-ln(2)"),
             ("exp(2)", "exp(2)"),
             ("sqrt(2)+ln(2)", "sqrt(2)+ln(2)"),
-            ("ln(sqrt(2))", "ln(sqrt(2))"),
+            ("ln(sqrt(2))", "1/2*ln(2)"),
             ("exp(sqrt(2))", "exp(sqrt(2))"),
             ("atan(1/3)", "atan(1/3)"),
             ("asin(1/3)", "asin(1/3)"),
