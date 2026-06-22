@@ -259,6 +259,48 @@ impl RealAlgebraic {
         .map(Some)
     }
 
+    pub(crate) fn principal_square_root_bounded(
+        &self,
+        max_algebraic_degree: u32,
+        max_polynomial_coefficient_bits: u32,
+        max_factorization_work: u32,
+        max_root_isolation_steps: u32,
+    ) -> Result<Option<Self>, RealAlgebraicConstructionError> {
+        let Some(source_interval) = isolate_away_from_zero(
+            &self.minimal_polynomial,
+            &self.isolating_interval,
+            max_root_isolation_steps,
+        )?
+        else {
+            return Ok(None);
+        };
+        if source_interval.upper.compare(&Rational::zero()) != Ordering::Greater {
+            return Ok(None);
+        }
+
+        let candidate_polynomial = self
+            .minimal_polynomial
+            .principal_square_root_candidate()
+            .map_err(RealAlgebraicConstructionError::PolynomialConstruction)?;
+        let Some(isolating_interval) = select_principal_square_root_interval(
+            &self.minimal_polynomial,
+            &source_interval,
+            &candidate_polynomial,
+            max_root_isolation_steps,
+        )?
+        else {
+            return Ok(None);
+        };
+        Self::from_candidate_polynomial_bounded(
+            candidate_polynomial,
+            isolating_interval,
+            max_algebraic_degree,
+            max_polynomial_coefficient_bits,
+            max_factorization_work,
+            max_root_isolation_steps,
+        )
+    }
+
     pub fn compare_bounded(
         &self,
         rhs: &Self,
@@ -521,6 +563,21 @@ impl PrimitivePolynomial {
             return Err(PrimitivePolynomialConstructionError::ZeroPolynomial);
         }
         Self::new(coefficients.iter().rev().cloned().collect())
+    }
+
+    fn principal_square_root_candidate(
+        &self,
+    ) -> Result<Self, PrimitivePolynomialConstructionError> {
+        let coefficients = effective_coefficients(&self.coefficients_low_to_high);
+        if coefficients.is_empty() {
+            return Err(PrimitivePolynomialConstructionError::ZeroPolynomial);
+        }
+
+        let mut candidate = vec![Integer::zero(); coefficients.len() * 2 - 1];
+        for (degree, coefficient) in coefficients.iter().enumerate() {
+            candidate[degree * 2] = coefficient.clone();
+        }
+        Self::new(candidate)
     }
 
     pub fn derivative(&self) -> Result<Self, PrimitivePolynomialConstructionError> {
@@ -1585,6 +1642,108 @@ fn binary_result_interval(
     match operation {
         BinaryIntervalOperation::Add => add_intervals(lhs, rhs),
         BinaryIntervalOperation::Multiply => multiply_intervals(lhs, rhs),
+    }
+}
+
+fn select_principal_square_root_interval(
+    source_polynomial: &PrimitivePolynomial,
+    source_interval: &RationalInterval,
+    candidate_polynomial: &PrimitivePolynomial,
+    max_root_isolation_steps: u32,
+) -> Result<Option<RationalInterval>, RealAlgebraicConstructionError> {
+    let mut source_interval = source_interval.clone();
+    let isolated_candidate_intervals =
+        match candidate_polynomial.isolate_real_roots(max_root_isolation_steps) {
+            Ok(intervals) => intervals,
+            Err(PrimitivePolynomialRootIsolationError::StepLimitExceeded) => return Ok(None),
+            Err(error) => {
+                return Err(RealAlgebraicConstructionError::RootIsolation(error));
+            }
+        };
+    let zero = Rational::zero();
+    let mut candidate_intervals = Vec::new();
+    for interval in isolated_candidate_intervals {
+        let Some(interval) =
+            isolate_away_from_zero(candidate_polynomial, &interval, max_root_isolation_steps)?
+        else {
+            return Ok(None);
+        };
+        candidate_intervals.push(interval);
+    }
+    let mut refinement_steps = 0;
+
+    loop {
+        let matching_indexes = candidate_intervals
+            .iter()
+            .enumerate()
+            .filter_map(|(index, interval)| {
+                if interval.lower.compare(&zero) == Ordering::Less {
+                    return None;
+                }
+                let squared = square_interval(interval);
+                rational_intervals_overlap(&squared, &source_interval).then_some(index)
+            })
+            .collect::<Vec<_>>();
+
+        match matching_indexes.as_slice() {
+            [index] => return Ok(Some(candidate_intervals[*index].clone())),
+            [] => return Ok(None),
+            _ => {}
+        }
+
+        if refinement_steps >= max_root_isolation_steps {
+            return Ok(None);
+        }
+        let Some(refined_source) = refine_isolating_interval(
+            source_polynomial,
+            &source_interval,
+            &mut refinement_steps,
+            max_root_isolation_steps,
+        )?
+        else {
+            return Ok(None);
+        };
+        source_interval = refined_source;
+
+        for index in matching_indexes {
+            if refinement_steps >= max_root_isolation_steps {
+                return Ok(None);
+            }
+            let Some(refined_candidate) = refine_isolating_interval(
+                candidate_polynomial,
+                &candidate_intervals[index],
+                &mut refinement_steps,
+                max_root_isolation_steps,
+            )?
+            else {
+                return Ok(None);
+            };
+            candidate_intervals[index] = refined_candidate;
+        }
+    }
+}
+
+fn square_interval(interval: &RationalInterval) -> RationalInterval {
+    let zero = Rational::zero();
+    if interval.upper.compare(&zero) != Ordering::Greater {
+        RationalInterval {
+            lower: interval.upper.multiply(&interval.upper),
+            upper: interval.lower.multiply(&interval.lower),
+        }
+    } else if interval.lower.compare(&zero) != Ordering::Less {
+        RationalInterval {
+            lower: interval.lower.multiply(&interval.lower),
+            upper: interval.upper.multiply(&interval.upper),
+        }
+    } else {
+        let lower_square = interval.lower.multiply(&interval.lower);
+        let upper_square = interval.upper.multiply(&interval.upper);
+        let upper = if lower_square.compare(&upper_square) == Ordering::Greater {
+            lower_square
+        } else {
+            upper_square
+        };
+        RationalInterval { lower: zero, upper }
     }
 }
 

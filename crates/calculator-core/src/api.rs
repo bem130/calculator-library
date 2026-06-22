@@ -3007,6 +3007,107 @@ mod tests {
     }
 
     #[test]
+    fn algebraic_square_roots_are_real_algebraic() {
+        let mut context = EvaluationContext::default();
+        for (source, coefficients, real_root_index, power) in [
+            (
+                "sqrt(2^(1/3))",
+                vec![
+                    Integer::from(-2),
+                    Integer::zero(),
+                    Integer::zero(),
+                    Integer::zero(),
+                    Integer::zero(),
+                    Integer::zero(),
+                    Integer::one(),
+                ],
+                1,
+                6,
+            ),
+            (
+                "sqrt((2^(1/3))^2)",
+                vec![
+                    Integer::from(-2),
+                    Integer::zero(),
+                    Integer::zero(),
+                    Integer::one(),
+                ],
+                0,
+                3,
+            ),
+            (
+                "((2^(1/3))^2)^(1/2)",
+                vec![
+                    Integer::from(-2),
+                    Integer::zero(),
+                    Integer::zero(),
+                    Integer::one(),
+                ],
+                0,
+                3,
+            ),
+        ] {
+            let parsed = parse(source, &ParseSettings::default()).unwrap();
+            let evaluation = evaluate(
+                &parsed,
+                &EvaluationRequest {
+                    semantics: SemanticSettings::default(),
+                    limits: ResourceLimitRequest::Default,
+                },
+                &mut context,
+            )
+            .unwrap();
+            let RecognizedExact::RealAlgebraic(algebraic) = &evaluation.value.recognized_exact
+            else {
+                panic!("{source}: expected real algebraic recognition");
+            };
+            assert_eq!(
+                algebraic.minimal_polynomial,
+                PrimitivePolynomial::new(coefficients).unwrap(),
+                "{source}"
+            );
+            assert_eq!(algebraic.real_root_index, real_root_index, "{source}");
+            assert_eq!(
+                algebraic
+                    .minimal_polynomial
+                    .distinct_real_root_count_in_interval(&algebraic.isolating_interval)
+                    .unwrap(),
+                1,
+                "{source}"
+            );
+            let CertifiedEnclosureState::Available(enclosure) =
+                &evaluation.value.certified_enclosure
+            else {
+                panic!("{source}: real algebraic recognition should include an enclosure");
+            };
+            let powered = interval::pow_i64(enclosure, power, 128).unwrap();
+            assert!(
+                interval::contains_rational(&powered, &Rational::from_integer(Integer::from(2)),)
+                    .unwrap(),
+                "{source}: powered enclosure should contain 2"
+            );
+
+            let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+            let CalculationOutcome::Partial { calculation, .. } = outcome else {
+                panic!("{source}: expected partial calculation for algebraic square root");
+            };
+            let ExactOutput::Included(exact) = calculation.exact else {
+                panic!("{source}: expected exact algebraic output");
+            };
+            assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
+            assert_eq!(exact.plain_text, source);
+            assert!(calculation
+                .metadata
+                .methods
+                .contains(&MethodTag::AlgebraicMinimalPolynomial));
+            assert!(calculation
+                .metadata
+                .methods
+                .contains(&MethodTag::AlgebraicRootIsolation));
+        }
+    }
+
+    #[test]
     fn prime_root_quotient_is_real_algebraic() {
         let source = "2^(1/3)/4^(1/3)";
         let parsed = parse(source, &ParseSettings::default()).unwrap();
@@ -3213,6 +3314,24 @@ mod tests {
         );
         assert_source_symbolic_fallback_with_limits(
             source,
+            ResourceLimits {
+                max_factorization_work: 0,
+                ..ResourceLimits::default()
+            },
+        );
+    }
+
+    #[test]
+    fn algebraic_square_root_limits_fall_back_to_symbolic_without_error() {
+        assert_source_symbolic_fallback_with_limits(
+            "sqrt(2^(1/3))",
+            ResourceLimits {
+                max_algebraic_degree: 5,
+                ..ResourceLimits::default()
+            },
+        );
+        assert_source_symbolic_fallback_with_limits(
+            "sqrt(2^(1/3))",
             ResourceLimits {
                 max_factorization_work: 0,
                 ..ResourceLimits::default()
@@ -3720,6 +3839,16 @@ mod tests {
         let mut context = EvaluationContext::default();
         let error =
             calculate("sqrt(-1)", &exact_only_request(), &mut context).expect_err("sqrt(-1)");
+        assert_eq!(
+            error,
+            CalculatorError::Domain(DomainError {
+                kind: DomainErrorKind::EvenRootOfNegative,
+                span: None,
+            })
+        );
+
+        let error = calculate("sqrt(2^(1/3)-2)", &exact_only_request(), &mut context)
+            .expect_err("sqrt(2^(1/3)-2)");
         assert_eq!(
             error,
             CalculatorError::Domain(DomainError {

@@ -686,6 +686,20 @@ mod dto_differential {
             },
         },
         Case {
+            id: "real-algebraic-square-root",
+            source: "sqrt(2^(1/3))",
+            request: RequestProfile::ExactOnly,
+            expected: ExpectedOutcome::Complete {
+                representation: ExactRepresentationKindDto::RealAlgebraic,
+                plain_text: "sqrt(2^(1/3))",
+                methods: &[
+                    MethodTagDto::AlgebraicMinimalPolynomial,
+                    MethodTagDto::AlgebraicRootIsolation,
+                    MethodTagDto::CertifiedIntervalEvaluation,
+                ],
+            },
+        },
+        Case {
             id: "partial-real-algebraic-with-enclosure",
             source: "2^(1/3)",
             request: RequestProfile::ScientificWithEnclosure,
