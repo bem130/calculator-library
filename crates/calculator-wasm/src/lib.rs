@@ -289,7 +289,18 @@ fn validate_enclosure_output_request_value(
         &["omit", "include"],
     )?;
     if tag == "include" {
-        validate_required_code(&js_property(&enclosure_output, "format")?, &["exactDyadic"])?;
+        let format = js_property(&enclosure_output, "format")?;
+        let format_tag = validate_required_tag(
+            &js_property(&format, "tag")?,
+            &["exactDyadic", "decimalScientific"],
+        )?;
+        if format_tag == "decimalScientific" {
+            validate_required_u32_number(
+                &js_property(&format, "significantDigits")?,
+                1,
+                dto::InputLimitErrorCodeDto::InvalidSignificantDigits,
+            )?;
+        }
     }
     Ok(())
 }
@@ -1951,15 +1962,16 @@ mod tests {
             },
             certified_enclosure: CertifiedIntervalPresentationDto {
                 relation: ResultRelationDto::ExactEqual,
-                lower: ExactDyadicDto {
-                    coefficient: String::from("1"),
-                    exponent_two: String::from("0"),
+                bounds: CertifiedIntervalBoundsDto::ExactDyadic {
+                    lower: ExactDyadicDto {
+                        coefficient: String::from("1"),
+                        exponent_two: String::from("0"),
+                    },
+                    upper: ExactDyadicDto {
+                        coefficient: String::from("1"),
+                        exponent_two: String::from("0"),
+                    },
                 },
-                upper: ExactDyadicDto {
-                    coefficient: String::from("1"),
-                    exponent_two: String::from("0"),
-                },
-                format: EnclosureFormatDto::ExactDyadic,
                 presentation: PresentationNodeDto::Text {
                     text: String::from("[1, 1]"),
                 },
@@ -2079,7 +2091,7 @@ mod tests {
                             refinement_rounds: 0,
                             confirmed_significant_digits: 50,
                             assurance: AssuranceLevelDto::Exact,
-                            protocol_version: ProtocolVersionDto { major: 1, minor: 1 },
+                            protocol_version: ProtocolVersionDto { major: 2, minor: 0 },
                         },
                     },
                 },

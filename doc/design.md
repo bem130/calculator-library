@@ -1526,6 +1526,9 @@ pub enum ExactFormatPreference {
 
 pub enum EnclosureFormat {
     ExactDyadic,
+    DecimalScientific {
+        significant_digits: core::num::NonZeroU32,
+    },
 }
 ```
 
@@ -1600,10 +1603,25 @@ pub struct UnavailableScientificOutput {
 
 pub struct CertifiedIntervalPresentation {
     pub relation: ResultRelation,
-    pub lower: ExactDyadic,
-    pub upper: ExactDyadic,
-    pub format: EnclosureFormat,
+    pub bounds: CertifiedIntervalBounds,
     pub presentation: PresentationNode,
+}
+
+pub enum CertifiedIntervalBounds {
+    ExactDyadic {
+        lower: ExactDyadic,
+        upper: ExactDyadic,
+    },
+    DecimalScientific {
+        lower: DecimalScientificBound,
+        upper: DecimalScientificBound,
+        requested_significant_digits: core::num::NonZeroU32,
+    },
+}
+
+pub struct DecimalScientificBound {
+    pub significand: String,
+    pub exponent_ten: String,
 }
 ```
 
@@ -1681,7 +1699,7 @@ minor:
     surfaceの追加で増加する。
 ```
 
-初期公開時のprotocol versionは `1.0` とし、現行の公開DTO contractは `1.1` とする。Rust公開enumのうち、利用者が網羅matchし得るものには、必要に応じて `#[non_exhaustive]` を付ける。ただし、計算意味論に関わる `DomainErrorKind`、`DecimalRoundingMode`、`PowerSemantics` は追加時にminor以上のversion更新を必要とする。
+初期公開時のprotocol versionは `1.0` とし、現行の公開DTO contractは `2.0` とする。Rust公開enumのうち、利用者が網羅matchし得るものは、破壊的変更を許容して必要なvariant追加・field変更を行う。ただし、計算意味論に関わる `DomainErrorKind`、`DecimalRoundingMode`、`PowerSemantics` は追加時にminor以上のversion更新を必要とする。
 
 TypeScript facadeは、未知の `tag` や未知の `code` を受け取った場合、握りつぶさず `unsupportedProtocol` エラーへ変換する。未知のDTOを誤った成功値として扱ってはならない。
 
@@ -2166,12 +2184,15 @@ const request: CalculationRequest = {
     },
     scientificOutput: {
         tag: "include",
-        significantDigits: 50,
+        significantDigits: 5,
         roundingMode: "nearestTiesToEven",
     },
     enclosureOutput: {
         tag: "include",
-        format: "exactDyadic",
+        format: {
+            tag: "decimalScientific",
+            significantDigits: 5,
+        },
     },
     limits: {
         tag: "default",
@@ -2581,11 +2602,11 @@ result exact expression: 7
 │ 厳密値                               │
 │ = 1/2 + sqrt(2)                      │
 │                                      │
-│ 科学表記 50桁                        │
-│ ≈ 1.914213562373095048801688... ×10⁰ │
+│ 科学表記 5桁                         │
+│ ≈ 1.9142 ×10⁰                        │
 │                                      │
 │ 保証区間                             │
-│ ∈ [lower, upper]                     │
+│ ∈ [1.9142 ×10⁰, 1.9143 ×10⁰]         │
 ├──────────────────────────────────────┤
 │ [sin] [cos] [tan] [log] [sqrt] ...  │
 └──────────────────────────────────────┘

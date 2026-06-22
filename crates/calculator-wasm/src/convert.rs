@@ -14,7 +14,7 @@ impl TryFrom<CalculationRequestDto> for core::CalculationRequest {
             semantics: value.semantics.into(),
             exact_output: value.exact_output.into(),
             scientific_output: value.scientific_output.try_into()?,
-            enclosure_output: value.enclosure_output.into(),
+            enclosure_output: value.enclosure_output.try_into()?,
             limits: value.limits.try_into()?,
         })
     }
@@ -175,21 +175,33 @@ impl From<core::DecimalRoundingMode> for DecimalRoundingModeDto {
     }
 }
 
-impl From<EnclosureOutputRequestDto> for core::EnclosureOutputRequest {
-    fn from(value: EnclosureOutputRequestDto) -> Self {
+impl TryFrom<EnclosureOutputRequestDto> for core::EnclosureOutputRequest {
+    type Error = CalculatorErrorDto;
+
+    fn try_from(value: EnclosureOutputRequestDto) -> Result<Self, Self::Error> {
         match value {
-            EnclosureOutputRequestDto::Omit => Self::Omit,
-            EnclosureOutputRequestDto::Include { format } => Self::Include {
-                format: format.into(),
-            },
+            EnclosureOutputRequestDto::Omit => Ok(Self::Omit),
+            EnclosureOutputRequestDto::Include { format } => Ok(Self::Include {
+                format: format.try_into()?,
+            }),
         }
     }
 }
 
-impl From<EnclosureFormatDto> for core::EnclosureFormat {
-    fn from(value: EnclosureFormatDto) -> Self {
+impl TryFrom<EnclosureFormatDto> for core::EnclosureFormat {
+    type Error = CalculatorErrorDto;
+
+    fn try_from(value: EnclosureFormatDto) -> Result<Self, Self::Error> {
         match value {
-            EnclosureFormatDto::ExactDyadic => Self::ExactDyadic,
+            EnclosureFormatDto::ExactDyadic => Ok(Self::ExactDyadic),
+            EnclosureFormatDto::DecimalScientific { significant_digits } => {
+                let Some(significant_digits) = NonZeroU32::new(significant_digits) else {
+                    return Err(input_limit_error(
+                        InputLimitErrorCodeDto::InvalidSignificantDigits,
+                    ));
+                };
+                Ok(Self::DecimalScientific { significant_digits })
+            }
         }
     }
 }
@@ -198,6 +210,11 @@ impl From<core::EnclosureFormat> for EnclosureFormatDto {
     fn from(value: core::EnclosureFormat) -> Self {
         match value {
             core::EnclosureFormat::ExactDyadic => Self::ExactDyadic,
+            core::EnclosureFormat::DecimalScientific { significant_digits } => {
+                Self::DecimalScientific {
+                    significant_digits: significant_digits.get(),
+                }
+            }
         }
     }
 }
@@ -340,10 +357,37 @@ impl From<core::CertifiedIntervalPresentation> for CertifiedIntervalPresentation
     fn from(value: core::CertifiedIntervalPresentation) -> Self {
         Self {
             relation: value.relation.into(),
-            lower: value.lower.into(),
-            upper: value.upper.into(),
-            format: value.format.into(),
+            bounds: value.bounds.into(),
             presentation: value.presentation.into(),
+        }
+    }
+}
+
+impl From<core::CertifiedIntervalBounds> for CertifiedIntervalBoundsDto {
+    fn from(value: core::CertifiedIntervalBounds) -> Self {
+        match value {
+            core::CertifiedIntervalBounds::ExactDyadic { lower, upper } => Self::ExactDyadic {
+                lower: lower.into(),
+                upper: upper.into(),
+            },
+            core::CertifiedIntervalBounds::DecimalScientific {
+                lower,
+                upper,
+                requested_significant_digits,
+            } => Self::DecimalScientific {
+                lower: lower.into(),
+                upper: upper.into(),
+                requested_significant_digits: requested_significant_digits.get(),
+            },
+        }
+    }
+}
+
+impl From<core::DecimalScientificBound> for DecimalScientificBoundDto {
+    fn from(value: core::DecimalScientificBound) -> Self {
+        Self {
+            significand: value.significand,
+            exponent_ten: value.exponent_ten,
         }
     }
 }
@@ -1003,11 +1047,49 @@ impl TryFrom<CertifiedIntervalPresentationDto> for core::CertifiedIntervalPresen
     fn try_from(value: CertifiedIntervalPresentationDto) -> Result<Self, Self::Error> {
         Ok(Self {
             relation: value.relation.into(),
-            lower: value.lower.try_into()?,
-            upper: value.upper.try_into()?,
-            format: value.format.into(),
+            bounds: value.bounds.try_into()?,
             presentation: value.presentation.try_into()?,
         })
+    }
+}
+
+impl TryFrom<CertifiedIntervalBoundsDto> for core::CertifiedIntervalBounds {
+    type Error = CalculatorErrorDto;
+
+    fn try_from(value: CertifiedIntervalBoundsDto) -> Result<Self, Self::Error> {
+        match value {
+            CertifiedIntervalBoundsDto::ExactDyadic { lower, upper } => Ok(Self::ExactDyadic {
+                lower: lower.try_into()?,
+                upper: upper.try_into()?,
+            }),
+            CertifiedIntervalBoundsDto::DecimalScientific {
+                lower,
+                upper,
+                requested_significant_digits,
+            } => {
+                let Some(requested_significant_digits) =
+                    NonZeroU32::new(requested_significant_digits)
+                else {
+                    return Err(input_limit_error(
+                        InputLimitErrorCodeDto::InvalidSignificantDigits,
+                    ));
+                };
+                Ok(Self::DecimalScientific {
+                    lower: lower.into(),
+                    upper: upper.into(),
+                    requested_significant_digits,
+                })
+            }
+        }
+    }
+}
+
+impl From<DecimalScientificBoundDto> for core::DecimalScientificBound {
+    fn from(value: DecimalScientificBoundDto) -> Self {
+        Self {
+            significand: value.significand,
+            exponent_ten: value.exponent_ten,
+        }
     }
 }
 

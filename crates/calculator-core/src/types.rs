@@ -546,6 +546,7 @@ pub enum ExactFormatPreference {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EnclosureFormat {
     ExactDyadic,
+    DecimalScientific { significant_digits: NonZeroU32 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -605,10 +606,27 @@ pub struct UnavailableScientificOutput {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CertifiedIntervalPresentation {
     pub relation: ResultRelation,
-    pub lower: ExactDyadic,
-    pub upper: ExactDyadic,
-    pub format: EnclosureFormat,
+    pub bounds: CertifiedIntervalBounds,
     pub presentation: PresentationNode,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CertifiedIntervalBounds {
+    ExactDyadic {
+        lower: ExactDyadic,
+        upper: ExactDyadic,
+    },
+    DecimalScientific {
+        lower: DecimalScientificBound,
+        upper: DecimalScientificBound,
+        requested_significant_digits: NonZeroU32,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DecimalScientificBound {
+    pub significand: String,
+    pub exponent_ten: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1472,11 +1490,13 @@ impl Default for CalculationRequest {
                 format: ExactFormatPreference::Auto,
             },
             scientific_output: ScientificOutputRequest::Include {
-                significant_digits: nonzero_u32(50),
+                significant_digits: nonzero_u32(5),
                 rounding_mode: DecimalRoundingMode::NearestTiesToEven,
             },
             enclosure_output: EnclosureOutputRequest::Include {
-                format: EnclosureFormat::ExactDyadic,
+                format: EnclosureFormat::DecimalScientific {
+                    significant_digits: nonzero_u32(5),
+                },
             },
             limits: ResourceLimitRequest::Default,
         }
@@ -1517,7 +1537,7 @@ impl Default for InputPolicy {
 }
 
 impl ProtocolVersion {
-    pub const CURRENT: Self = Self { major: 1, minor: 1 };
+    pub const CURRENT: Self = Self { major: 2, minor: 0 };
 }
 
 const fn nonzero_u32(value: u32) -> NonZeroU32 {
@@ -1543,6 +1563,21 @@ mod tests {
             request.semantics.power_semantics,
             PowerSemantics::RealPrincipal
         );
+        assert_eq!(
+            request.scientific_output,
+            ScientificOutputRequest::Include {
+                significant_digits: nonzero_u32(5),
+                rounding_mode: DecimalRoundingMode::NearestTiesToEven,
+            }
+        );
+        assert_eq!(
+            request.enclosure_output,
+            EnclosureOutputRequest::Include {
+                format: EnclosureFormat::DecimalScientific {
+                    significant_digits: nonzero_u32(5),
+                },
+            }
+        );
         assert_eq!(request.limits, ResourceLimitRequest::Default);
     }
 
@@ -1550,7 +1585,7 @@ mod tests {
     fn protocol_version_is_current_public_contract() {
         assert_eq!(
             ProtocolVersion::CURRENT,
-            ProtocolVersion { major: 1, minor: 1 }
+            ProtocolVersion { major: 2, minor: 0 }
         );
     }
 
