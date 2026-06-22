@@ -214,6 +214,34 @@ impl RadicalReduction {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum RealAlgebraicEvaluation {
+    Rational(RationalEvaluation),
+    Algebraic(RealAlgebraic),
+}
+
+impl RealAlgebraicEvaluation {
+    fn rational(value: Rational) -> Self {
+        Self::Rational(RationalEvaluation::direct(value))
+    }
+
+    fn from_algebraic(value: RealAlgebraic) -> Self {
+        if let Some(rational) = value.rational_value() {
+            Self::rational(rational)
+        } else {
+            Self::Algebraic(value)
+        }
+    }
+
+    #[cfg(test)]
+    fn into_algebraic(self) -> Option<RealAlgebraic> {
+        match self {
+            Self::Rational(_) => None,
+            Self::Algebraic(value) => Some(value),
+        }
+    }
+}
+
 #[derive(Default)]
 struct DagBuilder {
     nodes: Vec<ExpressionNode>,
@@ -272,7 +300,7 @@ pub(crate) fn evaluate_radical_dag(
 pub(crate) fn evaluate_real_algebraic_dag(
     dag: &ExactExpressionDag,
     limits: &ResourceLimits,
-) -> Result<Option<RealAlgebraic>, EvaluationError> {
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
     evaluate_real_algebraic_node(dag, dag.root(), limits)
 }
 
@@ -556,7 +584,7 @@ fn evaluate_real_algebraic_node(
     dag: &ExactExpressionDag,
     id: ExprId,
     limits: &ResourceLimits,
-) -> Result<Option<RealAlgebraic>, EvaluationError> {
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
     match dag.node(id) {
         ExpressionNode::Power { base, exponent } => {
             evaluate_real_algebraic_power(dag, *base, *exponent, limits)
@@ -582,25 +610,55 @@ fn evaluate_real_algebraic_power(
     base: ExprId,
     exponent: ExprId,
     limits: &ResourceLimits,
-) -> Result<Option<RealAlgebraic>, EvaluationError> {
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
     let exponent = match evaluate_node(dag, exponent) {
         Ok(value) => value,
         Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
         Err(error) => return Err(error),
     };
     match evaluate_node(dag, base) {
-        Ok(base) => rational_prime_root_algebraic(base.value(), exponent.value(), limits),
+        Ok(base) => Ok(
+            rational_prime_root_algebraic(base.value(), exponent.value(), limits)?
+                .map(RealAlgebraicEvaluation::from_algebraic),
+        ),
         Err(error) if is_unsupported_exact_expression(&error) => {
-            if !exponent.value().is_integer() {
-                return Ok(None);
-            }
-            let Some(exponent) = exponent.value().as_i64_if_integer() else {
-                return Err(exponent_too_large_error());
-            };
             let Some(base) = evaluate_real_algebraic_node(dag, base, limits)? else {
                 return Ok(None);
             };
-            real_algebraic_integer_power(base, exponent, limits)
+            match base {
+                RealAlgebraicEvaluation::Rational(base) => {
+                    evaluate_collapsed_rational_power(base, exponent, limits)
+                }
+                RealAlgebraicEvaluation::Algebraic(base) => {
+                    if !exponent.value().is_integer() {
+                        return Ok(None);
+                    }
+                    let Some(exponent) = exponent.value().as_i64_if_integer() else {
+                        return Err(exponent_too_large_error());
+                    };
+                    real_algebraic_integer_power(base, exponent, limits)
+                }
+            }
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn evaluate_collapsed_rational_power(
+    base: RationalEvaluation,
+    exponent: RationalEvaluation,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
+    let used_special_angle = base.used_special_angle() || exponent.used_special_angle();
+    match evaluate_rational_power(base.value(), exponent.value()) {
+        Ok(value) => Ok(Some(RealAlgebraicEvaluation::Rational(
+            RationalEvaluation::with_origin(value, used_special_angle),
+        ))),
+        Err(error) if is_unsupported_exact_expression(&error) => {
+            Ok(
+                rational_prime_root_algebraic(base.value(), exponent.value(), limits)?
+                    .map(RealAlgebraicEvaluation::from_algebraic),
+            )
         }
         Err(error) => Err(error),
     }
@@ -610,9 +668,10 @@ fn evaluate_real_algebraic_sum(
     dag: &ExactExpressionDag,
     list_id: ExprListId,
     limits: &ResourceLimits,
-) -> Result<Option<RealAlgebraic>, EvaluationError> {
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
     let mut rational = Rational::zero();
     let mut algebraic = None;
+    let mut used_algebraic_path = false;
     for child in dag.list(list_id) {
         match evaluate_node(dag, *child) {
             Ok(value) => {
@@ -622,32 +681,46 @@ fn evaluate_real_algebraic_sum(
                 let Some(value) = evaluate_real_algebraic_node(dag, *child, limits)? else {
                     return Ok(None);
                 };
-                algebraic = match algebraic {
-                    Some(current) => {
-                        let Some(sum) = add_real_algebraics(current, value, limits)? else {
-                            return Ok(None);
-                        };
-                        Some(sum)
+                used_algebraic_path = true;
+                match value {
+                    RealAlgebraicEvaluation::Rational(value) => {
+                        rational = rational.add(value.value());
                     }
-                    None => Some(value),
-                };
+                    RealAlgebraicEvaluation::Algebraic(value) => {
+                        algebraic = match algebraic {
+                            Some(current) => {
+                                let Some(sum) = add_real_algebraics(current, value, limits)? else {
+                                    return Ok(None);
+                                };
+                                match sum {
+                                    RealAlgebraicEvaluation::Rational(value) => {
+                                        rational = rational.add(value.value());
+                                        None
+                                    }
+                                    RealAlgebraicEvaluation::Algebraic(value) => Some(value),
+                                }
+                            }
+                            None => Some(value),
+                        };
+                    }
+                }
             }
             Err(error) => return Err(error),
         }
     }
 
     let Some(algebraic) = algebraic else {
-        return Ok(None);
+        return Ok(used_algebraic_path.then(|| RealAlgebraicEvaluation::rational(rational)));
     };
     if rational.is_zero() {
-        return Ok(Some(algebraic));
+        return Ok(Some(RealAlgebraicEvaluation::from_algebraic(algebraic)));
     }
     match algebraic.add_rational_bounded(
         &rational,
         limits.max_polynomial_coefficient_bits,
         limits.max_root_isolation_steps,
     ) {
-        Ok(value) => Ok(value),
+        Ok(value) => Ok(value.map(RealAlgebraicEvaluation::from_algebraic)),
         Err(RealAlgebraicConstructionError::RootIsolation(
             PrimitivePolynomialRootIsolationError::StepLimitExceeded,
         )) => Ok(None),
@@ -659,7 +732,7 @@ fn add_real_algebraics(
     lhs: RealAlgebraic,
     rhs: RealAlgebraic,
     limits: &ResourceLimits,
-) -> Result<Option<RealAlgebraic>, EvaluationError> {
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
     match lhs.add_bounded(
         &rhs,
         limits.max_algebraic_degree,
@@ -668,7 +741,7 @@ fn add_real_algebraics(
         limits.max_factorization_work,
         limits.max_root_isolation_steps,
     ) {
-        Ok(value) => Ok(value),
+        Ok(value) => Ok(value.map(RealAlgebraicEvaluation::from_algebraic)),
         Err(RealAlgebraicConstructionError::RootIsolation(
             PrimitivePolynomialRootIsolationError::StepLimitExceeded,
         )) => Ok(None),
@@ -680,9 +753,10 @@ fn evaluate_real_algebraic_product(
     dag: &ExactExpressionDag,
     list_id: ExprListId,
     limits: &ResourceLimits,
-) -> Result<Option<RealAlgebraic>, EvaluationError> {
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
     let mut rational = Rational::one();
     let mut algebraic = None;
+    let mut used_algebraic_path = false;
     for child in dag.list(list_id) {
         match evaluate_node(dag, *child) {
             Ok(value) => {
@@ -692,23 +766,38 @@ fn evaluate_real_algebraic_product(
                 let Some(value) = evaluate_real_algebraic_node(dag, *child, limits)? else {
                     return Ok(None);
                 };
-                algebraic = match algebraic {
-                    Some(current) => {
-                        let Some(product) = multiply_real_algebraics(current, value, limits)?
-                        else {
-                            return Ok(None);
-                        };
-                        Some(product)
+                used_algebraic_path = true;
+                match value {
+                    RealAlgebraicEvaluation::Rational(value) => {
+                        rational = rational.multiply(value.value());
                     }
-                    None => Some(value),
-                };
+                    RealAlgebraicEvaluation::Algebraic(value) => {
+                        algebraic = match algebraic {
+                            Some(current) => {
+                                let Some(product) =
+                                    multiply_real_algebraics(current, value, limits)?
+                                else {
+                                    return Ok(None);
+                                };
+                                match product {
+                                    RealAlgebraicEvaluation::Rational(value) => {
+                                        rational = rational.multiply(value.value());
+                                        None
+                                    }
+                                    RealAlgebraicEvaluation::Algebraic(value) => Some(value),
+                                }
+                            }
+                            None => Some(value),
+                        };
+                    }
+                }
             }
             Err(error) => return Err(error),
         }
     }
 
     let Some(algebraic) = algebraic else {
-        return Ok(None);
+        return Ok(used_algebraic_path.then(|| RealAlgebraicEvaluation::rational(rational)));
     };
     scale_real_algebraic_by_rational(algebraic, &rational, limits)
 }
@@ -717,7 +806,7 @@ fn multiply_real_algebraics(
     lhs: RealAlgebraic,
     rhs: RealAlgebraic,
     limits: &ResourceLimits,
-) -> Result<Option<RealAlgebraic>, EvaluationError> {
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
     match lhs.multiply_bounded(
         &rhs,
         limits.max_algebraic_degree,
@@ -726,7 +815,7 @@ fn multiply_real_algebraics(
         limits.max_factorization_work,
         limits.max_root_isolation_steps,
     ) {
-        Ok(value) => Ok(value),
+        Ok(value) => Ok(value.map(RealAlgebraicEvaluation::from_algebraic)),
         Err(RealAlgebraicConstructionError::RootIsolation(
             PrimitivePolynomialRootIsolationError::StepLimitExceeded,
         )) => Ok(None),
@@ -739,39 +828,96 @@ fn evaluate_real_algebraic_quotient(
     numerator: ExprId,
     denominator: ExprId,
     limits: &ResourceLimits,
-) -> Result<Option<RealAlgebraic>, EvaluationError> {
-    let denominator_rational = match evaluate_node(dag, denominator) {
-        Ok(value) => Some(value),
-        Err(error) if is_unsupported_exact_expression(&error) => None,
-        Err(error) => return Err(error),
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
+    let Some(denominator) = evaluate_rational_or_real_algebraic_node(dag, denominator, limits)?
+    else {
+        return Ok(None);
     };
-    if let Some(denominator_rational) = denominator_rational {
-        let Some(numerator) = evaluate_real_algebraic_node(dag, numerator, limits)? else {
-            return Ok(None);
-        };
-        let scalar = Rational::one()
-            .divide(denominator_rational.value())
-            .map_err(arithmetic_error)?;
-        return scale_real_algebraic_by_rational(numerator, &scalar, limits);
-    }
+    let Some(numerator) = evaluate_rational_or_real_algebraic_node(dag, numerator, limits)? else {
+        return Ok(None);
+    };
+    divide_real_algebraic_evaluations(numerator, denominator, limits)
+}
 
-    let Some(denominator) = evaluate_real_algebraic_node(dag, denominator, limits)? else {
-        return Ok(None);
-    };
-    let Some(reciprocal_denominator) = reciprocal_real_algebraic(denominator, limits)? else {
-        return Ok(None);
-    };
-    match evaluate_node(dag, numerator) {
-        Ok(numerator) => {
-            scale_real_algebraic_by_rational(reciprocal_denominator, numerator.value(), limits)
-        }
+fn evaluate_rational_or_real_algebraic_node(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
+    match evaluate_node(dag, id) {
+        Ok(value) => Ok(Some(RealAlgebraicEvaluation::Rational(value))),
         Err(error) if is_unsupported_exact_expression(&error) => {
-            let Some(numerator) = evaluate_real_algebraic_node(dag, numerator, limits)? else {
-                return Ok(None);
-            };
-            multiply_real_algebraics(numerator, reciprocal_denominator, limits)
+            evaluate_real_algebraic_node(dag, id, limits)
         }
         Err(error) => Err(error),
+    }
+}
+
+fn divide_real_algebraic_evaluations(
+    numerator: RealAlgebraicEvaluation,
+    denominator: RealAlgebraicEvaluation,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
+    match denominator {
+        RealAlgebraicEvaluation::Rational(denominator) => {
+            let reciprocal = Rational::one()
+                .divide(denominator.value())
+                .map_err(arithmetic_error)?;
+            multiply_real_algebraic_evaluation_by_rational(numerator, &reciprocal, limits)
+        }
+        RealAlgebraicEvaluation::Algebraic(denominator) => {
+            let Some(reciprocal) = reciprocal_real_algebraic(denominator, limits)? else {
+                return Ok(None);
+            };
+            multiply_real_algebraic_evaluations(numerator, reciprocal, limits)
+        }
+    }
+}
+
+fn multiply_real_algebraic_evaluations(
+    lhs: RealAlgebraicEvaluation,
+    rhs: RealAlgebraicEvaluation,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
+    match (lhs, rhs) {
+        (RealAlgebraicEvaluation::Rational(lhs), RealAlgebraicEvaluation::Rational(rhs)) => {
+            let used_special_angle = lhs.used_special_angle() || rhs.used_special_angle();
+            Ok(Some(RealAlgebraicEvaluation::Rational(
+                RationalEvaluation::with_origin(
+                    lhs.value().multiply(rhs.value()),
+                    used_special_angle,
+                ),
+            )))
+        }
+        (RealAlgebraicEvaluation::Algebraic(lhs), RealAlgebraicEvaluation::Rational(rhs))
+        | (RealAlgebraicEvaluation::Rational(rhs), RealAlgebraicEvaluation::Algebraic(lhs)) => {
+            multiply_real_algebraic_evaluation_by_rational(
+                RealAlgebraicEvaluation::Algebraic(lhs),
+                rhs.value(),
+                limits,
+            )
+        }
+        (RealAlgebraicEvaluation::Algebraic(lhs), RealAlgebraicEvaluation::Algebraic(rhs)) => {
+            multiply_real_algebraics(lhs, rhs, limits)
+        }
+    }
+}
+
+fn multiply_real_algebraic_evaluation_by_rational(
+    value: RealAlgebraicEvaluation,
+    scalar: &Rational,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
+    match value {
+        RealAlgebraicEvaluation::Rational(value) => Ok(Some(RealAlgebraicEvaluation::Rational(
+            RationalEvaluation::with_origin(
+                value.value().multiply(scalar),
+                value.used_special_angle(),
+            ),
+        ))),
+        RealAlgebraicEvaluation::Algebraic(value) => {
+            scale_real_algebraic_by_rational(value, scalar, limits)
+        }
     }
 }
 
@@ -779,19 +925,19 @@ fn scale_real_algebraic_by_rational(
     algebraic: RealAlgebraic,
     scalar: &Rational,
     limits: &ResourceLimits,
-) -> Result<Option<RealAlgebraic>, EvaluationError> {
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
     if scalar.is_zero() {
-        return Ok(None);
+        return Ok(Some(RealAlgebraicEvaluation::rational(Rational::zero())));
     }
     if scalar == &Rational::one() {
-        return Ok(Some(algebraic));
+        return Ok(Some(RealAlgebraicEvaluation::from_algebraic(algebraic)));
     }
     match algebraic.scale_rational_bounded(
         scalar,
         limits.max_polynomial_coefficient_bits,
         limits.max_root_isolation_steps,
     ) {
-        Ok(value) => Ok(value),
+        Ok(value) => Ok(value.map(RealAlgebraicEvaluation::from_algebraic)),
         Err(RealAlgebraicConstructionError::RootIsolation(
             PrimitivePolynomialRootIsolationError::StepLimitExceeded,
         )) => Ok(None),
@@ -802,12 +948,12 @@ fn scale_real_algebraic_by_rational(
 fn reciprocal_real_algebraic(
     algebraic: RealAlgebraic,
     limits: &ResourceLimits,
-) -> Result<Option<RealAlgebraic>, EvaluationError> {
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
     match algebraic.reciprocal_bounded(
         limits.max_polynomial_coefficient_bits,
         limits.max_root_isolation_steps,
     ) {
-        Ok(value) => Ok(value),
+        Ok(value) => Ok(value.map(RealAlgebraicEvaluation::from_algebraic)),
         Err(RealAlgebraicConstructionError::RootIsolation(
             PrimitivePolynomialRootIsolationError::StepLimitExceeded,
         )) => Ok(None),
@@ -819,9 +965,9 @@ fn real_algebraic_integer_power(
     base: RealAlgebraic,
     exponent: i64,
     limits: &ResourceLimits,
-) -> Result<Option<RealAlgebraic>, EvaluationError> {
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
     if exponent == 0 {
-        return rational_as_real_algebraic(Rational::one(), limits);
+        return Ok(Some(RealAlgebraicEvaluation::rational(Rational::one())));
     }
     let magnitude = exponent
         .checked_abs()
@@ -833,16 +979,16 @@ fn real_algebraic_integer_power(
         };
         reciprocal
     } else {
-        base
+        RealAlgebraicEvaluation::Algebraic(base)
     };
     real_algebraic_positive_integer_power(base, magnitude, limits)
 }
 
 fn real_algebraic_positive_integer_power(
-    base: RealAlgebraic,
+    base: RealAlgebraicEvaluation,
     mut exponent: u32,
     limits: &ResourceLimits,
-) -> Result<Option<RealAlgebraic>, EvaluationError> {
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
     debug_assert!(exponent > 0);
     let mut result = None;
     let mut factor = base;
@@ -850,7 +996,8 @@ fn real_algebraic_positive_integer_power(
         if exponent & 1 == 1 {
             result = Some(match result {
                 Some(current) => {
-                    let Some(product) = multiply_real_algebraics(current, factor.clone(), limits)?
+                    let Some(product) =
+                        multiply_real_algebraic_evaluations(current, factor.clone(), limits)?
                     else {
                         return Ok(None);
                     };
@@ -861,7 +1008,9 @@ fn real_algebraic_positive_integer_power(
         }
         exponent >>= 1;
         if exponent > 0 {
-            let Some(product) = multiply_real_algebraics(factor.clone(), factor, limits)? else {
+            let Some(product) =
+                multiply_real_algebraic_evaluations(factor.clone(), factor, limits)?
+            else {
                 return Ok(None);
             };
             factor = product;
@@ -870,50 +1019,24 @@ fn real_algebraic_positive_integer_power(
     Ok(result)
 }
 
-fn rational_as_real_algebraic(
-    value: Rational,
-    limits: &ResourceLimits,
-) -> Result<Option<RealAlgebraic>, EvaluationError> {
-    if limits.max_algebraic_degree < 1 {
-        return Ok(None);
-    }
-    let polynomial = PrimitivePolynomial::new(vec![
-        Integer::from_bigint(-value.numerator.inner.clone()),
-        value.denominator.inner.clone(),
-    ])
-    .map_err(|_| invalid_algebraic_isolation_error())?;
-    if polynomial.max_coefficient_bits() > u64::from(limits.max_polynomial_coefficient_bits) {
-        return Ok(None);
-    }
-    let isolating_interval = RationalInterval {
-        lower: value.subtract(&Rational::one()),
-        upper: value.add(&Rational::one()),
-    };
-    match RealAlgebraic::from_irreducible_polynomial(
-        polynomial,
-        isolating_interval,
-        limits.max_root_isolation_steps,
-    ) {
-        Ok(value) => Ok(Some(value)),
-        Err(RealAlgebraicConstructionError::RootIsolation(
-            PrimitivePolynomialRootIsolationError::StepLimitExceeded,
-        )) => Ok(None),
-        Err(error) => Err(real_algebraic_construction_error(error)),
-    }
-}
-
 fn evaluate_real_algebraic_trigonometric_function(
     dag: &ExactExpressionDag,
     function: Function,
     argument: ExprId,
     limits: &ResourceLimits,
-) -> Result<Option<RealAlgebraic>, EvaluationError> {
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
     let Some(coefficient) = evaluate_pi_coefficient(dag, argument)? else {
         return Ok(None);
     };
     match function {
-        Function::Sin => cyclotomic_sine_algebraic(coefficient.coefficient(), limits),
-        Function::Cos => cyclotomic_cosine_algebraic(coefficient.coefficient(), limits),
+        Function::Sin => Ok(
+            cyclotomic_sine_algebraic(coefficient.coefficient(), limits)?
+                .map(RealAlgebraicEvaluation::from_algebraic),
+        ),
+        Function::Cos => Ok(
+            cyclotomic_cosine_algebraic(coefficient.coefficient(), limits)?
+                .map(RealAlgebraicEvaluation::from_algebraic),
+        ),
         Function::Tan => {
             let phase = coefficient.coefficient().modulo_integer(1);
             if phase_matches_any(&phase, TANGENT_POLE_PHASES) {
@@ -929,7 +1052,11 @@ fn evaluate_real_algebraic_trigonometric_function(
             let Some(reciprocal_cosine) = reciprocal_real_algebraic(cosine, limits)? else {
                 return Ok(None);
             };
-            multiply_real_algebraics(sine, reciprocal_cosine, limits)
+            multiply_real_algebraic_evaluations(
+                RealAlgebraicEvaluation::from_algebraic(sine),
+                reciprocal_cosine,
+                limits,
+            )
         }
         Function::Asin
         | Function::Acos
@@ -2715,7 +2842,9 @@ mod tests {
         let denominator =
             evaluate_real_algebraic_node(&dag, *denominator, &ResourceLimits::default())
                 .unwrap()
-                .expect("denominator should be algebraic");
+                .expect("denominator should be algebraic")
+                .into_algebraic()
+                .expect("denominator should remain irrational algebraic");
         assert!(evaluate_node(&dag, *numerator).is_ok());
         assert!(
             reciprocal_real_algebraic(denominator, &ResourceLimits::default())
@@ -2734,7 +2863,9 @@ mod tests {
         let dag = lower("2^(1/3)/4^(1/3)");
         let quotient = evaluate_real_algebraic_dag(&dag, &ResourceLimits::default())
             .unwrap()
-            .expect("algebraic quotient should be recognized");
+            .expect("algebraic quotient should be recognized")
+            .into_algebraic()
+            .expect("quotient should remain irrational algebraic");
 
         assert_eq!(
             quotient.minimal_polynomial(),

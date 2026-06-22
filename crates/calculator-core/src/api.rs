@@ -16,6 +16,7 @@ use crate::expression::{
     evaluate_rational_pi_multiple_dag, evaluate_real_algebraic_dag, lower_source_expression,
     ExactExpressionDag, PiCoefficientEvaluation, RadicalEvaluation,
     RadicalLinearCombinationEvaluation, RadicalReduction, RationalEvaluation,
+    RealAlgebraicEvaluation,
 };
 use crate::interval;
 use crate::types::*;
@@ -204,17 +205,20 @@ pub fn evaluate(
                 }
             }
             if let Some(algebraic) = evaluate_real_algebraic_dag(&dag, &limits)? {
-                if let Some(rational) = algebraic.rational_value() {
-                    return Ok(rational_evaluation_outcome_with_methods(
-                        expression,
-                        RationalEvaluation::direct(rational),
-                        request,
-                        &[
-                            MethodTag::AlgebraicMinimalPolynomial,
-                            MethodTag::AlgebraicRootIsolation,
-                        ],
-                    ));
-                }
+                let algebraic = match algebraic {
+                    RealAlgebraicEvaluation::Rational(rational) => {
+                        return Ok(rational_evaluation_outcome_with_methods(
+                            expression,
+                            rational,
+                            request,
+                            &[
+                                MethodTag::AlgebraicMinimalPolynomial,
+                                MethodTag::AlgebraicRootIsolation,
+                            ],
+                        ));
+                    }
+                    RealAlgebraicEvaluation::Algebraic(algebraic) => algebraic,
+                };
                 let certified_enclosure =
                     real_algebraic_enclosure(&dag, &algebraic).map_err(|interval_error| {
                         interval_error_to_evaluation_error(interval_error, error.clone())
@@ -2431,6 +2435,8 @@ mod tests {
             ("2^(1/3)-2^(1/3)", Rational::zero()),
             ("2^(1/3)/2^(1/3)", Rational::one()),
             ("2^(1/3)-2^(1/3)+1", Rational::one()),
+            ("(2^(1/3)-2^(1/3))+2^(1/3)-2^(1/3)", Rational::zero()),
+            ("(2^(1/3)/2^(1/3))*2^(1/3)/2^(1/3)", Rational::one()),
         ] {
             let parsed = parse(source, &ParseSettings::default()).unwrap();
             let evaluation = evaluate(
@@ -2466,6 +2472,51 @@ mod tests {
                 calculation.metadata.exact_representation,
                 exact.representation
             );
+        }
+    }
+
+    #[test]
+    fn nested_degree_one_algebraic_collapse_feeds_later_algebraic_operations() {
+        let mut context = EvaluationContext::default();
+        for source in [
+            "(2^(1/3)-2^(1/3))+2^(1/3)",
+            "(2^(1/3)/2^(1/3))*2^(1/3)",
+            "((2^(1/3)-2^(1/3))+2)^(1/3)",
+            "((2^(1/3)/2^(1/3))*2)^(1/3)",
+        ] {
+            let parsed = parse(source, &ParseSettings::default()).unwrap();
+            let evaluation = evaluate(
+                &parsed,
+                &EvaluationRequest {
+                    semantics: SemanticSettings::default(),
+                    limits: ResourceLimitRequest::Default,
+                },
+                &mut context,
+            )
+            .unwrap();
+            let RecognizedExact::RealAlgebraic(algebraic) = &evaluation.value.recognized_exact
+            else {
+                panic!("{source}: expected real algebraic recognition");
+            };
+            assert_eq!(
+                algebraic.minimal_polynomial,
+                PrimitivePolynomial::new(vec![
+                    Integer::from(-2),
+                    Integer::zero(),
+                    Integer::zero(),
+                    Integer::one(),
+                ])
+                .unwrap()
+            );
+
+            let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+            let CalculationOutcome::Partial { calculation, .. } = outcome else {
+                panic!("{source}: expected partial calculation for algebraic value");
+            };
+            let ExactOutput::Included(exact) = calculation.exact else {
+                panic!("{source}: expected exact algebraic output");
+            };
+            assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
         }
     }
 
