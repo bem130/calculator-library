@@ -31,6 +31,7 @@ pub fn reduce_input(
         InputAction::BinaryOperator(operator) => {
             edit_source(state, binary_operator_source(operator))
         }
+        InputAction::Comma => edit_source(state, ","),
         InputAction::Percent => percent(state, policy),
         InputAction::OpenParenthesis => edit_source(state, "("),
         InputAction::CloseParenthesis => edit_source(state, ")"),
@@ -405,6 +406,7 @@ fn function_source(function: Function) -> &'static str {
         Function::Sqrt => "sqrt(",
         Function::Exp => "exp(",
         Function::Log => "log(",
+        Function::Ln => "ln(",
     }
 }
 

@@ -250,6 +250,11 @@ export type PresentationNodeDto =
         readonly exponent: PresentationNodeDto;
     }
     | {
+        readonly tag: "subscript";
+        readonly base: PresentationNodeDto;
+        readonly subscript: PresentationNodeDto;
+    }
+    | {
         readonly tag: "radical";
         readonly index: RadicalIndexDto;
         readonly radicand: PresentationNodeDto;
@@ -282,7 +287,8 @@ export type FunctionNameDto =
     | "atan"
     | "sqrt"
     | "exp"
-    | "log";
+    | "log"
+    | "ln";
 
 export type ResultRelation = "exactEqual" | "approximatelyEqual" | "elementOf";
 
@@ -327,6 +333,9 @@ export type InputActionDto =
     | {
         readonly tag: "binaryOperator";
         readonly value: BinaryOperatorDto;
+    }
+    | {
+        readonly tag: "comma";
     }
     | {
         readonly tag: "percent";
@@ -496,6 +505,7 @@ export type ExpectedTokenKindDto =
     | "operator"
     | "openParenthesis"
     | "closeParenthesis"
+    | "comma"
     | "endOfInput";
 
 export type ParseErrorCode =
@@ -510,6 +520,7 @@ export type ParseErrorCode =
 export type DomainErrorCode =
     | "divisionByZero"
     | "logarithmOfNonPositive"
+    | "logarithmBaseOne"
     | "evenRootOfNegative"
     | "inverseTrigonometricOutOfRange"
     | "tangentPole"

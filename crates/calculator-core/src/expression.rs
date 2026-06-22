@@ -350,6 +350,9 @@ fn evaluate_node(
             Ok(RationalEvaluation::with_origin(value, used_special_angle))
         }
         ExpressionNode::Power { base, exponent } => evaluate_power(dag, *base, *exponent),
+        ExpressionNode::LogBase { argument, base } => {
+            evaluate_log_base_function(dag, *argument, *base)
+        }
         ExpressionNode::Function { function, argument } => match function {
             Function::Sqrt => {
                 let argument = evaluate_node(dag, *argument)?;
@@ -368,7 +371,7 @@ fn evaluate_node(
                     .ok_or_else(unsupported_function_evaluation)
             }
             Function::Exp => evaluate_exp_function(dag, *argument),
-            Function::Log => evaluate_log_function(dag, *argument),
+            Function::Log | Function::Ln => evaluate_log_function(dag, *argument),
             Function::Sin | Function::Cos | Function::Tan => {
                 evaluate_trigonometric_function(dag, *function, *argument)
             }
@@ -483,9 +486,11 @@ fn evaluate_pi_coefficient(
             | Function::Atan
             | Function::Sqrt
             | Function::Exp
-            | Function::Log => Ok(None),
+            | Function::Log
+            | Function::Ln => Ok(None),
         },
         ExpressionNode::Power { .. } => Ok(None),
+        ExpressionNode::LogBase { .. } => Ok(None),
     }
 }
 
@@ -520,7 +525,7 @@ fn evaluate_radical_node(
                 reduce_square_root(&argument, DomainErrorKind::EvenRootOfNegative)
             }
             Function::Exp => evaluate_radical_exp_function(dag, *argument),
-            Function::Log => evaluate_radical_log_function(dag, *argument),
+            Function::Log | Function::Ln => evaluate_radical_log_function(dag, *argument),
             Function::Sin | Function::Cos | Function::Tan => {
                 evaluate_radical_trigonometric_function(dag, *function, *argument)
             }
@@ -556,7 +561,9 @@ fn evaluate_radical_node(
                 value.map(|value| radical_reduction_with_origin(value, used_special_angle))
             })
         }
-        ExpressionNode::Rational(_) | ExpressionNode::Constant(_) => Ok(None),
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::LogBase { .. } => Ok(None),
     }
 }
 
@@ -600,11 +607,15 @@ fn evaluate_real_algebraic_node(
                 evaluate_real_algebraic_trigonometric_function(dag, *function, *argument, limits)
             }
             Function::Exp => evaluate_real_algebraic_exp_function(dag, *argument, limits),
-            Function::Log => evaluate_real_algebraic_log_function(dag, *argument, limits),
+            Function::Log | Function::Ln => {
+                evaluate_real_algebraic_log_function(dag, *argument, limits)
+            }
             Function::Sqrt => evaluate_real_algebraic_sqrt_function(dag, *argument, limits),
             Function::Asin | Function::Acos | Function::Atan => Ok(None),
         },
-        ExpressionNode::Rational(_) | ExpressionNode::Constant(_) => Ok(None),
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::LogBase { .. } => Ok(None),
     }
 }
 
@@ -1241,7 +1252,8 @@ fn evaluate_real_algebraic_trigonometric_special_angle(
         | Function::Atan
         | Function::Sqrt
         | Function::Exp
-        | Function::Log => Ok(None),
+        | Function::Log
+        | Function::Ln => Ok(None),
     }
 }
 
@@ -1496,7 +1508,8 @@ fn evaluate_radical_trigonometric_special_angle(
         | Function::Atan
         | Function::Sqrt
         | Function::Exp
-        | Function::Log => {
+        | Function::Log
+        | Function::Ln => {
             return Ok(None);
         }
     };
@@ -2264,6 +2277,12 @@ fn evaluate_log_function(
     if let Some(value) = evaluate_log_exp_identity(dag, argument)? {
         return Ok(value);
     }
+    if matches!(
+        dag.node(argument),
+        ExpressionNode::Constant(Constant::Euler)
+    ) {
+        return Ok(RationalEvaluation::direct(Rational::one()));
+    }
     let argument = evaluate_node(dag, argument)?;
     if argument.value().is_negative() || argument.value().is_zero() {
         return Err(logarithm_of_non_positive_error());
@@ -2276,6 +2295,62 @@ fn evaluate_log_function(
     } else {
         Err(unsupported_function_evaluation())
     }
+}
+
+const MAX_EXACT_LOG_BASE_ABS_EXPONENT: i64 = 256;
+
+fn evaluate_log_base_function(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+    base: ExprId,
+) -> Result<RationalEvaluation, EvaluationError> {
+    let argument = evaluate_node(dag, argument)?;
+    let base = evaluate_node(dag, base)?;
+    if argument.value().is_negative() || argument.value().is_zero() {
+        return Err(logarithm_of_non_positive_error());
+    }
+    ensure_log_base_domain(base.value())?;
+
+    let used_special_angle = argument.used_special_angle() || base.used_special_angle();
+    if argument.value() == &Rational::one() {
+        return Ok(RationalEvaluation::with_origin(
+            Rational::zero(),
+            used_special_angle,
+        ));
+    }
+    if argument.value() == base.value() {
+        return Ok(RationalEvaluation::with_origin(
+            Rational::one(),
+            used_special_angle,
+        ));
+    }
+
+    for exponent in 2..=MAX_EXACT_LOG_BASE_ABS_EXPONENT {
+        if base.value().pow_i64(exponent).map_err(arithmetic_error)? == *argument.value() {
+            return Ok(RationalEvaluation::with_origin(
+                Rational::from_integer(Integer::from(exponent)),
+                used_special_angle,
+            ));
+        }
+        if base.value().pow_i64(-exponent).map_err(arithmetic_error)? == *argument.value() {
+            return Ok(RationalEvaluation::with_origin(
+                Rational::from_integer(Integer::from(-exponent)),
+                used_special_angle,
+            ));
+        }
+    }
+
+    Err(unsupported_function_evaluation())
+}
+
+fn ensure_log_base_domain(base: &Rational) -> Result<(), EvaluationError> {
+    if base.is_negative() || base.is_zero() {
+        return Err(logarithm_of_non_positive_error());
+    }
+    if base == &Rational::one() {
+        return Err(domain_error(DomainErrorKind::LogarithmBaseOne));
+    }
+    Ok(())
 }
 
 fn evaluate_exp_log_identity(
@@ -2347,7 +2422,8 @@ fn evaluate_rational_trigonometric_special_angle(
         | Function::Atan
         | Function::Sqrt
         | Function::Exp
-        | Function::Log => {
+        | Function::Log
+        | Function::Ln => {
             return Ok(None);
         }
     }
@@ -2959,7 +3035,8 @@ fn evaluate_inverse_trig_pi_coefficient(
         | Function::Tan
         | Function::Sqrt
         | Function::Exp
-        | Function::Log => {
+        | Function::Log
+        | Function::Ln => {
             return Ok(None);
         }
     };
@@ -3244,6 +3321,9 @@ fn evaluate_interval_node(
         ExpressionNode::Power { base, exponent } => {
             evaluate_interval_power(dag, *base, *exponent, precision_bits)
         }
+        ExpressionNode::LogBase { argument, base } => {
+            evaluate_interval_log_base(dag, *argument, *base, precision_bits)
+        }
         ExpressionNode::Function { function, argument } => match function {
             Function::Sqrt => interval::sqrt(
                 &evaluate_interval_node(dag, *argument, precision_bits)?,
@@ -3253,7 +3333,7 @@ fn evaluate_interval_node(
                 &evaluate_interval_node(dag, *argument, precision_bits)?,
                 precision_bits,
             ),
-            Function::Log => interval::log(
+            Function::Log | Function::Ln => interval::log(
                 &evaluate_interval_node(dag, *argument, precision_bits)?,
                 precision_bits,
             ),
@@ -3274,6 +3354,34 @@ fn evaluate_interval_node(
             ),
         },
     }
+}
+
+fn evaluate_interval_log_base(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+    base: ExprId,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    if let Ok(base) = evaluate_node(dag, base) {
+        ensure_log_base_domain(base.value()).map_err(|error| match error {
+            EvaluationError::Domain(DomainError { kind, .. }) => IntervalError::Domain(kind),
+            EvaluationError::InputLimit(_)
+            | EvaluationError::ComputationLimit(_)
+            | EvaluationError::UnsupportedFeature(_)
+            | EvaluationError::InternalInvariant(_) => IntervalError::UnsupportedExpression,
+        })?;
+    }
+    interval::divide(
+        &interval::log(
+            &evaluate_interval_node(dag, argument, precision_bits)?,
+            precision_bits,
+        )?,
+        &interval::log(
+            &evaluate_interval_node(dag, base, precision_bits)?,
+            precision_bits,
+        )?,
+        precision_bits,
+    )
 }
 
 fn evaluate_interval_power(
@@ -3483,16 +3591,66 @@ impl DagBuilder {
                 }))
             }
             SourceExpr::Function {
-                function, argument, ..
+                function,
+                argument,
+                base,
+                ..
             } => {
                 let argument = self.lower(argument)?;
                 let argument = self.lower_function_argument(*function, argument);
-                Ok(self.push_node(ExpressionNode::Function {
-                    function: *function,
-                    argument,
-                }))
+                if let Some(base) = base {
+                    let base = self.lower(base)?;
+                    return Ok(self.lower_binary_function(*function, argument, base));
+                }
+                let function = match function {
+                    Function::Ln => Function::Log,
+                    other => *other,
+                };
+                Ok(self.push_node(ExpressionNode::Function { function, argument }))
             }
         }
+    }
+
+    fn lower_binary_function(
+        &mut self,
+        function: Function,
+        argument: ExprId,
+        base: ExprId,
+    ) -> ExprId {
+        match function {
+            Function::Exp if self.is_euler_constant(base) => {
+                self.push_node(ExpressionNode::Function {
+                    function: Function::Exp,
+                    argument,
+                })
+            }
+            Function::Exp => self.push_node(ExpressionNode::Power {
+                base,
+                exponent: argument,
+            }),
+            Function::Log if self.is_euler_constant(base) => {
+                self.push_node(ExpressionNode::Function {
+                    function: Function::Log,
+                    argument,
+                })
+            }
+            Function::Log => self.push_node(ExpressionNode::LogBase { argument, base }),
+            Function::Ln
+            | Function::Sin
+            | Function::Cos
+            | Function::Tan
+            | Function::Asin
+            | Function::Acos
+            | Function::Atan
+            | Function::Sqrt => self.push_node(ExpressionNode::Function { function, argument }),
+        }
+    }
+
+    fn is_euler_constant(&self, id: ExprId) -> bool {
+        matches!(
+            self.nodes[id.0 as usize],
+            ExpressionNode::Constant(Constant::Euler)
+        )
     }
 
     fn lower_function_argument(&mut self, function: Function, argument: ExprId) -> ExprId {
@@ -3503,7 +3661,8 @@ impl DagBuilder {
             | Function::Atan
             | Function::Sqrt
             | Function::Exp
-            | Function::Log => argument,
+            | Function::Log
+            | Function::Ln => argument,
         }
     }
 

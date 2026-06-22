@@ -10,6 +10,8 @@ export function renderPlainText(node: PresentationNodeDto): string {
             return `${renderPlainText(node.numerator)}/${renderPlainText(node.denominator)}`;
         case "superscript":
             return `${renderPlainText(node.base)}^${renderPlainText(node.exponent)}`;
+        case "subscript":
+            return `${renderPlainText(node.base)}_${renderPlainText(node.subscript)}`;
         case "radical":
             return node.index.tag === "square"
                 ? `sqrt(${renderPlainText(node.radicand)})`
@@ -24,13 +26,15 @@ export function renderPlainText(node: PresentationNodeDto): string {
 export function renderMathMl(node: PresentationNodeDto): string {
     switch (node.tag) {
         case "text":
-            return `<mn>${escapeXml(node.text)}</mn>`;
+            return renderTextMathMl(node.text);
         case "row":
             return `<mrow>${node.children.map(renderMathMl).join("")}</mrow>`;
         case "fraction":
             return `<mfrac>${renderMathMl(node.numerator)}${renderMathMl(node.denominator)}</mfrac>`;
         case "superscript":
             return `<msup>${renderMathMl(node.base)}${renderMathMl(node.exponent)}</msup>`;
+        case "subscript":
+            return `<msub>${renderMathMl(node.base)}${renderMathMl(node.subscript)}</msub>`;
         case "radical":
             if (node.index.tag === "square") {
                 return `<msqrt>${renderMathMl(node.radicand)}</msqrt>`;
@@ -50,3 +54,32 @@ function escapeXml(text: string): string {
         .replaceAll(">", "&gt;")
         .replaceAll("\"", "&quot;");
 }
+
+function renderTextMathMl(text: string): string {
+    const escaped = escapeXml(text);
+    if (/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/iu.test(text)) {
+        return `<mn>${escaped}</mn>`;
+    }
+    if (MATH_OPERATOR_TEXT.has(text)) {
+        return `<mo>${escaped}</mo>`;
+    }
+    return `<mi>${escaped}</mi>`;
+}
+
+const MATH_OPERATOR_TEXT = new Set([
+    "(",
+    ")",
+    "[",
+    "]",
+    "{",
+    "}",
+    ",",
+    "+",
+    "-",
+    "*",
+    "/",
+    "^",
+    "%",
+    "=",
+    "×",
+]);

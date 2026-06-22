@@ -122,7 +122,11 @@ svg {
 
 .workspace {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 340px;
+    grid-template-columns: minmax(340px, 0.82fr) minmax(0, 1.18fr);
+    grid-template-areas:
+        "input results"
+        "settings results";
+    align-items: start;
     gap: 18px;
 }
 
@@ -138,6 +142,19 @@ svg {
 .calculation-panel,
 .settings-panel {
     padding: 18px;
+}
+
+.calculation-panel {
+    grid-area: input;
+}
+
+.settings-panel {
+    grid-area: settings;
+}
+
+.result-panel {
+    grid-area: results;
+    min-width: 0;
 }
 
 .expression-row {
@@ -172,6 +189,30 @@ textarea {
     font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
     font-size: 24px;
     line-height: 1.35;
+}
+
+.input-preview {
+    display: grid;
+    align-items: center;
+    min-height: 64px;
+    overflow-x: auto;
+    border: 1px solid #26323a;
+    border-radius: 8px;
+    background: #10161a;
+    padding: 10px 14px;
+}
+
+.input-preview[data-state="empty"],
+.input-preview[data-state="error"] {
+    min-height: 0;
+    padding: 0;
+    border-color: transparent;
+    background: transparent;
+}
+
+.input-preview math {
+    color: #f4f8f4;
+    font-size: 26px;
 }
 
 input,
@@ -211,8 +252,8 @@ select {
 
 .result-stack {
     display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
-    margin-top: 18px;
 }
 
 .result-block {
@@ -224,6 +265,7 @@ select {
 }
 
 .exact-block {
+    grid-column: 1 / -1;
     min-height: 148px;
 }
 
@@ -265,23 +307,6 @@ output {
 
 .settings-section h2 {
     margin: 0;
-}
-
-.switch-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-height: 34px;
-    color: #eef4f0;
-    font-size: 14px;
-    font-weight: 650;
-    text-transform: none;
-}
-
-.switch-row input {
-    width: 18px;
-    min-height: 18px;
-    accent-color: #5fcfc5;
 }
 
 .segmented {
@@ -363,10 +388,22 @@ output {
 @media (max-width: 920px) {
     .workspace {
         grid-template-columns: 1fr;
+        grid-template-areas:
+            "input"
+            "settings"
+            "results";
+    }
+
+    .result-stack {
+        grid-template-columns: 1fr;
     }
 
     .settings-panel {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+    }
+
+    .settings-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
     .keypad {
@@ -399,6 +436,10 @@ output {
     }
 
     .settings-panel {
+        grid-template-columns: 1fr;
+    }
+
+    .settings-grid {
         grid-template-columns: 1fr;
     }
 

@@ -34,6 +34,7 @@ pub(crate) enum SourceExpr {
     Function {
         function: Function,
         argument: Box<SourceExpr>,
+        base: Option<Box<SourceExpr>>,
         span: ByteSpan,
     },
 }
@@ -91,6 +92,7 @@ enum TokenKind {
     Percent,
     OpenParen,
     CloseParen,
+    Comma,
 }
 
 fn lex(source: &str) -> Result<Vec<Token>, ParseError> {
@@ -158,6 +160,7 @@ fn lex(source: &str) -> Result<Vec<Token>, ParseError> {
             '%' => TokenKind::Percent,
             '(' => TokenKind::OpenParen,
             ')' => TokenKind::CloseParen,
+            ',' => TokenKind::Comma,
             _ => {
                 return Err(ParseError {
                     kind: ParseErrorKind::UnexpectedToken,
@@ -258,6 +261,7 @@ fn identifier_token(identifier: &str) -> Option<TokenKind> {
         "sqrt" => TokenKind::Function(Function::Sqrt),
         "exp" => TokenKind::Function(Function::Exp),
         "log" => TokenKind::Function(Function::Log),
+        "ln" => TokenKind::Function(Function::Ln),
         _ => return None,
     })
 }
@@ -377,6 +381,7 @@ impl Parser<'_> {
             | TokenKind::Caret
             | TokenKind::Percent
             | TokenKind::OpenParen
+            | TokenKind::Comma
             | TokenKind::CloseParen => self.parse_percent(),
         }
     }
@@ -468,6 +473,7 @@ impl Parser<'_> {
             | TokenKind::Slash
             | TokenKind::Caret
             | TokenKind::Percent
+            | TokenKind::Comma
             | TokenKind::CloseParen => Err(ParseError {
                 kind: ParseErrorKind::UnexpectedToken,
                 span: token.span,
@@ -504,6 +510,33 @@ impl Parser<'_> {
         }
         self.advance();
         let argument = self.parse_expression()?;
+        let Some(separator_or_close) = self.peek() else {
+            return Err(self.unexpected_end());
+        };
+        let base = if separator_or_close.kind == TokenKind::Comma {
+            if !function_accepts_explicit_base(function) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::UnexpectedToken,
+                    span: separator_or_close.span,
+                    expected: vec![ExpectedToken {
+                        kind: ExpectedTokenKind::CloseParenthesis,
+                    }],
+                });
+            }
+            self.advance();
+            Some(Box::new(self.parse_expression()?))
+        } else {
+            if function_requires_explicit_base(function) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::UnexpectedToken,
+                    span: separator_or_close.span,
+                    expected: vec![ExpectedToken {
+                        kind: ExpectedTokenKind::Comma,
+                    }],
+                });
+            }
+            None
+        };
         let Some(close) = self.peek() else {
             return Err(self.unexpected_end());
         };
@@ -521,6 +554,7 @@ impl Parser<'_> {
         Ok(SourceExpr::Function {
             function,
             argument: Box::new(argument),
+            base,
             span,
         })
     }
@@ -575,8 +609,11 @@ impl SourceExpr {
                     stack.push((left, child_depth));
                     stack.push((right, child_depth));
                 }
-                Self::Function { argument, .. } => {
+                Self::Function { argument, base, .. } => {
                     stack.push((argument, child_depth));
+                    if let Some(base) = base {
+                        stack.push((base, child_depth));
+                    }
                 }
             }
         }
@@ -626,13 +663,25 @@ fn with_span(expr: SourceExpr, span: ByteSpan) -> SourceExpr {
         },
         SourceExpr::Percent { expr, .. } => SourceExpr::Percent { expr, span },
         SourceExpr::Function {
-            function, argument, ..
+            function,
+            argument,
+            base,
+            ..
         } => SourceExpr::Function {
             function,
             argument,
+            base,
             span,
         },
     }
+}
+
+fn function_accepts_explicit_base(function: Function) -> bool {
+    matches!(function, Function::Exp | Function::Log)
+}
+
+fn function_requires_explicit_base(function: Function) -> bool {
+    matches!(function, Function::Log)
 }
 
 fn next_char(source: &str, cursor: usize) -> char {

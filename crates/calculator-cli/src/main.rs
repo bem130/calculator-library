@@ -87,6 +87,7 @@ fn domain_error_code(kind: calculator_core::DomainErrorKind) -> &'static str {
     match kind {
         calculator_core::DomainErrorKind::DivisionByZero => "divisionByZero",
         calculator_core::DomainErrorKind::LogarithmOfNonPositive => "logarithmOfNonPositive",
+        calculator_core::DomainErrorKind::LogarithmBaseOne => "logarithmBaseOne",
         calculator_core::DomainErrorKind::EvenRootOfNegative => "evenRootOfNegative",
         calculator_core::DomainErrorKind::InverseTrigonometricOutOfRange => {
             "inverseTrigonometricOutOfRange"
