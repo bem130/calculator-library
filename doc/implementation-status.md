@@ -11,7 +11,7 @@
 * 有理数の exact parse、四則演算、整数累乗、percent lowering。
 * `0.1 + 0.2 = 3/10` などの decimal lossless evaluation。
 * real principal power semantics に基づく rational power の exact root / domain error / symbolic fallback。
-* exact dyadic certified interval と adaptive scientific rounding。scientific output は exact rational だけでなく、certified interval の上下端を同じ有効桁数・丸めモードで丸めて一致する場合にも confirmed digits として返す。
+* exact dyadic certified interval、decimal scientific certified interval presentation、adaptive scientific rounding。scientific output は exact rational だけでなく、certified interval の上下端を同じ有効桁数・丸めモードで丸めて一致する場合にも confirmed digits として返す。既定の request は 5 significant digits の scientific output と decimal scientific enclosure を要求する。
 * `pi`、`e`、exp/ln/base-explicit log と逆三角関数合成の証明可能な恒等式。`exp(ln(x))` は正性を証明できる supported rational/radical/radical-linear/algebraic `x` で exact にし、`ln(exp(x))` は supported exact `x` で exact にする。`log(argument, base)` は有理数の整数べき、同じ正の有理数 basis の rational power、basis 同士が整数べき関係にある rational power で exact にし、`ln(argument)` は底 `e` の自然対数として受ける。底を省略した `log(argument)` は受けない。`sin(asin(x))` と `cos(acos(x))` は `x in [-1, 1]` を証明できる supported exact `x` で exact にし、`cos(asin(x))` と `sin(acos(x))` は `sqrt(1 - x^2)` を supported exact 値として構築できる場合に exact にし、`tan(atan(x))` は supported exact real `x` で exact にする。bounded rational/dyadic endpoint に対する exp/log/asin/acos/atan、rational point trigonometric range reduction、周期的な sin/cos extrema、tan pole-aware branch、正の底が証明できる一般実数指数 `x^y` の certified interval。
 * GeneralSymbolic exact presentation と条件付き exact evaluation における安全な対数積・商・冪、証明済み非ゼロの self-division、証明済み非負の `sqrt(x^2)`、奇偶性、整数 `pi` シフト、`sin` / `cos` の半整数 `pi` cofunction shift、`tan` の半整数 `pi` reciprocal shift の正規化。例: `ln(2*3) = ln(2)+ln(3)`、`ln(2/3) = ln(2)-ln(3)`、`ln(sqrt(2)) = 1/2*ln(2)`、`exp(2)/exp(2) = 1`、`sqrt(exp(2)^2) = exp(2)`、`sin(-1) = -sin(1)`、`cos(-1) = cos(1)`、`sin(pi+1/10) = -sin(1/10)`、`cos(pi/2+1/10) = -sin(1/10)`、`tan(pi/2+1/10) = -1/tan(1/10)`、`exp(sin(pi/2+1/10)) = exp(cos(1/10))`。
 * rational pi multiple recognition。
@@ -20,7 +20,7 @@
 * bounded real algebraic recognition for supported polynomial operations、整数累乗、符号を証明できる real algebraic の主 n 乗根と有理指数、cyclotomic trigonometric cases、degree-one algebraic result の rational collapse と後続の代数的演算への伝播。
 * parser/session/DTO/native-Wasm/browser conformance tests。
 * resource limit enforcement before or during expensive evaluation paths。
-* npm facade の `presentInput` による、評価とは独立した入力式 presentation tree。
+* npm facade の `presentInput` による、評価とは独立した入力式 presentation tree。presentation tree は `renderPlainText`、`renderMathMl`、`renderLatex` で利用側の表示形式へ変換できる。
 
 ## Hardened Gates
 

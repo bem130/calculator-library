@@ -37,7 +37,7 @@ author は `bem130`、license は `MIT` とする。license 本文は repository
 
 ## Outputs
 
-Exact output は presentation tree、plain text、MathML、representation kind、simplification status、method tags を持つ。npm facade は `renderPlainText` と `renderMathMl` を公開し、sample UI はこの public facade だけを使用する。`presentInput` は入力式そのものの presentation tree を返し、評価結果とは混同しない。
+Exact output は presentation tree、plain text、MathML、LaTeX、representation kind、simplification status、method tags を持つ。npm facade は `renderPlainText`、`renderMathMl`、`renderLatex` を公開し、sample UI はこの public facade だけを使用する。`presentInput` は入力式そのものの presentation tree を返し、評価結果とは混同しない。
 
 Scientific output は significant digits と rounding mode を要求として受ける。rounding mode は DTO と Rust enum の両方で明示 variant として扱う。既定の `CalculationRequest` は 5 significant digits を要求する。
 

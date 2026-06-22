@@ -1,4 +1,4 @@
-import type { PresentationNodeDto } from "./generated/dto";
+import type { FunctionNameDto, PresentationNodeDto } from "./generated/dto";
 
 export function renderPlainText(node: PresentationNodeDto): string {
     switch (node.tag) {
@@ -47,6 +47,33 @@ export function renderMathMl(node: PresentationNodeDto): string {
     }
 }
 
+export function renderLatex(node: PresentationNodeDto): string {
+    switch (node.tag) {
+        case "text":
+            return renderTextLatex(node.text);
+        case "row":
+            return node.children.map(renderLatex).join("");
+        case "fraction":
+            return `\\frac{${renderLatex(node.numerator)}}{${renderLatex(node.denominator)}}`;
+        case "superscript":
+            return `${renderLatexAtom(node.base)}^{${renderLatex(node.exponent)}}`;
+        case "subscript":
+            return `${renderLatexAtom(node.base)}_{${renderLatex(node.subscript)}}`;
+        case "radical":
+            if (node.index.tag === "square") {
+                return `\\sqrt{${renderLatex(node.radicand)}}`;
+            }
+            return `\\sqrt[${renderTextLatex(node.index.value)}]{${renderLatex(node.radicand)}}`;
+        case "function":
+            if (node.name === "sqrt") {
+                return `\\sqrt{${renderLatex(node.argument)}}`;
+            }
+            return `${latexFunctionName(node.name)}\\left(${renderLatex(node.argument)}\\right)`;
+        case "parenthesized":
+            return `\\left(${renderLatex(node.value)}\\right)`;
+    }
+}
+
 function escapeXml(text: string): string {
     return text
         .replaceAll("&", "&amp;")
@@ -66,6 +93,92 @@ function renderTextMathMl(text: string): string {
     return `<mi>${escaped}</mi>`;
 }
 
+function renderLatexAtom(node: PresentationNodeDto): string {
+    switch (node.tag) {
+        case "text":
+        case "radical":
+        case "function":
+        case "parenthesized":
+            return renderLatex(node);
+        case "row":
+        case "fraction":
+        case "superscript":
+        case "subscript":
+            return `{${renderLatex(node)}}`;
+    }
+}
+
+function renderTextLatex(text: string): string {
+    if (text === "pi" || text === "π") {
+        return "\\pi";
+    }
+    if (LATEX_OPERATOR_NAMES.has(text)) {
+        return `\\${text}`;
+    }
+    return Array.from(text, renderLatexCharacter).join("");
+}
+
+function renderLatexCharacter(character: string): string {
+    switch (character) {
+        case "\\":
+            return "\\backslash{}";
+        case "{":
+            return "\\{";
+        case "}":
+            return "\\}";
+        case "#":
+            return "\\#";
+        case "$":
+            return "\\$";
+        case "%":
+            return "\\%";
+        case "&":
+            return "\\&";
+        case "_":
+            return "\\_";
+        case "^":
+            return "\\^{}";
+        case "~":
+            return "\\~{}";
+        case "×":
+            return "\\times";
+        case "∞":
+            return "\\infty";
+        case "≤":
+            return "\\le";
+        case "≥":
+            return "\\ge";
+        case "≠":
+            return "\\ne";
+        case "≈":
+            return "\\approx";
+        case "∈":
+            return "\\in";
+        default:
+            return character;
+    }
+}
+
+function latexFunctionName(name: FunctionNameDto): string {
+    switch (name) {
+        case "sin":
+        case "cos":
+        case "tan":
+        case "log":
+        case "ln":
+        case "exp":
+            return `\\${name}`;
+        case "asin":
+            return "\\arcsin";
+        case "acos":
+            return "\\arccos";
+        case "atan":
+            return "\\arctan";
+        case "sqrt":
+            return "\\sqrt";
+    }
+}
+
 const MATH_OPERATOR_TEXT = new Set([
     "(",
     ")",
@@ -83,3 +196,5 @@ const MATH_OPERATOR_TEXT = new Set([
     "=",
     "×",
 ]);
+
+const LATEX_OPERATOR_NAMES = new Set(["sin", "cos", "tan", "log", "ln", "exp"]);
