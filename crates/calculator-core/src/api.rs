@@ -38,7 +38,7 @@ pub fn calculate(
         context,
     )
     .map_err(CalculatorError::from)?;
-    let calculation = present(
+    let mut calculation = present(
         &evaluation,
         &PresentationRequest {
             exact_output: request.exact_output,
@@ -47,6 +47,7 @@ pub fn calculate(
         },
     )
     .map_err(CalculatorError::from)?;
+    apply_calculation_symbolic_presentation(&mut calculation, &parsed, request, &evaluation);
     if let Some(reason) = partial_reason(&calculation) {
         return Ok(CalculationOutcome::Partial {
             calculation,
@@ -56,6 +57,27 @@ pub fn calculate(
         });
     }
     Ok(CalculationOutcome::Complete(calculation))
+}
+
+fn apply_calculation_symbolic_presentation(
+    calculation: &mut Calculation,
+    parsed: &ParsedExpression,
+    request: &CalculationRequest,
+    evaluation: &EvaluationOutcome,
+) {
+    if !matches!(
+        evaluation.value.recognized_exact,
+        RecognizedExact::GeneralSymbolic
+    ) {
+        return;
+    }
+    let ExactOutput::Included(exact) = &mut calculation.exact else {
+        return;
+    };
+    let Ok(dag) = lower_source_expression(&parsed.root, request.semantics) else {
+        return;
+    };
+    *exact = symbolic_presentation_from_dag(&dag);
 }
 
 pub fn parse(source: &str, settings: &ParseSettings) -> Result<ParsedExpression, ParseError> {
@@ -848,6 +870,329 @@ fn symbolic_presentation(source: &str) -> ExactPresentation {
         representation: ExactRepresentationKind::GeneralSymbolic,
         presentation: PresentationNode::Text(String::from(source)),
         plain_text: String::from(source),
+    }
+}
+
+fn symbolic_presentation_from_dag(dag: &ExactExpressionDag) -> ExactPresentation {
+    let rendered = render_symbolic_node(dag, dag.root());
+    ExactPresentation {
+        relation: ResultRelation::ExactEqual,
+        representation: ExactRepresentationKind::GeneralSymbolic,
+        presentation: PresentationNode::Text(rendered.text.clone()),
+        plain_text: rendered.text,
+    }
+}
+
+#[derive(Clone, Debug)]
+struct RenderedSymbolic {
+    text: String,
+    precedence: u8,
+}
+
+#[derive(Clone, Debug)]
+struct SignedRenderedSymbolic {
+    negative: bool,
+    value: RenderedSymbolic,
+}
+
+const SYMBOLIC_PRECEDENCE_ADD: u8 = 1;
+const SYMBOLIC_PRECEDENCE_MULTIPLY: u8 = 2;
+const SYMBOLIC_PRECEDENCE_POWER: u8 = 3;
+const SYMBOLIC_PRECEDENCE_PREFIX: u8 = 4;
+const SYMBOLIC_PRECEDENCE_ATOM: u8 = 5;
+
+fn render_symbolic_node(dag: &ExactExpressionDag, id: ExprId) -> RenderedSymbolic {
+    signed_symbolic_to_rendered(render_signed_symbolic_node(dag, id))
+}
+
+fn render_signed_symbolic_node(dag: &ExactExpressionDag, id: ExprId) -> SignedRenderedSymbolic {
+    match dag.node(id) {
+        ExpressionNode::Rational(rational_id) => {
+            let rational = dag.rational(*rational_id);
+            if rational.is_negative() {
+                SignedRenderedSymbolic {
+                    negative: true,
+                    value: RenderedSymbolic {
+                        text: rational.negate().to_string(),
+                        precedence: SYMBOLIC_PRECEDENCE_ATOM,
+                    },
+                }
+            } else {
+                SignedRenderedSymbolic {
+                    negative: false,
+                    value: RenderedSymbolic {
+                        text: rational.to_string(),
+                        precedence: SYMBOLIC_PRECEDENCE_ATOM,
+                    },
+                }
+            }
+        }
+        ExpressionNode::Add(list_id) => render_signed_symbolic_sum(dag, *list_id),
+        ExpressionNode::Multiply(list_id) => render_signed_symbolic_product(dag, *list_id),
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => render_signed_symbolic_division(dag, *numerator, *denominator),
+        ExpressionNode::Function { function, argument } => {
+            render_signed_symbolic_function(dag, *function, *argument)
+        }
+        ExpressionNode::Constant(_) | ExpressionNode::Power { .. } => SignedRenderedSymbolic {
+            negative: false,
+            value: render_unsigned_symbolic_node(dag, id),
+        },
+    }
+}
+
+fn render_unsigned_symbolic_node(dag: &ExactExpressionDag, id: ExprId) -> RenderedSymbolic {
+    match dag.node(id) {
+        ExpressionNode::Rational(rational_id) => RenderedSymbolic {
+            text: dag.rational(*rational_id).to_string(),
+            precedence: SYMBOLIC_PRECEDENCE_ATOM,
+        },
+        ExpressionNode::Constant(Constant::Pi) => RenderedSymbolic {
+            text: String::from("pi"),
+            precedence: SYMBOLIC_PRECEDENCE_ATOM,
+        },
+        ExpressionNode::Constant(Constant::Euler) => RenderedSymbolic {
+            text: String::from("e"),
+            precedence: SYMBOLIC_PRECEDENCE_ATOM,
+        },
+        ExpressionNode::Add(list_id) => render_symbolic_sum(dag, *list_id),
+        ExpressionNode::Multiply(_) => render_symbolic_node(dag, id),
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => signed_symbolic_to_rendered(render_signed_symbolic_division(
+            dag,
+            *numerator,
+            *denominator,
+        )),
+        ExpressionNode::Power { base, exponent } => {
+            let base = render_symbolic_node(dag, *base);
+            let exponent = render_symbolic_node(dag, *exponent);
+            let base_text =
+                if base.text.starts_with('-') || base.precedence <= SYMBOLIC_PRECEDENCE_POWER {
+                    format!("({})", base.text)
+                } else {
+                    parenthesize_symbolic(&base, SYMBOLIC_PRECEDENCE_POWER)
+                };
+            RenderedSymbolic {
+                text: format!(
+                    "{}^{}",
+                    base_text,
+                    parenthesize_symbolic(&exponent, SYMBOLIC_PRECEDENCE_POWER)
+                ),
+                precedence: SYMBOLIC_PRECEDENCE_POWER,
+            }
+        }
+        ExpressionNode::Function { function, argument } => {
+            let argument = render_symbolic_node(dag, *argument);
+            RenderedSymbolic {
+                text: format!("{}({})", symbolic_function_name(*function), argument.text),
+                precedence: SYMBOLIC_PRECEDENCE_ATOM,
+            }
+        }
+    }
+}
+
+fn render_symbolic_sum(dag: &ExactExpressionDag, list_id: ExprListId) -> RenderedSymbolic {
+    let terms = dag
+        .list(list_id)
+        .iter()
+        .map(|child| render_signed_symbolic_node(dag, *child))
+        .collect::<Vec<_>>();
+    render_symbolic_sum_terms(&terms)
+}
+
+fn render_signed_symbolic_sum(
+    dag: &ExactExpressionDag,
+    list_id: ExprListId,
+) -> SignedRenderedSymbolic {
+    let terms = dag
+        .list(list_id)
+        .iter()
+        .map(|child| render_signed_symbolic_node(dag, *child))
+        .collect::<Vec<_>>();
+    if terms.iter().all(|term| term.negative) {
+        let positive_terms = terms
+            .iter()
+            .map(|term| SignedRenderedSymbolic {
+                negative: false,
+                value: term.value.clone(),
+            })
+            .collect::<Vec<_>>();
+        SignedRenderedSymbolic {
+            negative: true,
+            value: render_symbolic_sum_terms(&positive_terms),
+        }
+    } else {
+        SignedRenderedSymbolic {
+            negative: false,
+            value: render_symbolic_sum_terms(&terms),
+        }
+    }
+}
+
+fn render_symbolic_sum_terms(terms: &[SignedRenderedSymbolic]) -> RenderedSymbolic {
+    let mut text = String::new();
+    for signed in terms {
+        let term = parenthesize_symbolic(&signed.value, SYMBOLIC_PRECEDENCE_ADD);
+        if text.is_empty() {
+            if signed.negative {
+                text.push('-');
+            }
+            text.push_str(&term);
+        } else if signed.negative {
+            text.push('-');
+            text.push_str(&term);
+        } else {
+            text.push('+');
+            text.push_str(&term);
+        }
+    }
+    RenderedSymbolic {
+        text,
+        precedence: SYMBOLIC_PRECEDENCE_ADD,
+    }
+}
+
+fn render_signed_symbolic_division(
+    dag: &ExactExpressionDag,
+    numerator: ExprId,
+    denominator: ExprId,
+) -> SignedRenderedSymbolic {
+    let numerator = render_signed_symbolic_node(dag, numerator);
+    let denominator = render_signed_symbolic_node(dag, denominator);
+    SignedRenderedSymbolic {
+        negative: numerator.negative ^ denominator.negative,
+        value: RenderedSymbolic {
+            text: format!(
+                "{}/{}",
+                parenthesize_symbolic(&numerator.value, SYMBOLIC_PRECEDENCE_MULTIPLY),
+                parenthesize_symbolic(&denominator.value, SYMBOLIC_PRECEDENCE_MULTIPLY)
+            ),
+            precedence: SYMBOLIC_PRECEDENCE_MULTIPLY,
+        },
+    }
+}
+
+fn render_signed_symbolic_product(
+    dag: &ExactExpressionDag,
+    list_id: ExprListId,
+) -> SignedRenderedSymbolic {
+    let mut negative = false;
+    let mut factors = Vec::new();
+    for child in dag.list(list_id) {
+        let signed = render_signed_symbolic_node(dag, *child);
+        negative ^= signed.negative;
+        if signed.value.text == "1" {
+            continue;
+        }
+        factors.push(parenthesize_symbolic(
+            &signed.value,
+            SYMBOLIC_PRECEDENCE_MULTIPLY,
+        ));
+    }
+    if factors.is_empty() {
+        factors.push(String::from("1"));
+    }
+    SignedRenderedSymbolic {
+        negative,
+        value: RenderedSymbolic {
+            text: factors.join("*"),
+            precedence: SYMBOLIC_PRECEDENCE_MULTIPLY,
+        },
+    }
+}
+
+fn render_signed_symbolic_function(
+    dag: &ExactExpressionDag,
+    function: Function,
+    argument: ExprId,
+) -> SignedRenderedSymbolic {
+    let signed_argument = render_signed_symbolic_node(dag, argument);
+    match function {
+        Function::Sin | Function::Tan | Function::Asin | Function::Atan
+            if signed_argument.negative =>
+        {
+            SignedRenderedSymbolic {
+                negative: true,
+                value: RenderedSymbolic {
+                    text: format!(
+                        "{}({})",
+                        symbolic_function_name(function),
+                        signed_argument.value.text
+                    ),
+                    precedence: SYMBOLIC_PRECEDENCE_ATOM,
+                },
+            }
+        }
+        Function::Cos if signed_argument.negative => SignedRenderedSymbolic {
+            negative: false,
+            value: RenderedSymbolic {
+                text: format!("cos({})", signed_argument.value.text),
+                precedence: SYMBOLIC_PRECEDENCE_ATOM,
+            },
+        },
+        Function::Sin
+        | Function::Cos
+        | Function::Tan
+        | Function::Asin
+        | Function::Acos
+        | Function::Atan
+        | Function::Sqrt
+        | Function::Exp
+        | Function::Log => {
+            let argument = render_symbolic_node(dag, argument);
+            SignedRenderedSymbolic {
+                negative: false,
+                value: RenderedSymbolic {
+                    text: format!("{}({})", symbolic_function_name(function), argument.text),
+                    precedence: SYMBOLIC_PRECEDENCE_ATOM,
+                },
+            }
+        }
+    }
+}
+
+fn signed_symbolic_to_rendered(value: SignedRenderedSymbolic) -> RenderedSymbolic {
+    if value.negative {
+        let text = if value.value.precedence == SYMBOLIC_PRECEDENCE_MULTIPLY {
+            format!("-{}", value.value.text)
+        } else {
+            format!(
+                "-{}",
+                parenthesize_symbolic(&value.value, SYMBOLIC_PRECEDENCE_PREFIX)
+            )
+        };
+        RenderedSymbolic {
+            text,
+            precedence: SYMBOLIC_PRECEDENCE_PREFIX,
+        }
+    } else {
+        value.value
+    }
+}
+
+fn parenthesize_symbolic(value: &RenderedSymbolic, parent_precedence: u8) -> String {
+    if value.precedence < parent_precedence {
+        format!("({})", value.text)
+    } else {
+        value.text.clone()
+    }
+}
+
+fn symbolic_function_name(function: Function) -> &'static str {
+    match function {
+        Function::Sin => "sin",
+        Function::Cos => "cos",
+        Function::Tan => "tan",
+        Function::Asin => "asin",
+        Function::Acos => "acos",
+        Function::Atan => "atan",
+        Function::Sqrt => "sqrt",
+        Function::Exp => "exp",
+        Function::Log => "log",
     }
 }
 
@@ -2758,6 +3103,21 @@ mod tests {
         assert_eq!(exact_plain_text("log(exp(2))"), "2");
         assert_eq!(exact_plain_text("log(exp(-2))"), "-2");
         assert_eq!(exact_plain_text("log(exp(1/3))"), "1/3");
+    }
+
+    #[test]
+    fn symbolic_function_parity_presentation_normalizes_negative_arguments() {
+        for (source, expected) in [
+            ("sin(-1)", "-sin(1)"),
+            ("cos(-1)", "cos(1)"),
+            ("tan(-1)", "-tan(1)"),
+            ("asin(-1/3)", "-asin(1/3)"),
+            ("atan(-sqrt(2))", "-atan(sqrt(2))"),
+            ("exp(sin(-1))", "exp(-sin(1))"),
+            ("acos(-1/3)", "acos(-1/3)"),
+        ] {
+            assert_eq!(exact_plain_text(source), expected, "{source}");
+        }
     }
 
     #[test]

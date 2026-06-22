@@ -29,7 +29,7 @@ impl ExactExpressionDag {
         self.semantics
     }
 
-    fn node(&self, id: ExprId) -> &ExpressionNode {
+    pub(crate) fn node(&self, id: ExprId) -> &ExpressionNode {
         &self.nodes[id.0 as usize]
     }
 
@@ -37,11 +37,11 @@ impl ExactExpressionDag {
         &self.nodes
     }
 
-    fn list(&self, id: ExprListId) -> &[ExprId] {
+    pub(crate) fn list(&self, id: ExprListId) -> &[ExprId] {
         &self.lists[id.0 as usize]
     }
 
-    fn rational(&self, id: RationalId) -> &Rational {
+    pub(crate) fn rational(&self, id: RationalId) -> &Rational {
         &self.rationals[id.0 as usize]
     }
 }

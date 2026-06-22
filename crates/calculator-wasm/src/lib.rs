@@ -582,6 +582,19 @@ mod dto_differential {
             },
         },
         Case {
+            id: "symbolic-function-parity-presentation",
+            source: "sin(-1)",
+            request: RequestProfile::ExactOnly,
+            expected: ExpectedOutcome::Complete {
+                representation: ExactRepresentationKindDto::GeneralSymbolic,
+                plain_text: "-sin(1)",
+                methods: &[
+                    MethodTagDto::SymbolicRetention,
+                    MethodTagDto::CertifiedIntervalEvaluation,
+                ],
+            },
+        },
+        Case {
             id: "partial-real-algebraic-with-enclosure",
             source: "2^(1/3)",
             request: RequestProfile::ScientificWithEnclosure,
