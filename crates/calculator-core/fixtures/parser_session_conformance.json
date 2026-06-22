@@ -118,6 +118,30 @@
       "source": "acos(-2)",
       "expectedParseTree": "acos(negate(number(2)))",
       "expectedError": "domain.inverseTrigonometricOutOfRange"
+    },
+    {
+      "id": "arbitrary_base_logarithm_exact_power",
+      "source": "log(8,2)",
+      "expectedParseTree": "log(number(8),number(2))",
+      "expectedExact": "3"
+    },
+    {
+      "id": "natural_log_alias_composes_with_exp",
+      "source": "ln(exp(2))",
+      "expectedParseTree": "ln(exp(number(2)))",
+      "expectedExact": "2"
+    },
+    {
+      "id": "arbitrary_base_exponential_lowers_to_power",
+      "source": "exp(3,2)",
+      "expectedParseTree": "exp(number(3),number(2))",
+      "expectedExact": "8"
+    },
+    {
+      "id": "log_base_one_is_rejected",
+      "source": "log(2,1)",
+      "expectedParseTree": "log(number(2),number(1))",
+      "expectedError": "domain.logarithmBaseOne"
     }
   ],
   "parseErrorCases": [
@@ -155,6 +179,15 @@
       "expectedSpanUtf8": {
         "start": 2,
         "end": 3
+      }
+    },
+    {
+      "id": "log_requires_explicit_base",
+      "source": "log(2)",
+      "expectedError": "unexpectedToken",
+      "expectedSpanUtf8": {
+        "start": 5,
+        "end": 6
       }
     }
   ],
@@ -242,6 +275,31 @@
         "source": "2",
         "cursorUtf8": 1,
         "hasAns": false,
+        "hasMemory": false
+      }
+    },
+    {
+      "id": "comma_and_ln_session_input",
+      "percentPolicy": "expressionPercent",
+      "actions": [
+        "function:log",
+        "digit:8",
+        "comma",
+        "digit:2",
+        "closeParenthesis",
+        "binary:add",
+        "function:ln",
+        "constant:e",
+        "closeParenthesis",
+        "evaluate"
+      ],
+      "expectedCommandSource": "log(8,2)+ln(e)",
+      "expectedExact": "4",
+      "applyCommandResult": true,
+      "expectedFinalState": {
+        "source": "log(8,2)+ln(e)",
+        "cursorUtf8": 14,
+        "hasAns": true,
         "hasMemory": false
       }
     }

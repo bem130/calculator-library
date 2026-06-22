@@ -20,12 +20,12 @@ fn run() -> Result<(), String> {
     match args.next().as_deref() {
         Some("generate-types") => generate_types(),
         Some("check-generated") => check_generated(),
-        Some("check-protocol-compatibility") => check_protocol_compatibility(),
+        Some("check-protocol-snapshot") => check_protocol_snapshot(),
         Some("check-package-size") => check_package_size(),
         Some("check-no-floats") => check_no_floats(),
         Some(command) => Err(format!("unknown xtask command: {command}")),
         None => Err(String::from(
-            "usage: cargo xtask <generate-types|check-generated|check-protocol-compatibility|check-package-size|check-no-floats>",
+            "usage: cargo xtask <generate-types|check-generated|check-protocol-snapshot|check-package-size|check-no-floats>",
         )),
     }
 }
@@ -53,7 +53,7 @@ fn check_generated() -> Result<(), String> {
     Ok(())
 }
 
-fn check_protocol_compatibility() -> Result<(), String> {
+fn check_protocol_snapshot() -> Result<(), String> {
     let version = ProtocolVersion::CURRENT;
     let path = protocol_snapshot_path(version);
     let expected = fs::read_to_string(&path)

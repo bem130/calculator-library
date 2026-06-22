@@ -4,6 +4,7 @@ import type {
     CalculationRequest,
     InputActionDto,
     InputPolicyDto,
+    PresentationNodeDto,
     SessionDispatchResult,
     SessionStateDto,
 } from "./generated/dto";
@@ -13,6 +14,10 @@ export type CalculatorWasmModule = {
         source: string,
         request: CalculationRequest,
     ) => ApiResult<CalculationOutcome>;
+    readonly presentInput: (
+        source: string,
+        request: CalculationRequest,
+    ) => ApiResult<PresentationNodeDto>;
 };
 
 export type CalculatorSessionWasmModule = {
@@ -51,6 +56,11 @@ export interface Calculator {
         source: string,
         request: CalculationRequest,
     ): ApiResult<CalculationOutcome>;
+
+    presentInput(
+        source: string,
+        request: CalculationRequest,
+    ): ApiResult<PresentationNodeDto>;
 }
 
 export interface CalculatorSession {
@@ -66,6 +76,9 @@ export function createCalculatorFromWasmModule(
     return {
         calculate(source, request) {
             return module.calculate(source, request);
+        },
+        presentInput(source, request) {
+            return module.presentInput(source, request);
         },
     };
 }

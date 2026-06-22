@@ -51,6 +51,6 @@ mod conformance_tests;
 #[cfg(test)]
 mod fuzz_tests;
 
-pub use api::{calculate, evaluate, parse, present};
+pub use api::{calculate, evaluate, parse, present, present_input};
 pub use session::{apply_calculation_result, reduce_input};
 pub use types::*;

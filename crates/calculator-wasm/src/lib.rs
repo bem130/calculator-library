@@ -10,7 +10,7 @@ use wasm_bindgen::prelude::*;
 
 #[cfg(target_arch = "wasm32")]
 use dto::UnsupportedProtocolCodeDto;
-use dto::{ApiResultDto, CalculationOutcomeDto, CalculationRequestDto};
+use dto::{ApiResultDto, CalculationOutcomeDto, CalculationRequestDto, PresentationNodeDto};
 use dto::{InputActionDto, InputPolicyDto, SessionDispatchResultDto, SessionStateDto};
 
 pub fn protocol_version() -> (u16, u16) {
@@ -28,6 +28,24 @@ pub fn calculate_dto(
     };
     let mut context = calculator_core::EvaluationContext::default();
     match calculator_core::calculate(source, &request, &mut context) {
+        Ok(value) => ApiResultDto::Ok {
+            value: value.into(),
+        },
+        Err(error) => ApiResultDto::Error {
+            error: error.into(),
+        },
+    }
+}
+
+pub fn present_input_dto(
+    source: &str,
+    request: CalculationRequestDto,
+) -> ApiResultDto<PresentationNodeDto> {
+    let request = match calculator_core::CalculationRequest::try_from(request) {
+        Ok(request) => request,
+        Err(error) => return ApiResultDto::Error { error },
+    };
+    match calculator_core::present_input(source, &request) {
         Ok(value) => ApiResultDto::Ok {
             value: value.into(),
         },
@@ -137,6 +155,16 @@ pub fn calculate(source: &str, request: JsValue) -> JsValue {
     let result = match deserialize_calculation_request_value(request) {
         Ok(request) => calculate_dto(source, request),
         Err(error) => ApiResultDto::<CalculationOutcomeDto>::Error { error },
+    };
+    serde_wasm_bindgen::to_value(&result).expect("calculator DTO serialization must succeed")
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = presentInput)]
+pub fn present_input(source: &str, request: JsValue) -> JsValue {
+    let result = match deserialize_calculation_request_value(request) {
+        Ok(request) => present_input_dto(source, request),
+        Err(error) => ApiResultDto::<PresentationNodeDto>::Error { error },
     };
     serde_wasm_bindgen::to_value(&result).expect("calculator DTO serialization must succeed")
 }
@@ -635,7 +663,7 @@ mod dto_differential {
         },
         Case {
             id: "guarded-exp-log-radical-identity",
-            source: "exp(log(sqrt(2)))",
+            source: "exp(ln(sqrt(2)))",
             request: RequestProfile::ExactOnly,
             expected: ExpectedOutcome::Complete {
                 representation: ExactRepresentationKindDto::Radical,
@@ -648,7 +676,7 @@ mod dto_differential {
         },
         Case {
             id: "guarded-exp-log-radical-linear-identity",
-            source: "exp(log(sqrt(2)+sqrt(3)))",
+            source: "exp(ln(sqrt(2)+sqrt(3)))",
             request: RequestProfile::ExactOnly,
             expected: ExpectedOutcome::Complete {
                 representation: ExactRepresentationKindDto::Radical,
@@ -1714,15 +1742,15 @@ mod tests {
     fn wasm_dto_handles_exp_log_identities() {
         for (source, expected) in [
             ("exp(0)", "1"),
-            ("log(1)", "0"),
-            ("exp(log(2))", "2"),
-            ("exp(log(1/3))", "1/3"),
-            ("exp(log(sqrt(2)))", "sqrt(2)"),
-            ("exp(log(sqrt(2)+sqrt(3)))", "sqrt(2) + sqrt(3)"),
-            ("exp(log(sqrt(3)-sqrt(2)))", "sqrt(3) - sqrt(2)"),
-            ("log(exp(2))", "2"),
-            ("log(exp(-2))", "-2"),
-            ("log(exp(-sqrt(2)))", "-sqrt(2)"),
+            ("ln(1)", "0"),
+            ("exp(ln(2))", "2"),
+            ("exp(ln(1/3))", "1/3"),
+            ("exp(ln(sqrt(2)))", "sqrt(2)"),
+            ("exp(ln(sqrt(2)+sqrt(3)))", "sqrt(2) + sqrt(3)"),
+            ("exp(ln(sqrt(3)-sqrt(2)))", "sqrt(3) - sqrt(2)"),
+            ("ln(exp(2))", "2"),
+            ("ln(exp(-2))", "-2"),
+            ("ln(exp(-sqrt(2)))", "-sqrt(2)"),
         ] {
             let result = calculate_dto(source, exact_only_request());
             let ApiResultDto::Ok {
@@ -1743,8 +1771,25 @@ mod tests {
     }
 
     #[test]
+    fn wasm_dto_presents_input_expression_without_evaluation() {
+        let result = present_input_dto("log(8,2)+1", exact_only_request());
+        let ApiResultDto::Ok {
+            value: PresentationNodeDto::Row { children },
+        } = result
+        else {
+            panic!("expected input presentation row");
+        };
+        assert!(matches!(
+            children.first(),
+            Some(PresentationNodeDto::Row {
+                children: nested,
+            }) if matches!(nested.first(), Some(PresentationNodeDto::Subscript { .. }))
+        ));
+    }
+
+    #[test]
     fn wasm_dto_rejects_exp_log_of_non_positive_values() {
-        for source in ["exp(log(0))", "exp(log(-1))"] {
+        for source in ["exp(ln(0))", "exp(ln(-1))"] {
             assert_eq!(
                 calculate_dto(source, exact_only_request()),
                 ApiResultDto::Error {
@@ -2029,7 +2074,7 @@ mod tests {
                             refinement_rounds: 0,
                             confirmed_significant_digits: 50,
                             assurance: AssuranceLevelDto::Exact,
-                            protocol_version: ProtocolVersionDto { major: 1, minor: 0 },
+                            protocol_version: ProtocolVersionDto { major: 1, minor: 1 },
                         },
                     },
                 },
@@ -2440,12 +2485,12 @@ pub mod wasm_tests {
     #[wasm_bindgen_test]
     fn wasm32_calculates_guarded_exp_log_identities() {
         for (source, expected) in [
-            ("exp(log(2))", "2"),
-            ("exp(log(1/3))", "1/3"),
-            ("exp(log(sqrt(2)))", "sqrt(2)"),
-            ("log(exp(2))", "2"),
-            ("log(exp(-2))", "-2"),
-            ("log(exp(-sqrt(2)))", "-sqrt(2)"),
+            ("exp(ln(2))", "2"),
+            ("exp(ln(1/3))", "1/3"),
+            ("exp(ln(sqrt(2)))", "sqrt(2)"),
+            ("ln(exp(2))", "2"),
+            ("ln(exp(-2))", "-2"),
+            ("ln(exp(-sqrt(2)))", "-sqrt(2)"),
         ] {
             let result = calculate_dto(source, exact_only_request());
             assert_eq!(exact_plain_text(result), expected, "{source}");
@@ -2455,10 +2500,10 @@ pub mod wasm_tests {
     #[wasm_bindgen_test]
     fn wasm32_rejects_exp_log_of_non_positive_values() {
         for source in [
-            "exp(log(0))",
-            "exp(log(-1))",
-            "exp(log(-sqrt(2)))",
-            "exp(log(sqrt(2)-sqrt(3)))",
+            "exp(ln(0))",
+            "exp(ln(-1))",
+            "exp(ln(-sqrt(2)))",
+            "exp(ln(sqrt(2)-sqrt(3)))",
         ] {
             assert_eq!(
                 calculator_error(source, exact_only_request()),

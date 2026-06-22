@@ -459,6 +459,10 @@ impl From<core::PresentationNode> for PresentationNodeDto {
                 base: Box::new((*base).into()),
                 exponent: Box::new((*exponent).into()),
             },
+            core::PresentationNode::Subscript { base, subscript } => Self::Subscript {
+                base: Box::new((*base).into()),
+                subscript: Box::new((*subscript).into()),
+            },
             core::PresentationNode::Radical { index, radicand } => Self::Radical {
                 index: index.into(),
                 radicand: Box::new((*radicand).into()),
@@ -497,6 +501,7 @@ impl From<core::FunctionName> for FunctionNameDto {
             core::FunctionName::Sqrt => Self::Sqrt,
             core::FunctionName::Exp => Self::Exp,
             core::FunctionName::Log => Self::Log,
+            core::FunctionName::Ln => Self::Ln,
         }
     }
 }
@@ -614,6 +619,7 @@ impl From<core::ExpectedTokenKind> for ExpectedTokenKindDto {
             core::ExpectedTokenKind::Operator => Self::Operator,
             core::ExpectedTokenKind::OpenParenthesis => Self::OpenParenthesis,
             core::ExpectedTokenKind::CloseParenthesis => Self::CloseParenthesis,
+            core::ExpectedTokenKind::Comma => Self::Comma,
             core::ExpectedTokenKind::EndOfInput => Self::EndOfInput,
         }
     }
@@ -640,6 +646,7 @@ impl From<core::DomainErrorKind> for DomainErrorCodeDto {
         match value {
             core::DomainErrorKind::DivisionByZero => Self::DivisionByZero,
             core::DomainErrorKind::LogarithmOfNonPositive => Self::LogarithmOfNonPositive,
+            core::DomainErrorKind::LogarithmBaseOne => Self::LogarithmBaseOne,
             core::DomainErrorKind::EvenRootOfNegative => Self::EvenRootOfNegative,
             core::DomainErrorKind::InverseTrigonometricOutOfRange => {
                 Self::InverseTrigonometricOutOfRange
@@ -1108,6 +1115,10 @@ impl TryFrom<PresentationNodeDto> for core::PresentationNode {
                 base: Box::new((*base).try_into()?),
                 exponent: Box::new((*exponent).try_into()?),
             }),
+            PresentationNodeDto::Subscript { base, subscript } => Ok(Self::Subscript {
+                base: Box::new((*base).try_into()?),
+                subscript: Box::new((*subscript).try_into()?),
+            }),
             PresentationNodeDto::Radical { index, radicand } => Ok(Self::Radical {
                 index: index.try_into()?,
                 radicand: Box::new((*radicand).try_into()?),
@@ -1178,6 +1189,7 @@ impl From<FunctionNameDto> for core::FunctionName {
             FunctionNameDto::Sqrt => Self::Sqrt,
             FunctionNameDto::Exp => Self::Exp,
             FunctionNameDto::Log => Self::Log,
+            FunctionNameDto::Ln => Self::Ln,
         }
     }
 }
@@ -1389,6 +1401,7 @@ impl From<ExpectedTokenKindDto> for core::ExpectedTokenKind {
             ExpectedTokenKindDto::Operator => Self::Operator,
             ExpectedTokenKindDto::OpenParenthesis => Self::OpenParenthesis,
             ExpectedTokenKindDto::CloseParenthesis => Self::CloseParenthesis,
+            ExpectedTokenKindDto::Comma => Self::Comma,
             ExpectedTokenKindDto::EndOfInput => Self::EndOfInput,
         }
     }
@@ -1415,6 +1428,7 @@ impl From<DomainErrorCodeDto> for core::DomainErrorKind {
         match value {
             DomainErrorCodeDto::DivisionByZero => Self::DivisionByZero,
             DomainErrorCodeDto::LogarithmOfNonPositive => Self::LogarithmOfNonPositive,
+            DomainErrorCodeDto::LogarithmBaseOne => Self::LogarithmBaseOne,
             DomainErrorCodeDto::EvenRootOfNegative => Self::EvenRootOfNegative,
             DomainErrorCodeDto::InverseTrigonometricOutOfRange => {
                 Self::InverseTrigonometricOutOfRange
@@ -1487,6 +1501,7 @@ impl From<InputActionDto> for core::InputAction {
             },
             InputActionDto::Function { value } => Self::Function(value.into()),
             InputActionDto::BinaryOperator { value } => Self::BinaryOperator(value.into()),
+            InputActionDto::Comma => Self::Comma,
             InputActionDto::Percent => Self::Percent,
             InputActionDto::OpenParenthesis => Self::OpenParenthesis,
             InputActionDto::CloseParenthesis => Self::CloseParenthesis,
@@ -1514,6 +1529,7 @@ impl From<FunctionDto> for core::Function {
             FunctionDto::Sqrt => Self::Sqrt,
             FunctionDto::Exp => Self::Exp,
             FunctionDto::Log => Self::Log,
+            FunctionDto::Ln => Self::Ln,
         }
     }
 }

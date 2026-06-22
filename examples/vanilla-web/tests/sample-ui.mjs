@@ -51,6 +51,10 @@ async function assertPublicApiUsage() {
         mainSource.includes("renderMathMl("),
         "MathML display must use renderMathMl",
     );
+    assert(
+        mainSource.includes("presentInput("),
+        "input preview must use the public presentInput facade",
+    );
 }
 
 async function runBrowserChecks(url, origin) {
@@ -86,6 +90,10 @@ async function runBrowserChecks(url, origin) {
             await page.locator("#mathml-output math msqrt").count() > 0,
             "MathML radical was not rendered",
         );
+        assert(
+            await page.locator("#input-preview math msqrt").count() > 0,
+            "input preview radical was not rendered",
+        );
         await waitForText(page, "#scientific-state", "5 digits");
         await waitForText(page, "#scientific-output", "1.4142 × 10^0");
         await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
@@ -103,6 +111,7 @@ async function runBrowserChecks(url, origin) {
         await assertSpecialAngles(page);
         await assertSimpleRadicalAlgebra(page);
         await assertInitialExpLog(page);
+        await assertArbitraryBaseLogExp(page);
         await assertRationalPowers(page);
 
         await page.fill("#expression", "");
@@ -195,32 +204,66 @@ async function assertInitialExpLog(page) {
         "exp(1) upper bound is not below 3",
     );
 
-    await page.fill("#expression", "log(1)");
+    await page.fill("#expression", "ln(1)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 0");
 
-    await page.fill("#expression", "exp(log(2))");
+    await page.fill("#expression", "exp(ln(2))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 2");
 
-    await page.fill("#expression", "exp(log(sqrt(2)))");
+    await page.fill("#expression", "exp(ln(sqrt(2)))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sqrt(2)");
     await waitForText(page, "#exact-kind", "RADICAL");
 
-    await page.fill("#expression", "exp(log(sqrt(2)+sqrt(3)))");
+    await page.fill("#expression", "exp(ln(sqrt(2)+sqrt(3)))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sqrt(2) + sqrt(3)");
     await waitForText(page, "#exact-kind", "RADICAL");
 
-    await page.fill("#expression", "log(exp(2))");
+    await page.fill("#expression", "ln(exp(2))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 2");
 
-    await page.fill("#expression", "log(exp(-sqrt(2)))");
+    await page.fill("#expression", "ln(exp(-sqrt(2)))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= -sqrt(2)");
     await waitForText(page, "#exact-kind", "RADICAL");
+}
+
+async function assertArbitraryBaseLogExp(page) {
+    await page.fill("#expression", "log(8,2)");
+    await page.waitForSelector("#input-preview math msub");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 3");
+
+    await page.fill("#expression", "ln(e)");
+    await page.waitForSelector("#input-preview math mi");
+    assert(
+        await textContent(page, "#input-preview") === "ln(e)",
+        "ln input preview did not render as natural log",
+    );
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 1");
+
+    await page.fill("#expression", "exp(3,2)");
+    await page.waitForSelector("#input-preview math msup");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 8");
+
+    await page.fill("#expression", "");
+    await page.click('button[data-key="log("]');
+    await page.click('button[data-key="8"]');
+    await page.click('button[data-key=","]');
+    await page.click('button[data-key="2"]');
+    await page.click('button[data-key=")"]');
+    await page.waitForFunction(() => {
+        const input = document.querySelector("#expression");
+        return input instanceof HTMLTextAreaElement && input.value === "log(8,2)";
+    });
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 3");
 }
 
 async function assertRationalPowers(page) {

@@ -80,8 +80,8 @@ jobs:
       - name: Check generated TypeScript DTOs
         run: cargo xtask check-generated
 
-      - name: Check protocol compatibility snapshot
-        run: cargo xtask check-protocol-compatibility
+      - name: Check protocol snapshot
+        run: cargo xtask check-protocol-snapshot
 
       - name: Check forbidden floating-point usage
         run: cargo xtask check-no-floats

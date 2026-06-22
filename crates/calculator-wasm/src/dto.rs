@@ -333,6 +333,11 @@ pub enum PresentationNodeDto {
         base: Box<PresentationNodeDto>,
         exponent: Box<PresentationNodeDto>,
     },
+    #[serde(rename = "subscript")]
+    Subscript {
+        base: Box<PresentationNodeDto>,
+        subscript: Box<PresentationNodeDto>,
+    },
     #[serde(rename = "radical")]
     Radical {
         index: RadicalIndexDto,
@@ -368,6 +373,7 @@ pub enum FunctionNameDto {
     Sqrt,
     Exp,
     Log,
+    Ln,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -424,6 +430,8 @@ pub enum InputActionDto {
     Function { value: FunctionDto },
     #[serde(rename = "binaryOperator")]
     BinaryOperator { value: BinaryOperatorDto },
+    #[serde(rename = "comma")]
+    Comma,
     #[serde(rename = "percent")]
     Percent,
     #[serde(rename = "openParenthesis")]
@@ -597,6 +605,7 @@ pub enum ExpectedTokenKindDto {
     Operator,
     OpenParenthesis,
     CloseParenthesis,
+    Comma,
     EndOfInput,
 }
 
@@ -617,6 +626,7 @@ pub enum ParseErrorCodeDto {
 pub enum DomainErrorCodeDto {
     DivisionByZero,
     LogarithmOfNonPositive,
+    LogarithmBaseOne,
     EvenRootOfNegative,
     InverseTrigonometricOutOfRange,
     TangentPole,

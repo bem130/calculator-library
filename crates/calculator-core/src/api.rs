@@ -19,6 +19,7 @@ use crate::expression::{
     RealAlgebraicEvaluation,
 };
 use crate::interval;
+use crate::syntax::{SourceExpr, UnaryOperator};
 use crate::types::*;
 
 pub fn calculate(
@@ -97,6 +98,17 @@ pub fn parse(source: &str, settings: &ParseSettings) -> Result<ParsedExpression,
         settings: *settings,
         root,
     })
+}
+
+pub fn present_input(
+    source: &str,
+    request: &CalculationRequest,
+) -> Result<PresentationNode, CalculatorError> {
+    let limits = resource_limits(&request.limits);
+    validate_input_bytes(source, &limits).map_err(CalculatorError::InputLimit)?;
+    let parsed = parse(source, &request.parse).map_err(CalculatorError::Parse)?;
+    validate_parsed_expression_limits(&parsed, &limits).map_err(CalculatorError::InputLimit)?;
+    Ok(source_presentation(&parsed.root).node)
 }
 
 pub fn evaluate(
@@ -892,6 +904,188 @@ const SYMBOLIC_PRECEDENCE_POWER: u8 = 3;
 const SYMBOLIC_PRECEDENCE_PREFIX: u8 = 4;
 const SYMBOLIC_PRECEDENCE_ATOM: u8 = 5;
 
+#[derive(Clone, Debug)]
+struct RenderedSource {
+    node: PresentationNode,
+    precedence: u8,
+}
+
+fn source_presentation(expression: &SourceExpr) -> RenderedSource {
+    match expression {
+        SourceExpr::Number { literal, .. } => RenderedSource {
+            node: PresentationNode::Text(literal.clone()),
+            precedence: SYMBOLIC_PRECEDENCE_ATOM,
+        },
+        SourceExpr::Constant {
+            constant: Constant::Pi,
+            ..
+        } => RenderedSource {
+            node: PresentationNode::Text(String::from("π")),
+            precedence: SYMBOLIC_PRECEDENCE_ATOM,
+        },
+        SourceExpr::Constant {
+            constant: Constant::Euler,
+            ..
+        } => RenderedSource {
+            node: PresentationNode::Text(String::from("e")),
+            precedence: SYMBOLIC_PRECEDENCE_ATOM,
+        },
+        SourceExpr::Unary { op, expr, .. } => {
+            let expr = source_parenthesize(source_presentation(expr), SYMBOLIC_PRECEDENCE_PREFIX);
+            let sign = match op {
+                UnaryOperator::Plus => "+",
+                UnaryOperator::Negate => "-",
+            };
+            RenderedSource {
+                node: PresentationNode::Row(vec![PresentationNode::Text(String::from(sign)), expr]),
+                precedence: SYMBOLIC_PRECEDENCE_PREFIX,
+            }
+        }
+        SourceExpr::Binary {
+            op, left, right, ..
+        } => source_binary_presentation(*op, left, right),
+        SourceExpr::Percent { expr, .. } => RenderedSource {
+            node: PresentationNode::Row(vec![
+                source_parenthesize(source_presentation(expr), SYMBOLIC_PRECEDENCE_ATOM),
+                PresentationNode::Text(String::from("%")),
+            ]),
+            precedence: SYMBOLIC_PRECEDENCE_ATOM,
+        },
+        SourceExpr::Function {
+            function,
+            argument,
+            base,
+            ..
+        } => source_function_presentation(*function, argument, base.as_deref()),
+    }
+}
+
+fn source_binary_presentation(
+    op: BinaryOperator,
+    left: &SourceExpr,
+    right: &SourceExpr,
+) -> RenderedSource {
+    match op {
+        BinaryOperator::Add | BinaryOperator::Subtract => {
+            let operator = match op {
+                BinaryOperator::Add => "+",
+                BinaryOperator::Subtract => "-",
+                BinaryOperator::Multiply | BinaryOperator::Divide | BinaryOperator::Power => {
+                    unreachable!("operator is constrained by outer match")
+                }
+            };
+            RenderedSource {
+                node: PresentationNode::Row(vec![
+                    source_parenthesize(source_presentation(left), SYMBOLIC_PRECEDENCE_ADD),
+                    PresentationNode::Text(String::from(operator)),
+                    source_parenthesize(source_presentation(right), SYMBOLIC_PRECEDENCE_ADD),
+                ]),
+                precedence: SYMBOLIC_PRECEDENCE_ADD,
+            }
+        }
+        BinaryOperator::Multiply => RenderedSource {
+            node: PresentationNode::Row(vec![
+                source_parenthesize(source_presentation(left), SYMBOLIC_PRECEDENCE_MULTIPLY),
+                PresentationNode::Text(String::from("×")),
+                source_parenthesize(source_presentation(right), SYMBOLIC_PRECEDENCE_MULTIPLY),
+            ]),
+            precedence: SYMBOLIC_PRECEDENCE_MULTIPLY,
+        },
+        BinaryOperator::Divide => RenderedSource {
+            node: PresentationNode::Fraction {
+                numerator: Box::new(source_presentation(left).node),
+                denominator: Box::new(source_presentation(right).node),
+            },
+            precedence: SYMBOLIC_PRECEDENCE_ATOM,
+        },
+        BinaryOperator::Power => RenderedSource {
+            node: PresentationNode::Superscript {
+                base: Box::new(source_parenthesize(
+                    source_presentation(left),
+                    SYMBOLIC_PRECEDENCE_POWER,
+                )),
+                exponent: Box::new(source_parenthesize(
+                    source_presentation(right),
+                    SYMBOLIC_PRECEDENCE_POWER,
+                )),
+            },
+            precedence: SYMBOLIC_PRECEDENCE_POWER,
+        },
+    }
+}
+
+fn source_function_presentation(
+    function: Function,
+    argument: &SourceExpr,
+    base: Option<&SourceExpr>,
+) -> RenderedSource {
+    let argument = source_presentation(argument).node;
+    let node = match (function, base) {
+        (Function::Ln, None) => PresentationNode::Function {
+            name: FunctionName::Ln,
+            argument: Box::new(argument),
+        },
+        (Function::Log, Some(base)) => {
+            log_base_presentation(argument, source_presentation(base).node)
+        }
+        (Function::Exp, None) => PresentationNode::Superscript {
+            base: Box::new(PresentationNode::Text(String::from("e"))),
+            exponent: Box::new(argument),
+        },
+        (Function::Exp, Some(base)) => PresentationNode::Superscript {
+            base: Box::new(source_presentation(base).node),
+            exponent: Box::new(argument),
+        },
+        (Function::Sqrt, None) => PresentationNode::Radical {
+            index: RadicalIndex::Square,
+            radicand: Box::new(argument),
+        },
+        (function, _) => PresentationNode::Function {
+            name: function_presentation_name(function),
+            argument: Box::new(argument),
+        },
+    };
+    RenderedSource {
+        node,
+        precedence: SYMBOLIC_PRECEDENCE_ATOM,
+    }
+}
+
+fn log_base_presentation(argument: PresentationNode, base: PresentationNode) -> PresentationNode {
+    PresentationNode::Row(vec![
+        PresentationNode::Subscript {
+            base: Box::new(PresentationNode::Text(String::from("log"))),
+            subscript: Box::new(base),
+        },
+        PresentationNode::Text(String::from("(")),
+        argument,
+        PresentationNode::Text(String::from(")")),
+    ])
+}
+
+fn function_presentation_name(function: Function) -> FunctionName {
+    match function {
+        Function::Sin => FunctionName::Sin,
+        Function::Cos => FunctionName::Cos,
+        Function::Tan => FunctionName::Tan,
+        Function::Asin => FunctionName::Asin,
+        Function::Acos => FunctionName::Acos,
+        Function::Atan => FunctionName::Atan,
+        Function::Sqrt => FunctionName::Sqrt,
+        Function::Exp => FunctionName::Exp,
+        Function::Log => FunctionName::Log,
+        Function::Ln => FunctionName::Ln,
+    }
+}
+
+fn source_parenthesize(value: RenderedSource, parent_precedence: u8) -> PresentationNode {
+    if value.precedence <= parent_precedence {
+        PresentationNode::Parenthesized(Box::new(value.node))
+    } else {
+        value.node
+    }
+}
+
 fn render_symbolic_node(dag: &ExactExpressionDag, id: ExprId) -> RenderedSymbolic {
     signed_symbolic_to_rendered(render_signed_symbolic_node(dag, id))
 }
@@ -927,7 +1121,9 @@ fn render_signed_symbolic_node(dag: &ExactExpressionDag, id: ExprId) -> SignedRe
         ExpressionNode::Function { function, argument } => {
             render_signed_symbolic_function(dag, *function, *argument)
         }
-        ExpressionNode::Constant(_) | ExpressionNode::Power { .. } => SignedRenderedSymbolic {
+        ExpressionNode::Constant(_)
+        | ExpressionNode::Power { .. }
+        | ExpressionNode::LogBase { .. } => SignedRenderedSymbolic {
             negative: false,
             value: render_unsigned_symbolic_node(dag, id),
         },
@@ -974,6 +1170,14 @@ fn render_unsigned_symbolic_node(dag: &ExactExpressionDag, id: ExprId) -> Render
                     parenthesize_symbolic(&exponent, SYMBOLIC_PRECEDENCE_POWER)
                 ),
                 precedence: SYMBOLIC_PRECEDENCE_POWER,
+            }
+        }
+        ExpressionNode::LogBase { argument, base } => {
+            let argument = render_symbolic_node(dag, *argument);
+            let base = render_symbolic_node(dag, *base);
+            RenderedSymbolic {
+                text: format!("log({},{})", argument.text, base.text),
+                precedence: SYMBOLIC_PRECEDENCE_ATOM,
             }
         }
         ExpressionNode::Function { function, argument } => {
@@ -1155,7 +1359,8 @@ fn render_signed_symbolic_function_from_signed_argument(
         | Function::Atan
         | Function::Sqrt
         | Function::Exp
-        | Function::Log => {
+        | Function::Log
+        | Function::Ln => {
             let argument = signed_symbolic_to_rendered(signed_argument);
             SignedRenderedSymbolic {
                 negative: false,
@@ -1203,7 +1408,8 @@ fn render_symbolic_shifted_trig_function(
             | Function::Atan
             | Function::Sqrt
             | Function::Exp
-            | Function::Log => None,
+            | Function::Log
+            | Function::Ln => None,
         };
     }
 
@@ -1229,7 +1435,8 @@ fn render_symbolic_shifted_trig_function(
             | Function::Atan
             | Function::Sqrt
             | Function::Exp
-            | Function::Log => None,
+            | Function::Log
+            | Function::Ln => None,
         };
     }
 
@@ -1363,7 +1570,9 @@ fn symbolic_pi_multiple_coefficient(
                     contains_pi: numerator.contains_pi,
                 })
         }
-        ExpressionNode::Function { .. } | ExpressionNode::Power { .. } => None,
+        ExpressionNode::Function { .. }
+        | ExpressionNode::Power { .. }
+        | ExpressionNode::LogBase { .. } => None,
     }
 }
 
@@ -1390,7 +1599,8 @@ fn symbolic_rational_value(dag: &ExactExpressionDag, id: ExprId) -> Option<Ratio
             .ok(),
         ExpressionNode::Constant(_)
         | ExpressionNode::Function { .. }
-        | ExpressionNode::Power { .. } => None,
+        | ExpressionNode::Power { .. }
+        | ExpressionNode::LogBase { .. } => None,
     }
 }
 
@@ -1431,7 +1641,7 @@ fn symbolic_function_name(function: Function) -> &'static str {
         Function::Atan => "atan",
         Function::Sqrt => "sqrt",
         Function::Exp => "exp",
-        Function::Log => "log",
+        Function::Log | Function::Ln => "ln",
     }
 }
 
@@ -1909,6 +2119,50 @@ mod tests {
         exact
     }
 
+    #[test]
+    fn arbitrary_base_logarithm_and_exponential_have_exact_cases() {
+        assert_eq!(exact_presentation_for("log(8,2)").plain_text, "3");
+        assert_eq!(exact_presentation_for("log(1/8,2)").plain_text, "-3");
+        assert_eq!(exact_presentation_for("exp(3,2)").plain_text, "8");
+        assert_eq!(exact_presentation_for("ln(exp(2))").plain_text, "2");
+        assert_eq!(exact_presentation_for("log(exp(2), e)").plain_text, "2");
+    }
+
+    #[test]
+    fn logarithm_base_one_is_a_domain_error() {
+        let mut context = EvaluationContext::default();
+        let error = calculate("log(2,1)", &exact_only_request(), &mut context)
+            .expect_err("log base one should be rejected");
+        assert_eq!(
+            error,
+            CalculatorError::Domain(DomainError {
+                kind: DomainErrorKind::LogarithmBaseOne,
+                span: None,
+            })
+        );
+    }
+
+    #[test]
+    fn input_presentation_renders_log_bases_and_natural_log_alias() {
+        let log = present_input("log(8,2)", &CalculationRequest::default()).unwrap();
+        let PresentationNode::Row(children) = log else {
+            panic!("expected log presentation to be a row");
+        };
+        assert!(matches!(
+            children.first(),
+            Some(PresentationNode::Subscript { .. })
+        ));
+
+        let natural = present_input("ln(e)", &CalculationRequest::default()).unwrap();
+        assert!(matches!(
+            natural,
+            PresentationNode::Function {
+                name: FunctionName::Ln,
+                ..
+            }
+        ));
+    }
+
     fn assert_source_symbolic_fallback_with_limits(source: &str, limits: ResourceLimits) {
         let request = CalculationRequest {
             limits: ResourceLimitRequest::Custom(limits),
@@ -2046,13 +2300,13 @@ mod tests {
             ("sin(1 - 1)", "0"),
             ("sin(pi/6 + 2*pi)", "1/2"),
             ("cos(0)", "1"),
-            ("cos(log(1))", "1"),
+            ("cos(ln(1))", "1"),
             ("cos(pi/3)", "1/2"),
             ("cos(2*pi/3)", "-1/2"),
             ("cos(-pi)", "-1"),
             ("cos(3*pi/2)", "0"),
             ("tan(0)", "0"),
-            ("tan(exp(log(2)) - 2)", "0"),
+            ("tan(exp(ln(2)) - 2)", "0"),
             ("tan(pi/4)", "1"),
             ("tan(-pi/4)", "-1"),
             ("tan(pi)", "0"),
@@ -3747,33 +4001,33 @@ mod tests {
     #[test]
     fn initial_exp_log_identities_are_exact() {
         assert_eq!(exact_plain_text("exp(0)"), "1");
-        assert_eq!(exact_plain_text("log(1)"), "0");
+        assert_eq!(exact_plain_text("ln(1)"), "0");
     }
 
     #[test]
     fn guarded_exp_log_identities_are_exact_for_proven_rationals() {
-        assert_eq!(exact_plain_text("exp(log(2))"), "2");
-        assert_eq!(exact_plain_text("exp(log(1/3))"), "1/3");
-        assert_eq!(exact_plain_text("exp(log(0.1 + 0.2))"), "3/10");
-        assert_eq!(exact_plain_text("log(exp(2))"), "2");
-        assert_eq!(exact_plain_text("log(exp(-2))"), "-2");
-        assert_eq!(exact_plain_text("log(exp(1/3))"), "1/3");
+        assert_eq!(exact_plain_text("exp(ln(2))"), "2");
+        assert_eq!(exact_plain_text("exp(ln(1/3))"), "1/3");
+        assert_eq!(exact_plain_text("exp(ln(0.1 + 0.2))"), "3/10");
+        assert_eq!(exact_plain_text("ln(exp(2))"), "2");
+        assert_eq!(exact_plain_text("ln(exp(-2))"), "-2");
+        assert_eq!(exact_plain_text("ln(exp(1/3))"), "1/3");
     }
 
     #[test]
     fn guarded_exp_log_identities_are_exact_for_proven_radicals_and_algebraics() {
         for (source, expected) in [
-            ("exp(log(sqrt(2)))", "sqrt(2)"),
-            ("exp(log(sqrt(2)+sqrt(3)))", "sqrt(2) + sqrt(3)"),
-            ("exp(log(sqrt(3)-sqrt(2)))", "sqrt(3) - sqrt(2)"),
-            ("exp(log(sqrt(2)+sqrt(3)-3))", "-3 + sqrt(2) + sqrt(3)"),
-            ("log(exp(sqrt(2)))", "sqrt(2)"),
-            ("log(exp(-sqrt(2)))", "-sqrt(2)"),
+            ("exp(ln(sqrt(2)))", "sqrt(2)"),
+            ("exp(ln(sqrt(2)+sqrt(3)))", "sqrt(2) + sqrt(3)"),
+            ("exp(ln(sqrt(3)-sqrt(2)))", "sqrt(3) - sqrt(2)"),
+            ("exp(ln(sqrt(2)+sqrt(3)-3))", "-3 + sqrt(2) + sqrt(3)"),
+            ("ln(exp(sqrt(2)))", "sqrt(2)"),
+            ("ln(exp(-sqrt(2)))", "-sqrt(2)"),
         ] {
             assert_eq!(exact_plain_text(source), expected, "{source}");
         }
 
-        for source in ["exp(log(2^(1/3)))", "log(exp(2^(1/3)))"] {
+        for source in ["exp(ln(2^(1/3)))", "ln(exp(2^(1/3)))"] {
             assert_eq!(
                 exact_presentation_for(source).representation,
                 ExactRepresentationKind::RealAlgebraic,
@@ -3965,11 +4219,11 @@ mod tests {
     fn transcendental_interval_evaluation_retains_symbolic_exact_expression() {
         let mut context = EvaluationContext::default();
         for (source, expected_plain_text) in [
-            ("log(2)", "log(2)"),
-            ("log(1/2)", "log(1/2)"),
+            ("ln(2)", "ln(2)"),
+            ("ln(1/2)", "ln(1/2)"),
             ("exp(2)", "exp(2)"),
-            ("sqrt(2)+log(2)", "sqrt(2)+log(2)"),
-            ("log(sqrt(2))", "log(sqrt(2))"),
+            ("sqrt(2)+ln(2)", "sqrt(2)+ln(2)"),
+            ("ln(sqrt(2))", "ln(sqrt(2))"),
             ("exp(sqrt(2))", "exp(sqrt(2))"),
             ("atan(1/3)", "atan(1/3)"),
             ("asin(1/3)", "asin(1/3)"),
@@ -4207,7 +4461,7 @@ mod tests {
 
     #[test]
     fn log_of_non_positive_is_domain_error() {
-        for source in ["log(0)", "log(-1)", "log(sqrt(2)-sqrt(3))"] {
+        for source in ["ln(0)", "ln(-1)", "ln(sqrt(2)-sqrt(3))"] {
             let mut context = EvaluationContext::default();
             let error = calculate(source, &exact_only_request(), &mut context).expect_err(source);
             assert_eq!(
@@ -4253,7 +4507,7 @@ mod tests {
     fn inverse_trigonometric_out_of_range_is_domain_error() {
         for source in [
             "asin(2)",
-            "asin(exp(log(2)))",
+            "asin(exp(ln(2)))",
             "asin(sqrt(2))",
             "acos(-2)",
             "acos(-2*sqrt(2))",
@@ -4276,11 +4530,11 @@ mod tests {
     #[test]
     fn exp_log_identity_requires_positive_inner_value() {
         for source in [
-            "exp(log(0))",
-            "exp(log(-1))",
-            "exp(log(-sqrt(2)))",
-            "exp(log(sqrt(2)-sqrt(2)))",
-            "exp(log(sqrt(2)-sqrt(3)))",
+            "exp(ln(0))",
+            "exp(ln(-1))",
+            "exp(ln(-sqrt(2)))",
+            "exp(ln(sqrt(2)-sqrt(2)))",
+            "exp(ln(sqrt(2)-sqrt(3)))",
         ] {
             let mut context = EvaluationContext::default();
             let error = calculate(source, &exact_only_request(), &mut context).expect_err(source);

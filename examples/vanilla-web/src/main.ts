@@ -1,4 +1,5 @@
 import {
+    createCalculator,
     createSession,
     defaultCalculationRequest,
     defaultInputPolicy,
@@ -56,9 +57,11 @@ const state: CalculatorState = {
 };
 
 const workerCalculator = createWorkerCalculator();
+const directCalculator = createCalculator();
 let activeSession: CalculatorSession | null = null;
 let activeCalculation: ActiveCalculation | null = null;
 let operationVersion = 0;
+let previewVersion = 0;
 let keypadQueue = Promise.resolve();
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -88,6 +91,7 @@ app.innerHTML = `
       <div class="expression-row">
         <label for="expression">Expression</label>
         <textarea id="expression" spellcheck="false" rows="3"></textarea>
+        <div id="input-preview" class="input-preview" aria-label="Input preview"></div>
       </div>
       <div class="action-row">
         <button class="primary" id="calculate" type="button">
@@ -178,6 +182,7 @@ app.innerHTML = `
 `;
 
 const expressionInput = required<HTMLTextAreaElement>("#expression");
+const inputPreview = required<HTMLElement>("#input-preview");
 const calculateButton = required<HTMLButtonElement>("#calculate");
 const cancelButton = required<HTMLButtonElement>("#cancel");
 const copyButton = required<HTMLButtonElement>("#copy");
@@ -213,6 +218,7 @@ const keyGroups = [
             "-",
             "0",
             ".",
+            ",",
             "+",
             "^",
             "(",
@@ -224,13 +230,23 @@ const keyGroups = [
     },
     {
         title: "Functions",
-        columns: 3,
-        keys: ["sin(", "cos(", "tan(", "asin(", "acos(", "atan(", "sqrt(", "exp(", "log("],
+        columns: 4,
+        keys: ["sin(", "cos(", "tan(", "ln(", "asin(", "acos(", "atan(", "sqrt(", "exp(", "log("],
     },
     {
         title: "Known values",
         columns: 3,
-        keys: ["pi/6", "pi/4", "pi/3", "pi/2", "sqrt(2)/2", "sqrt(3)/2"],
+        keys: [
+            "pi/6",
+            "pi/4",
+            "pi/3",
+            "pi/2",
+            "sqrt(2)/2",
+            "sqrt(3)/2",
+            "log(8,2)",
+            "ln(e)",
+            "exp(3,2)",
+        ],
     },
 ] as const;
 
@@ -398,6 +414,7 @@ function invalidateSession(): void {
     state.sessionSynced = false;
     state.busy = false;
     beginOperation();
+    renderInputPreview();
     renderStatus();
 }
 
@@ -543,6 +560,7 @@ function actionsForExpression(source: string): InputActionDto[] {
         ["tan(", "tan"],
         ["exp(", "exp"],
         ["log(", "log"],
+        ["ln(", "ln"],
     ] as const;
 
     while (cursor < source.length) {
@@ -587,6 +605,8 @@ function keyAction(key: string): InputActionDto | null {
     switch (key) {
         case ".":
             return { tag: "decimalPoint" };
+        case ",":
+            return { tag: "comma" };
         case "+":
             return { tag: "binaryOperator", value: "add" };
         case "-":
@@ -625,9 +645,46 @@ function keyAction(key: string): InputActionDto | null {
             return { tag: "function", value: "exp" };
         case "log(":
             return { tag: "function", value: "log" };
+        case "ln(":
+            return { tag: "function", value: "ln" };
         default:
             return null;
     }
+}
+
+function renderInputPreview(): void {
+    const source = state.expression;
+    const version = previewVersion + 1;
+    previewVersion = version;
+    if (source.trim().length === 0) {
+        inputPreview.textContent = "";
+        inputPreview.dataset.state = "empty";
+        return;
+    }
+    inputPreview.dataset.state = "loading";
+    void directCalculator
+        .then((calculator) => {
+            if (version !== previewVersion) {
+                return;
+            }
+            const result = calculator.presentInput(source, buildRequest());
+            if (version !== previewVersion) {
+                return;
+            }
+            if (result.tag === "ok") {
+                inputPreview.innerHTML = `<math display="block">${renderMathMl(result.value)}</math>`;
+                inputPreview.dataset.state = "ready";
+            } else {
+                inputPreview.textContent = "";
+                inputPreview.dataset.state = "error";
+            }
+        })
+        .catch(() => {
+            if (version === previewVersion) {
+                inputPreview.textContent = "";
+                inputPreview.dataset.state = "error";
+            }
+        });
 }
 
 function renderResult(): void {
@@ -851,6 +908,7 @@ function syncControls(): void {
     for (const button of document.querySelectorAll<HTMLButtonElement>("[data-angle]")) {
         button.dataset.active = String(button.dataset.angle === state.angleUnit);
     }
+    renderInputPreview();
 }
 
 function currentPlainText(): string {

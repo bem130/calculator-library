@@ -314,9 +314,21 @@ fn source_shape(expression: &SourceExpr) -> String {
         }
         SourceExpr::Percent { expr, .. } => format!("percent({})", source_shape(expr)),
         SourceExpr::Function {
-            function, argument, ..
+            function,
+            argument,
+            base,
+            ..
         } => {
-            format!("{}({})", function_name(*function), source_shape(argument))
+            if let Some(base) = base {
+                format!(
+                    "{}({},{})",
+                    function_name(*function),
+                    source_shape(argument),
+                    source_shape(base)
+                )
+            } else {
+                format!("{}({})", function_name(*function), source_shape(argument))
+            }
         }
     }
 }
@@ -372,6 +384,7 @@ fn apply_last_command(
 fn input_action(value: &str) -> InputAction {
     match value {
         "decimalPoint" => InputAction::DecimalPoint,
+        "comma" => InputAction::Comma,
         "percent" => InputAction::Percent,
         "openParenthesis" => InputAction::OpenParenthesis,
         "closeParenthesis" => InputAction::CloseParenthesis,
@@ -413,6 +426,7 @@ fn prefixed_input_action(value: &str) -> InputAction {
             "sqrt" => Function::Sqrt,
             "exp" => Function::Exp,
             "log" => Function::Log,
+            "ln" => Function::Ln,
             other => panic!("unsupported function fixture value: {other}"),
         }),
         "binary" => InputAction::BinaryOperator(match payload {
@@ -453,6 +467,7 @@ fn calculator_error_code(value: &CalculatorError) -> &'static str {
         CalculatorError::Domain(error) => match error.kind {
             DomainErrorKind::DivisionByZero => "domain.divisionByZero",
             DomainErrorKind::LogarithmOfNonPositive => "domain.logarithmOfNonPositive",
+            DomainErrorKind::LogarithmBaseOne => "domain.logarithmBaseOne",
             DomainErrorKind::EvenRootOfNegative => "domain.evenRootOfNegative",
             DomainErrorKind::InverseTrigonometricOutOfRange => {
                 "domain.inverseTrigonometricOutOfRange"
@@ -535,6 +550,7 @@ fn function_name(value: Function) -> &'static str {
         Function::Sqrt => "sqrt",
         Function::Exp => "exp",
         Function::Log => "log",
+        Function::Ln => "ln",
     }
 }
 

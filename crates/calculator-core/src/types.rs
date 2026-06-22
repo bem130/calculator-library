@@ -101,6 +101,10 @@ pub enum ExpressionNode {
         base: ExprId,
         exponent: ExprId,
     },
+    LogBase {
+        argument: ExprId,
+        base: ExprId,
+    },
     Function {
         function: Function,
         argument: ExprId,
@@ -124,6 +128,7 @@ pub enum Function {
     Sqrt,
     Exp,
     Log,
+    Ln,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -357,6 +362,10 @@ pub enum PresentationNode {
         base: Box<PresentationNode>,
         exponent: Box<PresentationNode>,
     },
+    Subscript {
+        base: Box<PresentationNode>,
+        subscript: Box<PresentationNode>,
+    },
     Radical {
         index: RadicalIndex,
         radicand: Box<PresentationNode>,
@@ -385,6 +394,7 @@ pub enum FunctionName {
     Sqrt,
     Exp,
     Log,
+    Ln,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -692,6 +702,7 @@ pub struct DomainError {
 pub enum DomainErrorKind {
     DivisionByZero,
     LogarithmOfNonPositive,
+    LogarithmBaseOne,
     EvenRootOfNegative,
     InverseTrigonometricOutOfRange,
     TangentPole,
@@ -730,6 +741,7 @@ pub enum ExpectedTokenKind {
     Operator,
     OpenParenthesis,
     CloseParenthesis,
+    Comma,
     EndOfInput,
 }
 
@@ -834,6 +846,7 @@ pub enum InputAction {
     Ans,
     Function(Function),
     BinaryOperator(BinaryOperator),
+    Comma,
     Percent,
     OpenParenthesis,
     CloseParenthesis,
@@ -1504,7 +1517,7 @@ impl Default for InputPolicy {
 }
 
 impl ProtocolVersion {
-    pub const CURRENT: Self = Self { major: 1, minor: 0 };
+    pub const CURRENT: Self = Self { major: 1, minor: 1 };
 }
 
 const fn nonzero_u32(value: u32) -> NonZeroU32 {
@@ -1534,10 +1547,10 @@ mod tests {
     }
 
     #[test]
-    fn protocol_version_starts_at_one_zero() {
+    fn protocol_version_is_current_public_contract() {
         assert_eq!(
             ProtocolVersion::CURRENT,
-            ProtocolVersion { major: 1, minor: 0 }
+            ProtocolVersion { major: 1, minor: 1 }
         );
     }
 
