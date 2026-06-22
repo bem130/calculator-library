@@ -2037,14 +2037,16 @@ fn scientific_presentation(
     let digits = significant_digits.get();
     if rational.is_zero() {
         let significand = zero_significand(digits)?;
+        let exponent_ten = String::from("0");
+        let presentation = scientific_notation_presentation(&significand, &exponent_ten);
         return Ok(ScientificPresentation {
             relation: ResultRelation::ApproximatelyEqual,
-            significand: significand.clone(),
-            exponent_ten: String::from("0"),
+            significand,
+            exponent_ten,
             requested_significant_digits: significant_digits,
             confirmed_significant_digits: digits,
             rounding_mode,
-            presentation: PresentationNode::Text(format!("{significand}e0")),
+            presentation,
         });
     }
 
@@ -2088,14 +2090,16 @@ fn scientific_presentation(
     }
 
     let significand = format_significand(negative, &rounded, digits)?;
+    let exponent_ten = exponent_ten.to_string();
+    let presentation = scientific_notation_presentation(&significand, &exponent_ten);
     Ok(ScientificPresentation {
         relation: ResultRelation::ApproximatelyEqual,
-        significand: significand.clone(),
-        exponent_ten: exponent_ten.to_string(),
+        significand,
+        exponent_ten,
         requested_significant_digits: significant_digits,
         confirmed_significant_digits: digits,
         rounding_mode,
-        presentation: PresentationNode::Text(format!("{significand}e{exponent_ten}")),
+        presentation,
     })
 }
 
@@ -2235,12 +2239,16 @@ fn decimal_scientific_bound_from_dyadic(
 }
 
 fn decimal_scientific_bound_presentation(value: &DecimalScientificBound) -> PresentationNode {
+    scientific_notation_presentation(&value.significand, &value.exponent_ten)
+}
+
+fn scientific_notation_presentation(significand: &str, exponent_ten: &str) -> PresentationNode {
     PresentationNode::Row(vec![
-        PresentationNode::Text(value.significand.clone()),
+        PresentationNode::Text(String::from(significand)),
         PresentationNode::Text(String::from(" × ")),
         PresentationNode::Superscript {
             base: Box::new(PresentationNode::Text(String::from("10"))),
-            exponent: Box::new(PresentationNode::Text(value.exponent_ten.clone())),
+            exponent: Box::new(PresentationNode::Text(String::from(exponent_ten))),
         },
     ])
 }
@@ -2457,7 +2465,7 @@ mod tests {
         }
     }
 
-    fn scientific_text_with_request(source: &str, request: &CalculationRequest) -> String {
+    fn scientific_plain_text_with_request(source: &str, request: &CalculationRequest) -> String {
         let mut context = EvaluationContext::default();
         let outcome = calculate(source, request, &mut context).expect(source);
         let calculation = match outcome {
@@ -2467,7 +2475,7 @@ mod tests {
         let ScientificOutput::Included(scientific) = calculation.scientific else {
             panic!("{source}: expected scientific output");
         };
-        format!("{}e{}", scientific.significand, scientific.exponent_ten)
+        render_plain_text_for_test(&scientific.presentation)
     }
 
     fn enclosure_request() -> CalculationRequest {
@@ -3306,14 +3314,15 @@ mod tests {
     fn certified_enclosures_confirm_scientific_output_when_digits_are_resolved() {
         let request = scientific_request(5, DecimalRoundingMode::NearestTiesToEven);
         for (source, expected) in [
-            ("sqrt(2)", "1.4142e0"),
-            ("pi", "3.1416e0"),
-            ("pi/6", "5.2360e-1"),
-            ("exp(1)", "2.7183e0"),
-            ("sin(1)", "8.4147e-1"),
+            ("0", "0.0000 × 10^0"),
+            ("sqrt(2)", "1.4142 × 10^0"),
+            ("pi", "3.1416 × 10^0"),
+            ("pi/6", "5.2360 × 10^-1"),
+            ("exp(1)", "2.7183 × 10^0"),
+            ("sin(1)", "8.4147 × 10^-1"),
         ] {
             assert_eq!(
-                scientific_text_with_request(source, &request),
+                scientific_plain_text_with_request(source, &request),
                 expected,
                 "{source}"
             );

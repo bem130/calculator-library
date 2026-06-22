@@ -735,9 +735,8 @@ function renderScientific(calculation: Calculation): void {
         case "included":
             scientificState.textContent = `${calculation.scientific.value.confirmedSignificantDigits} digits`;
             scientificOutput.textContent =
-                `${renderResultRelationPlainText(calculation.scientific.value.relation)} ${formatScientificDecimal(
-                    calculation.scientific.value.significand,
-                    calculation.scientific.value.exponentTen,
+                `${renderResultRelationPlainText(calculation.scientific.value.relation)} ${renderPlainText(
+                    calculation.scientific.value.presentation,
                 )}`;
             return;
     }
@@ -757,10 +756,6 @@ function renderEnclosure(calculation: Calculation): void {
                 )}`;
             return;
     }
-}
-
-function formatScientificDecimal(significand: string, exponentTen: string): string {
-    return `${significand} × 10^${exponentTen}`;
 }
 
 function renderStatus(): void {
