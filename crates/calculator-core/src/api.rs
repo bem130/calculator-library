@@ -895,6 +895,18 @@ struct SignedRenderedSymbolic {
     value: RenderedSymbolic,
 }
 
+#[derive(Clone, Debug)]
+struct SymbolicPiCoefficient {
+    coefficient: Rational,
+    contains_pi: bool,
+}
+
+#[derive(Clone, Debug)]
+struct SymbolicIntegerPiShiftArgument {
+    phase_is_odd: bool,
+    remainder: SignedRenderedSymbolic,
+}
+
 const SYMBOLIC_PRECEDENCE_ADD: u8 = 1;
 const SYMBOLIC_PRECEDENCE_MULTIPLY: u8 = 2;
 const SYMBOLIC_PRECEDENCE_POWER: u8 = 3;
@@ -1013,6 +1025,19 @@ fn render_signed_symbolic_sum(
         .iter()
         .map(|child| render_signed_symbolic_node(dag, *child))
         .collect::<Vec<_>>();
+    render_signed_symbolic_sum_terms(&terms)
+}
+
+fn render_signed_symbolic_sum_terms(terms: &[SignedRenderedSymbolic]) -> SignedRenderedSymbolic {
+    if terms.is_empty() {
+        return SignedRenderedSymbolic {
+            negative: false,
+            value: RenderedSymbolic {
+                text: String::from("0"),
+                precedence: SYMBOLIC_PRECEDENCE_ATOM,
+            },
+        };
+    }
     if terms.iter().all(|term| term.negative) {
         let positive_terms = terms
             .iter()
@@ -1028,7 +1053,7 @@ fn render_signed_symbolic_sum(
     } else {
         SignedRenderedSymbolic {
             negative: false,
-            value: render_symbolic_sum_terms(&terms),
+            value: render_symbolic_sum_terms(terms),
         }
     }
 }
@@ -1110,29 +1135,41 @@ fn render_signed_symbolic_function(
     function: Function,
     argument: ExprId,
 ) -> SignedRenderedSymbolic {
-    let signed_argument = render_signed_symbolic_node(dag, argument);
+    if matches!(function, Function::Sin | Function::Cos | Function::Tan) {
+        if let Some(shifted_argument) = render_symbolic_integer_pi_shift_argument(dag, argument) {
+            let mut rendered = render_signed_symbolic_function_from_signed_argument(
+                function,
+                shifted_argument.remainder,
+            );
+            if shifted_argument.phase_is_odd && matches!(function, Function::Sin | Function::Cos) {
+                rendered.negative = !rendered.negative;
+            }
+            return rendered;
+        }
+    }
+
+    render_signed_symbolic_function_from_signed_argument(
+        function,
+        render_signed_symbolic_node(dag, argument),
+    )
+}
+
+fn render_signed_symbolic_function_from_signed_argument(
+    function: Function,
+    signed_argument: SignedRenderedSymbolic,
+) -> SignedRenderedSymbolic {
     match function {
         Function::Sin | Function::Tan | Function::Asin | Function::Atan
             if signed_argument.negative =>
         {
             SignedRenderedSymbolic {
                 negative: true,
-                value: RenderedSymbolic {
-                    text: format!(
-                        "{}({})",
-                        symbolic_function_name(function),
-                        signed_argument.value.text
-                    ),
-                    precedence: SYMBOLIC_PRECEDENCE_ATOM,
-                },
+                value: render_symbolic_function_value(function, &signed_argument.value),
             }
         }
         Function::Cos if signed_argument.negative => SignedRenderedSymbolic {
             negative: false,
-            value: RenderedSymbolic {
-                text: format!("cos({})", signed_argument.value.text),
-                precedence: SYMBOLIC_PRECEDENCE_ATOM,
-            },
+            value: render_symbolic_function_value(Function::Cos, &signed_argument.value),
         },
         Function::Sin
         | Function::Cos
@@ -1143,15 +1180,149 @@ fn render_signed_symbolic_function(
         | Function::Sqrt
         | Function::Exp
         | Function::Log => {
-            let argument = render_symbolic_node(dag, argument);
+            let argument = signed_symbolic_to_rendered(signed_argument);
             SignedRenderedSymbolic {
                 negative: false,
-                value: RenderedSymbolic {
-                    text: format!("{}({})", symbolic_function_name(function), argument.text),
-                    precedence: SYMBOLIC_PRECEDENCE_ATOM,
-                },
+                value: render_symbolic_function_value(function, &argument),
             }
         }
+    }
+}
+
+fn render_symbolic_function_value(
+    function: Function,
+    argument: &RenderedSymbolic,
+) -> RenderedSymbolic {
+    RenderedSymbolic {
+        text: format!("{}({})", symbolic_function_name(function), argument.text),
+        precedence: SYMBOLIC_PRECEDENCE_ATOM,
+    }
+}
+
+fn render_symbolic_integer_pi_shift_argument(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+) -> Option<SymbolicIntegerPiShiftArgument> {
+    let ExpressionNode::Add(list_id) = dag.node(argument) else {
+        return None;
+    };
+
+    let mut phase = Rational::zero();
+    let mut contains_pi = false;
+    let mut remainder_terms = Vec::new();
+    for child in dag.list(*list_id) {
+        match symbolic_pi_multiple_coefficient(dag, *child) {
+            Some(coefficient) => {
+                contains_pi |= coefficient.contains_pi;
+                phase = phase.add(&coefficient.coefficient);
+            }
+            None => remainder_terms.push(render_signed_symbolic_node(dag, *child)),
+        }
+    }
+
+    if !contains_pi || !phase.is_integer() || remainder_terms.is_empty() {
+        return None;
+    }
+
+    Some(SymbolicIntegerPiShiftArgument {
+        phase_is_odd: phase.numerator.inner.is_odd(),
+        remainder: render_signed_symbolic_sum_terms(&remainder_terms),
+    })
+}
+
+fn symbolic_pi_multiple_coefficient(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+) -> Option<SymbolicPiCoefficient> {
+    match dag.node(id) {
+        ExpressionNode::Rational(rational_id) => {
+            let rational = dag.rational(*rational_id);
+            rational.is_zero().then(|| SymbolicPiCoefficient {
+                coefficient: Rational::zero(),
+                contains_pi: false,
+            })
+        }
+        ExpressionNode::Constant(Constant::Pi) => Some(SymbolicPiCoefficient {
+            coefficient: Rational::one(),
+            contains_pi: true,
+        }),
+        ExpressionNode::Constant(Constant::Euler) => None,
+        ExpressionNode::Add(list_id) => {
+            let mut total = Rational::zero();
+            let mut contains_pi = false;
+            for child in dag.list(*list_id) {
+                let coefficient = symbolic_pi_multiple_coefficient(dag, *child)?;
+                total = total.add(&coefficient.coefficient);
+                contains_pi |= coefficient.contains_pi;
+            }
+            Some(SymbolicPiCoefficient {
+                coefficient: total,
+                contains_pi,
+            })
+        }
+        ExpressionNode::Multiply(list_id) => {
+            let mut scalar = Rational::one();
+            let mut pi_coefficient = None;
+            for child in dag.list(*list_id) {
+                if let Some(rational) = symbolic_rational_value(dag, *child) {
+                    scalar = scalar.multiply(&rational);
+                    continue;
+                }
+
+                let coefficient = symbolic_pi_multiple_coefficient(dag, *child)?;
+                if pi_coefficient.is_some() {
+                    return None;
+                }
+                pi_coefficient = Some(coefficient);
+            }
+            pi_coefficient.map(|coefficient: SymbolicPiCoefficient| SymbolicPiCoefficient {
+                coefficient: scalar.multiply(&coefficient.coefficient),
+                contains_pi: coefficient.contains_pi,
+            })
+        }
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => {
+            let numerator = symbolic_pi_multiple_coefficient(dag, *numerator)?;
+            let denominator = symbolic_rational_value(dag, *denominator)?;
+            numerator
+                .coefficient
+                .divide(&denominator)
+                .ok()
+                .map(|coefficient| SymbolicPiCoefficient {
+                    coefficient,
+                    contains_pi: numerator.contains_pi,
+                })
+        }
+        ExpressionNode::Function { .. } | ExpressionNode::Power { .. } => None,
+    }
+}
+
+fn symbolic_rational_value(dag: &ExactExpressionDag, id: ExprId) -> Option<Rational> {
+    match dag.node(id) {
+        ExpressionNode::Rational(rational_id) => Some(dag.rational(*rational_id).clone()),
+        ExpressionNode::Add(list_id) => dag
+            .list(*list_id)
+            .iter()
+            .try_fold(Rational::zero(), |total, child| {
+                Some(total.add(&symbolic_rational_value(dag, *child)?))
+            }),
+        ExpressionNode::Multiply(list_id) => dag
+            .list(*list_id)
+            .iter()
+            .try_fold(Rational::one(), |product, child| {
+                Some(product.multiply(&symbolic_rational_value(dag, *child)?))
+            }),
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => symbolic_rational_value(dag, *numerator)?
+            .divide(&symbolic_rational_value(dag, *denominator)?)
+            .ok(),
+        ExpressionNode::Constant(_)
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::Power { .. } => None,
     }
 }
 
@@ -3152,6 +3323,28 @@ mod tests {
     }
 
     #[test]
+    fn symbolic_trig_integer_pi_shift_presentation_normalizes_remainders() {
+        for (source, expected) in [
+            ("sin(pi+1/10)", "-sin(1/10)"),
+            ("sin(1/10+pi)", "-sin(1/10)"),
+            ("sin(2*pi+1/10)", "sin(1/10)"),
+            ("sin((pi+pi)+1/10)", "sin(1/10)"),
+            ("sin((1+1)*pi+1/10)", "sin(1/10)"),
+            ("sin(pi-1/10)", "sin(1/10)"),
+            ("sin(-pi+1/10)", "-sin(1/10)"),
+            ("cos(pi+1/10)", "-cos(1/10)"),
+            ("cos(2*pi+1/10)", "cos(1/10)"),
+            ("cos(pi-1/10)", "-cos(1/10)"),
+            ("tan(pi+1/10)", "tan(1/10)"),
+            ("tan(2*pi+1/10)", "tan(1/10)"),
+            ("tan(pi-1/10)", "-tan(1/10)"),
+            ("exp(sin(pi+1/10))", "exp(-sin(1/10))"),
+        ] {
+            assert_eq!(exact_plain_text(source), expected, "{source}");
+        }
+    }
+
+    #[test]
     fn exp_one_returns_partial_euler_enclosure() {
         let mut context = EvaluationContext::default();
         let outcome = calculate("exp(1)", &CalculationRequest::default(), &mut context).unwrap();
@@ -3187,26 +3380,26 @@ mod tests {
     #[test]
     fn transcendental_interval_evaluation_retains_symbolic_exact_expression() {
         let mut context = EvaluationContext::default();
-        for source in [
-            "log(2)",
-            "log(1/2)",
-            "exp(2)",
-            "sqrt(2)+log(2)",
-            "log(sqrt(2))",
-            "exp(sqrt(2))",
-            "atan(1/3)",
-            "asin(1/3)",
-            "acos(1/3)",
-            "tan(1)",
-            "sin(1)",
-            "cos(1)",
-            "sin(2)",
-            "cos(2)",
-            "tan(2)",
-            "sin(pi+1/10)",
-            "cos(pi+1/10)",
-            "tan(pi+1/10)",
-            "tan(pi/2+1/10)",
+        for (source, expected_plain_text) in [
+            ("log(2)", "log(2)"),
+            ("log(1/2)", "log(1/2)"),
+            ("exp(2)", "exp(2)"),
+            ("sqrt(2)+log(2)", "sqrt(2)+log(2)"),
+            ("log(sqrt(2))", "log(sqrt(2))"),
+            ("exp(sqrt(2))", "exp(sqrt(2))"),
+            ("atan(1/3)", "atan(1/3)"),
+            ("asin(1/3)", "asin(1/3)"),
+            ("acos(1/3)", "acos(1/3)"),
+            ("tan(1)", "tan(1)"),
+            ("sin(1)", "sin(1)"),
+            ("cos(1)", "cos(1)"),
+            ("sin(2)", "sin(2)"),
+            ("cos(2)", "cos(2)"),
+            ("tan(2)", "tan(2)"),
+            ("sin(pi+1/10)", "-sin(1/10)"),
+            ("cos(pi+1/10)", "-cos(1/10)"),
+            ("tan(pi+1/10)", "tan(1/10)"),
+            ("tan(pi/2+1/10)", "tan(pi/2+1/10)"),
         ] {
             let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
             let CalculationOutcome::Partial {
@@ -3224,7 +3417,7 @@ mod tests {
                 exact.representation,
                 ExactRepresentationKind::GeneralSymbolic
             );
-            assert_eq!(exact.plain_text, source);
+            assert_eq!(exact.plain_text, expected_plain_text, "{source}");
             let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
                 panic!("{source}: expected requested enclosure output");
             };
