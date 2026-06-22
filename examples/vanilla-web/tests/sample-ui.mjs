@@ -395,6 +395,13 @@ async function assertSpecialAngles(page) {
     await waitForText(page, "#enclosure-state", "EXACT DYADIC");
     await waitForIdle(page);
 
+    await page.fill("#expression", "tan(pi/2+1/10)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= -1/tan(1/10)");
+    await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
+    await waitForText(page, "#enclosure-state", "EXACT DYADIC");
+    await waitForIdle(page);
+
     await page.fill("#expression", "exp(sin(-1))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= exp(-sin(1))");
