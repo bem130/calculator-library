@@ -2513,7 +2513,7 @@ mod tests {
     #[test]
     fn positive_base_general_powers_return_partial_with_certified_enclosure() {
         let mut context = EvaluationContext::default();
-        for source in ["2^sqrt(2)", "sqrt(2)^sqrt(2)", "sqrt(2)^(1/2)"] {
+        for source in ["2^sqrt(2)", "sqrt(2)^sqrt(2)"] {
             let outcome = calculate(source, &CalculationRequest::default(), &mut context)
                 .unwrap_or_else(|error| panic!("{source}: {error:?}"));
             let CalculationOutcome::Partial {
@@ -3108,6 +3108,195 @@ mod tests {
     }
 
     #[test]
+    fn rational_nth_root_powers_are_real_algebraic() {
+        let mut context = EvaluationContext::default();
+        for (source, coefficients, real_root_index, power, target) in [
+            (
+                "2^(1/4)",
+                vec![
+                    Integer::from(-2),
+                    Integer::zero(),
+                    Integer::zero(),
+                    Integer::zero(),
+                    Integer::one(),
+                ],
+                1,
+                4,
+                Integer::from(2),
+            ),
+            (
+                "2^(2/3)",
+                vec![
+                    Integer::from(-4),
+                    Integer::zero(),
+                    Integer::zero(),
+                    Integer::one(),
+                ],
+                0,
+                3,
+                Integer::from(4),
+            ),
+            (
+                "8^(1/6)",
+                vec![Integer::from(-2), Integer::zero(), Integer::one()],
+                1,
+                2,
+                Integer::from(2),
+            ),
+            (
+                "(-2)^(2/3)",
+                vec![
+                    Integer::from(-4),
+                    Integer::zero(),
+                    Integer::zero(),
+                    Integer::one(),
+                ],
+                0,
+                3,
+                Integer::from(4),
+            ),
+        ] {
+            let parsed = parse(source, &ParseSettings::default()).unwrap();
+            let evaluation = evaluate(
+                &parsed,
+                &EvaluationRequest {
+                    semantics: SemanticSettings::default(),
+                    limits: ResourceLimitRequest::Default,
+                },
+                &mut context,
+            )
+            .unwrap();
+            let RecognizedExact::RealAlgebraic(algebraic) = &evaluation.value.recognized_exact
+            else {
+                panic!("{source}: expected real algebraic recognition");
+            };
+            assert_eq!(
+                algebraic.minimal_polynomial,
+                PrimitivePolynomial::new(coefficients).unwrap(),
+                "{source}"
+            );
+            assert_eq!(algebraic.real_root_index, real_root_index, "{source}");
+            let CertifiedEnclosureState::Available(enclosure) =
+                &evaluation.value.certified_enclosure
+            else {
+                panic!("{source}: real algebraic recognition should include an enclosure");
+            };
+            let powered = interval::pow_i64(enclosure, power, 128).unwrap();
+            assert!(
+                interval::contains_rational(&powered, &Rational::from_integer(target)).unwrap(),
+                "{source}: powered enclosure should contain target"
+            );
+
+            let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+            let CalculationOutcome::Partial { calculation, .. } = outcome else {
+                panic!("{source}: expected partial calculation for algebraic nth root");
+            };
+            let ExactOutput::Included(exact) = calculation.exact else {
+                panic!("{source}: expected exact algebraic output");
+            };
+            assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
+            assert_eq!(exact.plain_text, source);
+        }
+    }
+
+    #[test]
+    fn algebraic_nth_root_powers_are_real_algebraic() {
+        let mut context = EvaluationContext::default();
+        for (source, coefficients, real_root_index, power, target) in [
+            (
+                "(2^(1/3))^(1/5)",
+                {
+                    let mut coefficients = vec![Integer::zero(); 16];
+                    coefficients[0] = Integer::from(-2);
+                    coefficients[15] = Integer::one();
+                    coefficients
+                },
+                0,
+                15,
+                Integer::from(2),
+            ),
+            (
+                "(2^(1/3))^(2/5)",
+                {
+                    let mut coefficients = vec![Integer::zero(); 16];
+                    coefficients[0] = Integer::from(-4);
+                    coefficients[15] = Integer::one();
+                    coefficients
+                },
+                0,
+                15,
+                Integer::from(4),
+            ),
+            (
+                "sqrt(2)^(1/2)",
+                vec![
+                    Integer::from(-2),
+                    Integer::zero(),
+                    Integer::zero(),
+                    Integer::zero(),
+                    Integer::one(),
+                ],
+                1,
+                4,
+                Integer::from(2),
+            ),
+            (
+                "(-1*2^(1/3))^(1/3)",
+                {
+                    let mut coefficients = vec![Integer::zero(); 10];
+                    coefficients[0] = Integer::from(2);
+                    coefficients[9] = Integer::one();
+                    coefficients
+                },
+                0,
+                9,
+                Integer::from(-2),
+            ),
+        ] {
+            let parsed = parse(source, &ParseSettings::default()).unwrap();
+            let evaluation = evaluate(
+                &parsed,
+                &EvaluationRequest {
+                    semantics: SemanticSettings::default(),
+                    limits: ResourceLimitRequest::Default,
+                },
+                &mut context,
+            )
+            .unwrap();
+            let RecognizedExact::RealAlgebraic(algebraic) = &evaluation.value.recognized_exact
+            else {
+                panic!("{source}: expected real algebraic recognition");
+            };
+            assert_eq!(
+                algebraic.minimal_polynomial,
+                PrimitivePolynomial::new(coefficients).unwrap(),
+                "{source}"
+            );
+            assert_eq!(algebraic.real_root_index, real_root_index, "{source}");
+            let CertifiedEnclosureState::Available(enclosure) =
+                &evaluation.value.certified_enclosure
+            else {
+                panic!("{source}: real algebraic recognition should include an enclosure");
+            };
+            let powered = interval::pow_i64(enclosure, power, 128).unwrap();
+            assert!(
+                interval::contains_rational(&powered, &Rational::from_integer(target)).unwrap(),
+                "{source}: powered enclosure should contain target"
+            );
+
+            let outcome = calculate(source, &CalculationRequest::default(), &mut context).unwrap();
+            let CalculationOutcome::Partial { calculation, .. } = outcome else {
+                panic!("{source}: expected partial calculation for algebraic nth root");
+            };
+            let ExactOutput::Included(exact) = calculation.exact else {
+                panic!("{source}: expected exact algebraic output");
+            };
+            assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
+            assert_eq!(exact.plain_text, source);
+        }
+    }
+
+    #[test]
     fn prime_root_quotient_is_real_algebraic() {
         let source = "2^(1/3)/4^(1/3)";
         let parsed = parse(source, &ParseSettings::default()).unwrap();
@@ -3334,6 +3523,31 @@ mod tests {
             "sqrt(2^(1/3))",
             ResourceLimits {
                 max_factorization_work: 0,
+                ..ResourceLimits::default()
+            },
+        );
+    }
+
+    #[test]
+    fn algebraic_nth_root_limits_fall_back_to_symbolic_without_error() {
+        assert_source_symbolic_fallback_with_limits(
+            "(2^(1/3))^(1/5)",
+            ResourceLimits {
+                max_resultant_degree: 14,
+                ..ResourceLimits::default()
+            },
+        );
+        assert_source_symbolic_fallback_with_limits(
+            "(2^(1/3))^(1/5)",
+            ResourceLimits {
+                max_factorization_work: 0,
+                ..ResourceLimits::default()
+            },
+        );
+        assert_source_symbolic_fallback_with_limits(
+            "2^(1/4)",
+            ResourceLimits {
+                max_resultant_degree: 3,
                 ..ResourceLimits::default()
             },
         );
@@ -3853,6 +4067,16 @@ mod tests {
             error,
             CalculatorError::Domain(DomainError {
                 kind: DomainErrorKind::EvenRootOfNegative,
+                span: None,
+            })
+        );
+
+        let error = calculate("(2^(1/3)-2)^(1/2)", &exact_only_request(), &mut context)
+            .expect_err("(2^(1/3)-2)^(1/2)");
+        assert_eq!(
+            error,
+            CalculatorError::Domain(DomainError {
+                kind: DomainErrorKind::NonRealPower,
                 span: None,
             })
         );
