@@ -313,6 +313,32 @@ impl RealAlgebraic {
         }
     }
 
+    pub(crate) fn sign_bounded(
+        &self,
+        max_root_isolation_steps: u32,
+    ) -> Result<Option<Ordering>, RealAlgebraicConstructionError> {
+        if let Some(value) = self.rational_value() {
+            return Ok(Some(value.compare(&Rational::zero())));
+        }
+
+        let Some(interval) = isolate_away_from_zero(
+            &self.minimal_polynomial,
+            &self.isolating_interval,
+            max_root_isolation_steps,
+        )?
+        else {
+            return Ok(None);
+        };
+        let zero = Rational::zero();
+        if interval.lower.compare(&zero) == Ordering::Greater {
+            Ok(Some(Ordering::Greater))
+        } else if interval.upper.compare(&zero) == Ordering::Less {
+            Ok(Some(Ordering::Less))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub(crate) fn from_candidate_polynomial_bounded(
         candidate_polynomial: PrimitivePolynomial,
         isolating_interval: RationalInterval,
@@ -2996,6 +3022,40 @@ mod tests {
         )
         .expect("quadratic polynomial isolates one irrational root");
         assert_eq!(irrational.rational_value(), None);
+    }
+
+    #[test]
+    fn real_algebraic_sign_bounded_refines_intervals_crossing_zero() {
+        let positive_cube_root = RealAlgebraic::from_irreducible_polynomial(
+            PrimitivePolynomial::new(integers(&[-2, 0, 0, 1]))
+                .expect("non-zero polynomial normalizes"),
+            rational_interval(-3, 1, 3, 1),
+            64,
+        )
+        .expect("wide interval isolates the only real cube root");
+        let negative_cube_root = RealAlgebraic::from_irreducible_polynomial(
+            PrimitivePolynomial::new(integers(&[2, 0, 0, 1]))
+                .expect("non-zero polynomial normalizes"),
+            rational_interval(-3, 1, 3, 1),
+            64,
+        )
+        .expect("wide interval isolates the only real cube root");
+        let zero = RealAlgebraic::from_irreducible_polynomial(
+            PrimitivePolynomial::new(integers(&[0, 1])).expect("non-zero polynomial normalizes"),
+            rational_interval(-1, 1, 1, 1),
+            64,
+        )
+        .expect("linear polynomial isolates zero");
+
+        assert_eq!(
+            positive_cube_root.sign_bounded(64),
+            Ok(Some(Ordering::Greater))
+        );
+        assert_eq!(
+            negative_cube_root.sign_bounded(64),
+            Ok(Some(Ordering::Less))
+        );
+        assert_eq!(zero.sign_bounded(0), Ok(Some(Ordering::Equal)));
     }
 
     #[test]

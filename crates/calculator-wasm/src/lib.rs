@@ -595,6 +595,19 @@ mod dto_differential {
             },
         },
         Case {
+            id: "guarded-exp-log-radical-identity",
+            source: "exp(log(sqrt(2)))",
+            request: RequestProfile::ExactOnly,
+            expected: ExpectedOutcome::Complete {
+                representation: ExactRepresentationKindDto::Radical,
+                plain_text: "sqrt(2)",
+                methods: &[
+                    MethodTagDto::RadicalExtraction,
+                    MethodTagDto::CertifiedIntervalEvaluation,
+                ],
+            },
+        },
+        Case {
             id: "partial-real-algebraic-with-enclosure",
             source: "2^(1/3)",
             request: RequestProfile::ScientificWithEnclosure,
@@ -1564,8 +1577,10 @@ mod tests {
             ("log(1)", "0"),
             ("exp(log(2))", "2"),
             ("exp(log(1/3))", "1/3"),
+            ("exp(log(sqrt(2)))", "sqrt(2)"),
             ("log(exp(2))", "2"),
             ("log(exp(-2))", "-2"),
+            ("log(exp(-sqrt(2)))", "-sqrt(2)"),
         ] {
             let result = calculate_dto(source, exact_only_request());
             let ApiResultDto::Ok {
@@ -2285,8 +2300,10 @@ pub mod wasm_tests {
         for (source, expected) in [
             ("exp(log(2))", "2"),
             ("exp(log(1/3))", "1/3"),
+            ("exp(log(sqrt(2)))", "sqrt(2)"),
             ("log(exp(2))", "2"),
             ("log(exp(-2))", "-2"),
+            ("log(exp(-sqrt(2)))", "-sqrt(2)"),
         ] {
             let result = calculate_dto(source, exact_only_request());
             assert_eq!(exact_plain_text(result), expected, "{source}");
@@ -2295,7 +2312,7 @@ pub mod wasm_tests {
 
     #[wasm_bindgen_test]
     fn wasm32_rejects_exp_log_of_non_positive_values() {
-        for source in ["exp(log(0))", "exp(log(-1))"] {
+        for source in ["exp(log(0))", "exp(log(-1))", "exp(log(-sqrt(2)))"] {
             assert_eq!(
                 calculator_error(source, exact_only_request()),
                 CalculatorErrorDto::Domain {

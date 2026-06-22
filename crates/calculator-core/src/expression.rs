@@ -519,12 +519,12 @@ fn evaluate_radical_node(
                 };
                 reduce_square_root(&argument, DomainErrorKind::EvenRootOfNegative)
             }
+            Function::Exp => evaluate_radical_exp_function(dag, *argument),
+            Function::Log => evaluate_radical_log_function(dag, *argument),
             Function::Sin | Function::Cos | Function::Tan => {
                 evaluate_radical_trigonometric_function(dag, *function, *argument)
             }
-            Function::Asin | Function::Acos | Function::Atan | Function::Exp | Function::Log => {
-                Ok(None)
-            }
+            Function::Asin | Function::Acos | Function::Atan => Ok(None),
         },
         ExpressionNode::Power { base, exponent } => {
             let exponent = match evaluate_node(dag, *exponent) {
@@ -595,13 +595,15 @@ fn evaluate_real_algebraic_node(
             numerator,
             denominator,
         } => evaluate_real_algebraic_quotient(dag, *numerator, *denominator, limits),
-        ExpressionNode::Function {
-            function: function @ (Function::Sin | Function::Cos | Function::Tan),
-            argument,
-        } => evaluate_real_algebraic_trigonometric_function(dag, *function, *argument, limits),
-        ExpressionNode::Rational(_)
-        | ExpressionNode::Constant(_)
-        | ExpressionNode::Function { .. } => Ok(None),
+        ExpressionNode::Function { function, argument } => match function {
+            Function::Sin | Function::Cos | Function::Tan => {
+                evaluate_real_algebraic_trigonometric_function(dag, *function, *argument, limits)
+            }
+            Function::Exp => evaluate_real_algebraic_exp_function(dag, *argument, limits),
+            Function::Log => evaluate_real_algebraic_log_function(dag, *argument, limits),
+            Function::Asin | Function::Acos | Function::Atan | Function::Sqrt => Ok(None),
+        },
+        ExpressionNode::Rational(_) | ExpressionNode::Constant(_) => Ok(None),
     }
 }
 
@@ -1019,6 +1021,43 @@ fn real_algebraic_positive_integer_power(
     Ok(result)
 }
 
+fn evaluate_real_algebraic_exp_function(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
+    let ExpressionNode::Function {
+        function: Function::Log,
+        argument,
+    } = dag.node(argument)
+    else {
+        return Ok(None);
+    };
+    let Some(value) = evaluate_rational_or_real_algebraic_node(dag, *argument, limits)? else {
+        return Ok(None);
+    };
+    match real_algebraic_log_domain_proof(&value, limits)? {
+        LogDomainProof::Positive => Ok(Some(value)),
+        LogDomainProof::NonPositive => Err(logarithm_of_non_positive_error()),
+        LogDomainProof::Unknown => Ok(None),
+    }
+}
+
+fn evaluate_real_algebraic_log_function(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+    limits: &ResourceLimits,
+) -> Result<Option<RealAlgebraicEvaluation>, EvaluationError> {
+    let ExpressionNode::Function {
+        function: Function::Exp,
+        argument,
+    } = dag.node(argument)
+    else {
+        return Ok(None);
+    };
+    evaluate_rational_or_real_algebraic_node(dag, *argument, limits)
+}
+
 fn evaluate_real_algebraic_trigonometric_function(
     dag: &ExactExpressionDag,
     function: Function,
@@ -1351,6 +1390,41 @@ fn evaluate_radical_trigonometric_function(
         }
     };
     Ok(value)
+}
+
+fn evaluate_radical_exp_function(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+) -> Result<Option<RadicalReduction>, EvaluationError> {
+    let ExpressionNode::Function {
+        function: Function::Log,
+        argument,
+    } = dag.node(argument)
+    else {
+        return Ok(None);
+    };
+    let Some(value) = evaluate_radical_reduction(dag, *argument)? else {
+        return Ok(None);
+    };
+    match radical_log_domain_proof(&value) {
+        LogDomainProof::Positive => Ok(Some(value)),
+        LogDomainProof::NonPositive => Err(logarithm_of_non_positive_error()),
+        LogDomainProof::Unknown => Ok(None),
+    }
+}
+
+fn evaluate_radical_log_function(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+) -> Result<Option<RadicalReduction>, EvaluationError> {
+    let ExpressionNode::Function {
+        function: Function::Exp,
+        argument,
+    } = dag.node(argument)
+    else {
+        return Ok(None);
+    };
+    evaluate_radical_reduction(dag, *argument)
 }
 
 fn reduce_square_root(
@@ -1733,6 +1807,49 @@ fn evaluate_power(
 
 fn is_unsupported_exact_expression(error: &EvaluationError) -> bool {
     matches!(error, EvaluationError::UnsupportedFeature(_))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LogDomainProof {
+    Positive,
+    NonPositive,
+    Unknown,
+}
+
+fn rational_log_domain_proof(value: &Rational) -> LogDomainProof {
+    if value.is_negative() || value.is_zero() {
+        LogDomainProof::NonPositive
+    } else {
+        LogDomainProof::Positive
+    }
+}
+
+fn radical_log_domain_proof(value: &RadicalReduction) -> LogDomainProof {
+    match value {
+        RadicalReduction::Rational(value) => rational_log_domain_proof(value.value()),
+        RadicalReduction::Radical(value) => rational_log_domain_proof(&value.value().coefficient),
+        RadicalReduction::LinearCombination(_) => LogDomainProof::Unknown,
+    }
+}
+
+fn real_algebraic_log_domain_proof(
+    value: &RealAlgebraicEvaluation,
+    limits: &ResourceLimits,
+) -> Result<LogDomainProof, EvaluationError> {
+    match value {
+        RealAlgebraicEvaluation::Rational(value) => Ok(rational_log_domain_proof(value.value())),
+        RealAlgebraicEvaluation::Algebraic(value) => {
+            match value.sign_bounded(limits.max_root_isolation_steps) {
+                Ok(Some(Ordering::Greater)) => Ok(LogDomainProof::Positive),
+                Ok(Some(Ordering::Equal | Ordering::Less)) => Ok(LogDomainProof::NonPositive),
+                Ok(None)
+                | Err(RealAlgebraicConstructionError::RootIsolation(
+                    PrimitivePolynomialRootIsolationError::StepLimitExceeded,
+                )) => Ok(LogDomainProof::Unknown),
+                Err(error) => Err(real_algebraic_construction_error(error)),
+            }
+        }
+    }
 }
 
 fn evaluate_rational_power(

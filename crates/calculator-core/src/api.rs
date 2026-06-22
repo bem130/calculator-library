@@ -1605,6 +1605,18 @@ mod tests {
         exact.plain_text
     }
 
+    fn exact_presentation_for(source: &str) -> ExactPresentation {
+        let mut context = EvaluationContext::default();
+        let outcome = calculate(source, &exact_only_request(), &mut context).expect(source);
+        let CalculationOutcome::Complete(calculation) = outcome else {
+            panic!("expected complete calculation");
+        };
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("expected exact output");
+        };
+        exact
+    }
+
     fn assert_source_symbolic_fallback_with_limits(source: &str, limits: ResourceLimits) {
         let request = CalculationRequest {
             limits: ResourceLimitRequest::Custom(limits),
@@ -3106,6 +3118,25 @@ mod tests {
     }
 
     #[test]
+    fn guarded_exp_log_identities_are_exact_for_proven_radicals_and_algebraics() {
+        for (source, expected) in [
+            ("exp(log(sqrt(2)))", "sqrt(2)"),
+            ("log(exp(sqrt(2)))", "sqrt(2)"),
+            ("log(exp(-sqrt(2)))", "-sqrt(2)"),
+        ] {
+            assert_eq!(exact_plain_text(source), expected, "{source}");
+        }
+
+        for source in ["exp(log(2^(1/3)))", "log(exp(2^(1/3)))"] {
+            assert_eq!(
+                exact_presentation_for(source).representation,
+                ExactRepresentationKind::RealAlgebraic,
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
     fn symbolic_function_parity_presentation_normalizes_negative_arguments() {
         for (source, expected) in [
             ("sin(-1)", "-sin(1)"),
@@ -3443,7 +3474,12 @@ mod tests {
 
     #[test]
     fn exp_log_identity_requires_positive_inner_value() {
-        for source in ["exp(log(0))", "exp(log(-1))"] {
+        for source in [
+            "exp(log(0))",
+            "exp(log(-1))",
+            "exp(log(-sqrt(2)))",
+            "exp(log(sqrt(2)-sqrt(2)))",
+        ] {
             let mut context = EvaluationContext::default();
             let error = calculate(source, &exact_only_request(), &mut context).expect_err(source);
             assert_eq!(

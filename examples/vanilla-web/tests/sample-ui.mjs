@@ -181,9 +181,19 @@ async function assertInitialExpLog(page) {
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 2");
 
+    await page.fill("#expression", "exp(log(sqrt(2)))");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= sqrt(2)");
+    await waitForText(page, "#exact-kind", "RADICAL");
+
     await page.fill("#expression", "log(exp(2))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 2");
+
+    await page.fill("#expression", "log(exp(-sqrt(2)))");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= -sqrt(2)");
+    await waitForText(page, "#exact-kind", "RADICAL");
 }
 
 async function assertRationalPowers(page) {

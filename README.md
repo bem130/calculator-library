@@ -17,7 +17,7 @@ The implementation is following [doc/design.md](doc/design.md). The current work
 - Radical exact output supports linear combinations of rational and simple-radical terms, such as `sin(pi/6) + sqrt(2) = 1/2 + sqrt(2)` and `sqrt(3) + sqrt(2) = sqrt(2) + sqrt(3)`.
 - `pi`, `pi/6`, and other rational multiples of `pi` are recognized structurally as exact `RationalPiMultiple` values and return certified enclosures with `Partial` until requested decimal digits are confirmed.
 - The `e` constant returns a certified enclosure with `Partial` until requested decimal digits are confirmed.
-- `exp` / `log` identities are exact when proven over rational values, including `exp(0)`, `log(1)`, `exp(log(x))` for proven positive rational `x`, and `log(exp(x))` for rational `x`; `exp(1)` returns the certified enclosure for `e`.
+- `exp` / `log` identities are exact when proven over supported exact values, including `exp(0)`, `log(1)`, `exp(log(x))` for proven positive rational/radical/algebraic `x`, and `log(exp(x))` for supported exact `x`; `exp(1)` returns the certified enclosure for `e`.
 - General symbolic exact output normalizes safe odd/even function presentation for negative arguments, such as `sin(-1) = -sin(1)`, `cos(-1) = cos(1)`, and nested cases like `exp(sin(-1)) = exp(-sin(1))`.
 - Rational and simple-radical special angles are exact when the DAG proves the argument is a supported rational multiple of `pi`: examples include `sin(pi/6) = 1/2`, `cos(pi/3) = 1/2`, `sin(pi/4) = sqrt(2)/2`, `sin(pi/12) = sqrt(6)/4 - sqrt(2)/4`, `tan(pi/12) = 2 - sqrt(3)`, and `tan(pi/2)` as `domain.tangentPole`.
 - Forward trigonometric functions lower degree and gradian inputs to exact radian expressions before evaluation, so `sin(30)` in degree mode is exact `1/2`.
@@ -97,8 +97,8 @@ The Pages workflow in [.github/workflows/pages.yml](.github/workflows/pages.yml)
 
 The example e2e test covers the public worker API path, MathML rendering,
 clipboard copy, worker cancellation, rational scientific/enclosure output,
-guarded `exp` / `log` identities, exact rational power semantics, positive-base
-general power intervals, and rational
+guarded `exp` / `log` identities over rational and radical values, exact
+rational power semantics, positive-base general power intervals, and rational
 `pi` multiple output, rational and radical special-angle output, inverse
 trigonometric known values, simple radical output and algebra, mixed radical
 linear combinations, bounded real algebraic output, and `tan` pole errors.
