@@ -14,7 +14,7 @@ use num_traits::{Signed, Zero};
 use crate::expression::{
     evaluate_interval_dag, evaluate_radical_dag, evaluate_rational_evaluation_dag,
     evaluate_rational_pi_multiple_dag, evaluate_real_algebraic_dag, lower_source_expression,
-    ExactExpressionDag, PiCoefficientEvaluation, RadicalEvaluation,
+    structurally_equal_expressions, ExactExpressionDag, PiCoefficientEvaluation, RadicalEvaluation,
     RadicalLinearCombinationEvaluation, RadicalReduction, RationalEvaluation,
     RealAlgebraicEvaluation,
 };
@@ -1327,6 +1327,12 @@ fn render_signed_symbolic_function(
     function: Function,
     argument: ExprId,
 ) -> SignedRenderedSymbolic {
+    if function == Function::Sqrt {
+        if let Some(rendered) = render_symbolic_square_root_of_square(dag, argument) {
+            return rendered;
+        }
+    }
+
     if matches!(function, Function::Log | Function::Ln) {
         if let Some(rendered) = render_symbolic_log_expansion(dag, argument) {
             return rendered;
@@ -1382,6 +1388,39 @@ fn render_signed_symbolic_function_from_signed_argument(
                 value: render_symbolic_function_value(function, &argument),
             }
         }
+    }
+}
+
+fn render_symbolic_square_root_of_square(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+) -> Option<SignedRenderedSymbolic> {
+    let base = symbolic_square_base(dag, argument)?;
+    if !symbolic_nonnegative_proof(dag, base) {
+        return None;
+    }
+    Some(render_signed_symbolic_node(dag, base))
+}
+
+fn symbolic_square_base(dag: &ExactExpressionDag, id: ExprId) -> Option<ExprId> {
+    match dag.node(id) {
+        ExpressionNode::Power { base, exponent } => {
+            (symbolic_rational_value(dag, *exponent)? == symbolic_rational(2, 1)).then_some(*base)
+        }
+        ExpressionNode::Multiply(list_id) => {
+            let factors = dag.list(*list_id);
+            if factors.len() == 2 && structurally_equal_expressions(dag, factors[0], factors[1]) {
+                Some(factors[0])
+            } else {
+                None
+            }
+        }
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::Add(_)
+        | ExpressionNode::Divide { .. }
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function { .. } => None,
     }
 }
 
@@ -1560,7 +1599,54 @@ fn symbolic_positive_proof(dag: &ExactExpressionDag, id: ExprId) -> bool {
             function: Function::Exp,
             ..
         } => true,
+        ExpressionNode::Function {
+            function: Function::Log | Function::Ln,
+            argument,
+        } => symbolic_log_positive_proof(dag, *argument),
+        ExpressionNode::LogBase { argument, base } => {
+            symbolic_log_base_positive_proof(dag, *argument, *base)
+        }
         ExpressionNode::Rational(_)
+        | ExpressionNode::Function {
+            function:
+                Function::Sin
+                | Function::Cos
+                | Function::Tan
+                | Function::Asin
+                | Function::Acos
+                | Function::Atan,
+            ..
+        } => false,
+    }
+}
+
+fn symbolic_nonnegative_proof(dag: &ExactExpressionDag, id: ExprId) -> bool {
+    if let Some(value) = symbolic_rational_value(dag, id) {
+        return !value.is_negative();
+    }
+    if symbolic_positive_proof(dag, id) {
+        return true;
+    }
+
+    match dag.node(id) {
+        ExpressionNode::Add(list_id) | ExpressionNode::Multiply(list_id) => dag
+            .list(*list_id)
+            .iter()
+            .all(|child| symbolic_nonnegative_proof(dag, *child)),
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => {
+            symbolic_nonnegative_proof(dag, *numerator)
+                && symbolic_positive_proof(dag, *denominator)
+        }
+        ExpressionNode::Power { base, .. } => symbolic_positive_proof(dag, *base),
+        ExpressionNode::Function {
+            function: Function::Sqrt,
+            argument,
+        } => symbolic_nonnegative_proof(dag, *argument),
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Constant(_)
         | ExpressionNode::LogBase { .. }
         | ExpressionNode::Function {
             function:
@@ -1570,11 +1656,42 @@ fn symbolic_positive_proof(dag: &ExactExpressionDag, id: ExprId) -> bool {
                 | Function::Asin
                 | Function::Acos
                 | Function::Atan
+                | Function::Exp
                 | Function::Log
                 | Function::Ln,
             ..
         } => false,
     }
+}
+
+fn symbolic_log_positive_proof(dag: &ExactExpressionDag, argument: ExprId) -> bool {
+    symbolic_rational_value(dag, argument)
+        .is_some_and(|value| value.compare(&Rational::one()) == Ordering::Greater)
+}
+
+fn symbolic_log_base_positive_proof(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+    base: ExprId,
+) -> bool {
+    let Some(argument) = symbolic_rational_value(dag, argument) else {
+        return false;
+    };
+    let Some(base) = symbolic_rational_value(dag, base) else {
+        return false;
+    };
+    if argument.is_negative()
+        || argument.is_zero()
+        || base.is_negative()
+        || base.is_zero()
+        || base == Rational::one()
+    {
+        return false;
+    }
+
+    let one = Rational::one();
+    (argument.compare(&one) == Ordering::Greater && base.compare(&one) == Ordering::Greater)
+        || (argument.compare(&one) == Ordering::Less && base.compare(&one) == Ordering::Less)
 }
 
 fn render_symbolic_shifted_trig_function(
@@ -4316,6 +4433,37 @@ mod tests {
     }
 
     #[test]
+    fn symbolic_square_roots_of_squares_expand_only_when_base_is_nonnegative() {
+        for (source, expected) in [
+            ("sqrt(exp(2)^2)", "exp(2)"),
+            ("sqrt(exp(sin(1))^2)", "exp(sin(1))"),
+            ("sqrt(ln(2)^2)", "ln(2)"),
+            ("sqrt(log(3,2)^2)", "log(3,2)"),
+            ("sqrt(sqrt(2)^2)", "sqrt(2)"),
+            ("sqrt((2+3)^2)", "2+3"),
+            ("sqrt(exp(2)*exp(2))", "exp(2)"),
+        ] {
+            assert_eq!(
+                symbolic_plain_text_from_source(source),
+                expected,
+                "{source}"
+            );
+        }
+
+        for (source, expected) in [
+            ("sqrt(ln(1/2)^2)", "sqrt((-ln(2))^2)"),
+            ("sqrt(sin(1)^2)", "sqrt(sin(1)^2)"),
+            ("sqrt((-exp(2))^2)", "sqrt((-exp(2))^2)"),
+        ] {
+            assert_eq!(
+                symbolic_plain_text_from_source(source),
+                expected,
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
     fn guarded_inverse_trig_compositions_are_exact_for_proven_values() {
         for (source, expected) in [
             ("sin(asin(1/3))", "1/3"),
@@ -4503,6 +4651,7 @@ mod tests {
             ("exp(2)", "exp(2)"),
             ("sqrt(2)+ln(2)", "sqrt(2)+ln(2)"),
             ("ln(sqrt(2))", "1/2*ln(2)"),
+            ("sqrt(exp(2)^2)", "exp(2)"),
             ("exp(sqrt(2))", "exp(sqrt(2))"),
             ("atan(1/3)", "atan(1/3)"),
             ("asin(1/3)", "asin(1/3)"),

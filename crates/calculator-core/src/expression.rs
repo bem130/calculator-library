@@ -304,7 +304,11 @@ pub(crate) fn evaluate_real_algebraic_dag(
     evaluate_real_algebraic_node(dag, dag.root(), limits)
 }
 
-fn structurally_equal_expressions(dag: &ExactExpressionDag, left: ExprId, right: ExprId) -> bool {
+pub(crate) fn structurally_equal_expressions(
+    dag: &ExactExpressionDag,
+    left: ExprId,
+    right: ExprId,
+) -> bool {
     if left == right {
         return true;
     }
