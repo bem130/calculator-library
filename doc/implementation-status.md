@@ -47,6 +47,6 @@ Phase 5 の堅牢化として、次を CI に入れている。
 
 ## In Progress
 
-`design.md` の最終目標には、さらに広い transcendental interval evaluation、一般実代数的数の完全な演算閉包、より広い symbolic simplification、公開 API の 1.0 release policy が含まれる。現行実装はこれらをすべて完了したとは扱わない。
+`design.md` の最終目標には、さらに広い transcendental interval evaluation、一般実代数的数の完全な演算閉包、より広い symbolic simplification、最終的な 1.0 release hardening が含まれる。現行実装はこれらをすべて完了したとは扱わない。
 
 未対応または制限超過の領域では、厳密式を破壊して近似値へ落とさず、`Partial`、`unsupportedFeature`、`computationLimit`、または `inputLimit` として返す。

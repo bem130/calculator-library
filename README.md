@@ -28,7 +28,7 @@ The implementation is following [doc/design.md](doc/design.md). The current work
 - `packages/calculator` provides TypeScript facades for calculation and headless session dispatch over the Wasm module.
 - `examples/vanilla-web` is a browser example using the public npm facade.
 
-Remaining design work includes broader transcendental interval evaluation beyond the current supported function set, wider symbolic simplification, algebraic operation coverage beyond the current bounded supported cases, and the final public API 1.0 release policy.
+Remaining design work includes broader transcendental interval evaluation beyond the current supported function set, wider symbolic simplification, algebraic operation coverage beyond the current bounded supported cases, and final 1.0 release hardening.
 
 ## Native CLI
 

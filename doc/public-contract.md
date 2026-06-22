@@ -39,6 +39,20 @@ Scientific output は significant digits と rounding mode を要求として受
 
 Enclosure output は現行では exact dyadic interval を公開する。
 
+## Protocol And Release Policy
+
+`ProtocolVersion` は DTO 互換性のための version であり、Cargo crate や npm package の semver とは別に扱う。現行 protocol snapshot は `1.0` である。
+
+Protocol major は、既存 DTO field の削除または必須化、既存 `tag` / `code` / enum variant の意味変更、rounding/domain/power semantics の破壊的変更、旧 client が成功値として誤解釈し得る変更で増加する。
+
+Protocol minor は、optional field、新しい `tag` / `code` / enum variant、新しい `MethodTag` など、旧 client が unknown として扱えば安全な追加で増加する。
+
+Wasm DTO と TypeScript facade は unknown `tag` / `code` を成功値として扱ってはならない。未知の protocol surface は `unsupportedProtocol` typed error へ変換する。
+
+Rust 公開 enum は、利用者が網羅 match し得るものを互換性対象として扱う。計算意味論に関わる `DomainErrorKind`、`DecimalRoundingMode`、`PowerSemantics`、公開 DTO の representation / method / error code は、追加であっても protocol minor 以上の更新と snapshot 更新を必要とする。
+
+Release で公開 surface を変える場合は、生成 DTO、protocol snapshot、README、この文書、`implementation-status.md`、native/Wasm DTO conformance、browser e2e のうち影響を受けるものを同じ変更で更新する。
+
 ## Errors And Limits
 
 公開 error は `domain`、`parse`、`inputLimit`、`computationLimit`、`unsupportedFeature`、`internalInvariant`、`unsupportedProtocol` に分類する。Wasm 境界では unknown tag/code、`null` / `undefined`、非 canonical number などを `unsupportedProtocol` または input limit として typed error に変換する。
