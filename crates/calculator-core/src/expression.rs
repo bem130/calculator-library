@@ -304,6 +304,320 @@ pub(crate) fn evaluate_real_algebraic_dag(
     evaluate_real_algebraic_node(dag, dag.root(), limits)
 }
 
+fn structurally_equal_expressions(dag: &ExactExpressionDag, left: ExprId, right: ExprId) -> bool {
+    if left == right {
+        return true;
+    }
+
+    match (dag.node(left), dag.node(right)) {
+        (ExpressionNode::Rational(left), ExpressionNode::Rational(right)) => {
+            dag.rational(*left) == dag.rational(*right)
+        }
+        (ExpressionNode::Constant(left), ExpressionNode::Constant(right)) => left == right,
+        (ExpressionNode::Add(left), ExpressionNode::Add(right))
+        | (ExpressionNode::Multiply(left), ExpressionNode::Multiply(right)) => {
+            structurally_equal_expression_lists(dag, *left, *right)
+        }
+        (
+            ExpressionNode::Divide {
+                numerator: left_numerator,
+                denominator: left_denominator,
+            },
+            ExpressionNode::Divide {
+                numerator: right_numerator,
+                denominator: right_denominator,
+            },
+        ) => {
+            structurally_equal_expressions(dag, *left_numerator, *right_numerator)
+                && structurally_equal_expressions(dag, *left_denominator, *right_denominator)
+        }
+        (
+            ExpressionNode::Power {
+                base: left_base,
+                exponent: left_exponent,
+            },
+            ExpressionNode::Power {
+                base: right_base,
+                exponent: right_exponent,
+            },
+        ) => {
+            structurally_equal_expressions(dag, *left_base, *right_base)
+                && structurally_equal_expressions(dag, *left_exponent, *right_exponent)
+        }
+        (
+            ExpressionNode::LogBase {
+                argument: left_argument,
+                base: left_base,
+            },
+            ExpressionNode::LogBase {
+                argument: right_argument,
+                base: right_base,
+            },
+        ) => {
+            structurally_equal_expressions(dag, *left_argument, *right_argument)
+                && structurally_equal_expressions(dag, *left_base, *right_base)
+        }
+        (
+            ExpressionNode::Function {
+                function: left_function,
+                argument: left_argument,
+            },
+            ExpressionNode::Function {
+                function: right_function,
+                argument: right_argument,
+            },
+        ) => {
+            left_function == right_function
+                && structurally_equal_expressions(dag, *left_argument, *right_argument)
+        }
+        _ => false,
+    }
+}
+
+fn structurally_equal_expression_lists(
+    dag: &ExactExpressionDag,
+    left: ExprListId,
+    right: ExprListId,
+) -> bool {
+    let left = dag.list(left);
+    let right = dag.list(right);
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|(left, right)| structurally_equal_expressions(dag, *left, *right))
+}
+
+fn prove_expression_nonzero(dag: &ExactExpressionDag, id: ExprId) -> Result<bool, EvaluationError> {
+    match evaluate_node(dag, id) {
+        Ok(value) => return Ok(!value.value().is_zero()),
+        Err(error) if is_unsupported_exact_expression(&error) => {}
+        Err(error) => return Err(error),
+    }
+
+    match dag.node(id) {
+        ExpressionNode::Rational(_) => Ok(false),
+        ExpressionNode::Constant(Constant::Pi | Constant::Euler) => Ok(true),
+        ExpressionNode::Add(_) => Ok(false),
+        ExpressionNode::Multiply(list_id) => {
+            for child in dag.list(*list_id) {
+                if !prove_expression_nonzero(dag, *child)? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => Ok(prove_expression_nonzero(dag, *numerator)?
+            && prove_expression_nonzero(dag, *denominator)?),
+        ExpressionNode::Power { base, exponent } => Ok(prove_expression_nonzero(dag, *base)?
+            && expression_domain_known_well_defined(dag, *exponent)?),
+        ExpressionNode::LogBase { argument, base } => {
+            prove_log_base_domain(dag, *argument, *base)?;
+            Ok(prove_log_argument_not_one(dag, *argument)?)
+        }
+        ExpressionNode::Function { function, argument } => match function {
+            Function::Sqrt => prove_expression_positive(dag, *argument),
+            Function::Exp => expression_domain_known_well_defined(dag, *argument),
+            Function::Log | Function::Ln => {
+                prove_log_argument_positive(dag, *argument)?;
+                prove_log_argument_not_one(dag, *argument)
+            }
+            Function::Sin
+            | Function::Cos
+            | Function::Tan
+            | Function::Asin
+            | Function::Acos
+            | Function::Atan => Ok(false),
+        },
+    }
+}
+
+fn expression_domain_known_well_defined(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+) -> Result<bool, EvaluationError> {
+    match evaluate_node(dag, id) {
+        Ok(_) => return Ok(true),
+        Err(error) if is_unsupported_exact_expression(&error) => {}
+        Err(error) => return Err(error),
+    }
+
+    match dag.node(id) {
+        ExpressionNode::Rational(_) | ExpressionNode::Constant(_) => Ok(true),
+        ExpressionNode::Add(list_id) | ExpressionNode::Multiply(list_id) => {
+            for child in dag.list(*list_id) {
+                if !expression_domain_known_well_defined(dag, *child)? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => Ok(expression_domain_known_well_defined(dag, *numerator)?
+            && prove_expression_nonzero(dag, *denominator)?),
+        ExpressionNode::Power { base, exponent } => Ok(prove_expression_positive(dag, *base)?
+            && expression_domain_known_well_defined(dag, *exponent)?),
+        ExpressionNode::LogBase { argument, base } => {
+            prove_log_base_domain(dag, *argument, *base)?;
+            Ok(true)
+        }
+        ExpressionNode::Function { function, argument } => match function {
+            Function::Sqrt => prove_expression_nonnegative(dag, *argument),
+            Function::Exp | Function::Sin | Function::Cos | Function::Atan => {
+                expression_domain_known_well_defined(dag, *argument)
+            }
+            Function::Log | Function::Ln => {
+                prove_log_argument_positive(dag, *argument)?;
+                Ok(true)
+            }
+            Function::Tan | Function::Asin | Function::Acos => Ok(false),
+        },
+    }
+}
+
+fn prove_expression_positive(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+) -> Result<bool, EvaluationError> {
+    match evaluate_node(dag, id) {
+        Ok(value) => return Ok(!value.value().is_negative() && !value.value().is_zero()),
+        Err(error) if is_unsupported_exact_expression(&error) => {}
+        Err(error) => return Err(error),
+    }
+
+    match dag.node(id) {
+        ExpressionNode::Rational(_) => Ok(false),
+        ExpressionNode::Constant(Constant::Pi | Constant::Euler) => Ok(true),
+        ExpressionNode::Add(list_id) => {
+            let mut saw_positive = false;
+            for child in dag.list(*list_id) {
+                if prove_expression_positive(dag, *child)? {
+                    saw_positive = true;
+                } else if !prove_expression_nonnegative(dag, *child)? {
+                    return Ok(false);
+                }
+            }
+            Ok(saw_positive)
+        }
+        ExpressionNode::Multiply(list_id) => {
+            for child in dag.list(*list_id) {
+                if !prove_expression_positive(dag, *child)? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => Ok(prove_expression_positive(dag, *numerator)?
+            && prove_expression_positive(dag, *denominator)?),
+        ExpressionNode::Power { base, exponent } => Ok(prove_expression_positive(dag, *base)?
+            && expression_domain_known_well_defined(dag, *exponent)?),
+        ExpressionNode::LogBase { .. } => Ok(false),
+        ExpressionNode::Function { function, argument } => match function {
+            Function::Sqrt => prove_expression_positive(dag, *argument),
+            Function::Exp => expression_domain_known_well_defined(dag, *argument),
+            Function::Sin
+            | Function::Cos
+            | Function::Tan
+            | Function::Asin
+            | Function::Acos
+            | Function::Atan
+            | Function::Log
+            | Function::Ln => Ok(false),
+        },
+    }
+}
+
+fn prove_expression_nonnegative(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+) -> Result<bool, EvaluationError> {
+    match evaluate_node(dag, id) {
+        Ok(value) => return Ok(!value.value().is_negative()),
+        Err(error) if is_unsupported_exact_expression(&error) => {}
+        Err(error) => return Err(error),
+    }
+
+    match dag.node(id) {
+        ExpressionNode::Function {
+            function: Function::Sqrt,
+            argument,
+        } => prove_expression_nonnegative(dag, *argument),
+        ExpressionNode::Function {
+            function: Function::Exp,
+            argument,
+        } => expression_domain_known_well_defined(dag, *argument),
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::Add(_)
+        | ExpressionNode::Multiply(_)
+        | ExpressionNode::Divide { .. }
+        | ExpressionNode::Power { .. }
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function {
+            function:
+                Function::Sin
+                | Function::Cos
+                | Function::Tan
+                | Function::Asin
+                | Function::Acos
+                | Function::Atan
+                | Function::Log
+                | Function::Ln,
+            ..
+        } => prove_expression_positive(dag, id),
+    }
+}
+
+fn prove_log_base_domain(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+    base: ExprId,
+) -> Result<(), EvaluationError> {
+    prove_log_argument_positive(dag, argument)?;
+    let base = match evaluate_node(dag, base) {
+        Ok(value) => value,
+        Err(error) if is_unsupported_exact_expression(&error) => return Err(error),
+        Err(error) => return Err(error),
+    };
+    ensure_log_base_domain(base.value())
+}
+
+fn prove_log_argument_positive(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+) -> Result<(), EvaluationError> {
+    match evaluate_node(dag, id) {
+        Ok(value) => {
+            if value.value().is_negative() || value.value().is_zero() {
+                Err(logarithm_of_non_positive_error())
+            } else {
+                Ok(())
+            }
+        }
+        Err(error) if is_unsupported_exact_expression(&error) => Err(error),
+        Err(error) => Err(error),
+    }
+}
+
+fn prove_log_argument_not_one(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+) -> Result<bool, EvaluationError> {
+    match evaluate_node(dag, id) {
+        Ok(value) => Ok(value.value() != &Rational::one()),
+        Err(error) if is_unsupported_exact_expression(&error) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
 fn evaluate_node(
     dag: &ExactExpressionDag,
     id: ExprId,
@@ -339,7 +653,17 @@ fn evaluate_node(
             numerator,
             denominator,
         } => {
-            let numerator = evaluate_node(dag, *numerator)?;
+            let numerator = match evaluate_node(dag, *numerator) {
+                Ok(value) => value,
+                Err(error)
+                    if is_unsupported_exact_expression(&error)
+                        && structurally_equal_expressions(dag, *numerator, *denominator)
+                        && prove_expression_nonzero(dag, *numerator)? =>
+                {
+                    return Ok(RationalEvaluation::direct(Rational::one()));
+                }
+                Err(error) => return Err(error),
+            };
             let denominator = evaluate_node(dag, *denominator)?;
             let used_special_angle =
                 numerator.used_special_angle() || denominator.used_special_angle();

@@ -3923,10 +3923,10 @@ mod tests {
         let mut context = EvaluationContext::default();
         for (source, expected) in [
             ("2^(1/3)-2^(1/3)", Rational::zero()),
-            ("2^(1/3)/2^(1/3)", Rational::one()),
+            ("2^(2/3)/4^(1/3)", Rational::one()),
             ("2^(1/3)-2^(1/3)+1", Rational::one()),
             ("(2^(1/3)-2^(1/3))+2^(1/3)-2^(1/3)", Rational::zero()),
-            ("(2^(1/3)/2^(1/3))*2^(1/3)/2^(1/3)", Rational::one()),
+            ("((2^(1/3))^2/4^(1/3))*2^(2/3)/4^(1/3)", Rational::one()),
         ] {
             let parsed = parse(source, &ParseSettings::default()).unwrap();
             let evaluation = evaluate(
@@ -4265,6 +4265,22 @@ mod tests {
                 "{source}"
             );
         }
+    }
+
+    #[test]
+    fn nonzero_self_division_identities_are_exact_only_when_proven() {
+        for source in [
+            "pi/pi",
+            "e/e",
+            "exp(2)/exp(2)",
+            "exp(sin(1))/exp(sin(1))",
+            "ln(2)/ln(2)",
+            "log(3,2)/log(3,2)",
+        ] {
+            assert_eq!(exact_plain_text(source), "1", "{source}");
+        }
+
+        assert_eq!(exact_plain_text("sin(1)/sin(1)"), "sin(1)/sin(1)");
     }
 
     #[test]
