@@ -87,8 +87,9 @@ function renderTextMathMl(text: string): string {
     if (/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/iu.test(text)) {
         return `<mn>${escaped}</mn>`;
     }
-    if (MATH_OPERATOR_TEXT.has(text)) {
-        return `<mo>${escaped}</mo>`;
+    const operatorText = text.trim();
+    if (MATH_OPERATOR_TEXT.has(operatorText)) {
+        return `<mo>${escapeXml(operatorText)}</mo>`;
     }
     return `<mi>${escaped}</mi>`;
 }

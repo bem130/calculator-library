@@ -56,6 +56,24 @@ assert.equal(renderLatex(radicalFraction), "\\frac{\\sqrt{2}}{2}");
 assert.equal(renderPlainText(logBase), "log_2(8)");
 assert.equal(renderLatex(logBase), "\\log_{2}(8)");
 
+const decimalScientificIntervalMathMl = [
+    "<mrow>",
+    "<mo>[</mo>",
+    "<mn>1.4142</mn>",
+    "<mo>×</mo>",
+    "<msup><mn>10</mn><mn>0</mn></msup>",
+    "<mo>,</mo>",
+    "<mn>1.4143</mn>",
+    "<mo>×</mo>",
+    "<msup><mn>10</mn><mn>0</mn></msup>",
+    "<mo>]</mo>",
+    "</mrow>",
+].join("");
+
+assert.equal(
+    renderMathMl(decimalScientificInterval),
+    decimalScientificIntervalMathMl,
+);
 assert.equal(
     renderLatex(decimalScientificInterval),
     "[1.4142 \\times 10^{0}, 1.4143 \\times 10^{0}]",
