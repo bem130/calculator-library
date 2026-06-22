@@ -56,12 +56,30 @@ const decimalScientificInterval = {
     ],
 };
 
+const mixedFraction = {
+    tag: "row",
+    children: [
+        { tag: "text", text: "2" },
+        { tag: "text", text: " " },
+        {
+            tag: "fraction",
+            numerator: { tag: "text", text: "1" },
+            denominator: { tag: "text", text: "3" },
+        },
+    ],
+};
+
 assert.equal(renderPlainText(radicalFraction), "sqrt(2)/2");
 assert.equal(renderMathMl(radicalFraction), "<mfrac><msqrt><mn>2</mn></msqrt><mn>2</mn></mfrac>");
 assert.equal(renderLatex(radicalFraction), "\\frac{\\sqrt{2}}{2}");
 
 assert.equal(renderPlainText(logBase), "log_2(8)");
 assert.equal(renderLatex(logBase), "\\log_{2}(8)");
+assert.equal(renderPlainText(mixedFraction), "2 1/3");
+assert.equal(
+    renderMathMl(mixedFraction),
+    "<mrow><mn>2</mn><mspace width=\"0.5em\"/><mfrac><mn>1</mn><mn>3</mn></mfrac></mrow>",
+);
 
 const decimalScientificIntervalMathMl = [
     "<mrow>",

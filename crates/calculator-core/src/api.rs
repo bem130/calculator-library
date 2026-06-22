@@ -417,8 +417,8 @@ pub fn present(
 ) -> Result<Calculation, PresentationError> {
     let exact = match (&evaluation.value.recognized_exact, request.exact_output) {
         (_, ExactOutputRequest::Omit) => ExactOutput::Omitted,
-        (RecognizedExact::Rational(rational), ExactOutputRequest::Include { .. }) => {
-            ExactOutput::Included(exact_presentation(rational))
+        (RecognizedExact::Rational(rational), ExactOutputRequest::Include { format }) => {
+            ExactOutput::Included(rational_exact_presentation(rational, format))
         }
         (RecognizedExact::Radical(value), ExactOutputRequest::Include { .. }) => {
             ExactOutput::Included(radical_presentation(value))
@@ -488,6 +488,10 @@ pub fn present(
         ScientificOutput::Included(value) => value.confirmed_significant_digits,
         ScientificOutput::Omitted | ScientificOutput::Unavailable(_) => 0,
     };
+    let exact_representation = match &exact {
+        ExactOutput::Included(value) => value.representation,
+        ExactOutput::Omitted => exact_representation_kind(&evaluation.value.recognized_exact),
+    };
     let simplification_status = simplification_status(&scientific);
     let mut methods = evaluation.metadata.methods.clone();
     if matches!(enclosure, EnclosureOutput::Included(_))
@@ -501,7 +505,7 @@ pub fn present(
         scientific,
         enclosure,
         metadata: CalculationMetadata {
-            exact_representation: exact_representation_kind(&evaluation.value.recognized_exact),
+            exact_representation,
             simplification_status,
             semantic_settings: evaluation.metadata.semantic_settings,
             methods,
@@ -646,14 +650,128 @@ fn precision_bits_for_output_request(
     }
 }
 
-fn exact_presentation(rational: &Rational) -> ExactPresentation {
-    let plain_text = rational.to_string();
+fn rational_exact_presentation(
+    rational: &Rational,
+    format: ExactFormatPreference,
+) -> ExactPresentation {
+    match format {
+        ExactFormatPreference::FiniteDecimal => finite_decimal_presentation(rational)
+            .unwrap_or_else(|| canonical_rational_presentation(rational)),
+        ExactFormatPreference::MixedFraction => mixed_fraction_presentation(rational)
+            .unwrap_or_else(|| canonical_rational_presentation(rational)),
+        ExactFormatPreference::Auto
+        | ExactFormatPreference::Rational
+        | ExactFormatPreference::Symbolic => canonical_rational_presentation(rational),
+    }
+}
+
+fn canonical_rational_presentation(rational: &Rational) -> ExactPresentation {
     ExactPresentation {
         relation: ResultRelation::ExactEqual,
         representation: rational_exact_representation_kind(rational),
         presentation: rational_presentation(rational),
-        plain_text,
+        plain_text: rational.to_string(),
     }
+}
+
+fn finite_decimal_presentation(rational: &Rational) -> Option<ExactPresentation> {
+    if rational.is_integer() {
+        return Some(canonical_rational_presentation(rational));
+    }
+    let plain_text = finite_decimal_plain_text(rational)?;
+    Some(ExactPresentation {
+        relation: ResultRelation::ExactEqual,
+        representation: ExactRepresentationKind::FiniteDecimal,
+        presentation: PresentationNode::Text(plain_text.clone()),
+        plain_text,
+    })
+}
+
+fn finite_decimal_plain_text(rational: &Rational) -> Option<String> {
+    let mut denominator = rational.denominator.inner.inner.clone();
+    let mut twos = 0_u32;
+    while (&denominator % 2_u8).is_zero() {
+        denominator /= 2_u8;
+        twos = twos.checked_add(1)?;
+    }
+    let mut fives = 0_u32;
+    while (&denominator % 5_u8).is_zero() {
+        denominator /= 5_u8;
+        fives = fives.checked_add(1)?;
+    }
+    if denominator != BigInt::from(1_u8) {
+        return None;
+    }
+
+    let scale = twos.max(fives);
+    let mut scaled = rational.numerator.inner.clone();
+    if scale > twos {
+        scaled *= BigInt::from(2_u8).pow(scale - twos);
+    }
+    if scale > fives {
+        scaled *= BigInt::from(5_u8).pow(scale - fives);
+    }
+
+    let negative = scaled.sign() == Sign::Minus;
+    let mut digits = scaled.abs().to_string();
+    let scale_usize = usize::try_from(scale).ok()?;
+    if digits.len() <= scale_usize {
+        let leading_zero_count = scale_usize.checked_add(1)?.checked_sub(digits.len())?;
+        let mut padded = String::new();
+        for _ in 0..leading_zero_count {
+            padded.push('0');
+        }
+        padded.push_str(&digits);
+        digits = padded;
+    }
+    let point_index = digits.len().checked_sub(scale_usize)?;
+    let mut text = String::new();
+    if negative {
+        text.push('-');
+    }
+    text.push_str(&digits[..point_index]);
+    if scale_usize > 0 {
+        text.push('.');
+        text.push_str(&digits[point_index..]);
+    }
+    Some(text)
+}
+
+fn mixed_fraction_presentation(rational: &Rational) -> Option<ExactPresentation> {
+    if rational.is_integer() {
+        return Some(canonical_rational_presentation(rational));
+    }
+    let numerator = rational.numerator.inner.abs();
+    let denominator = &rational.denominator.inner.inner;
+    if numerator < *denominator {
+        return None;
+    }
+    let (whole, remainder) = numerator.div_rem(denominator);
+    if whole.is_zero() || remainder.is_zero() {
+        return Some(canonical_rational_presentation(rational));
+    }
+
+    let negative = rational.numerator.inner.sign() == Sign::Minus;
+    let whole_text = if negative {
+        format!("-{whole}")
+    } else {
+        whole.to_string()
+    };
+    let fraction = PresentationNode::Fraction {
+        numerator: Box::new(PresentationNode::Text(remainder.to_string())),
+        denominator: Box::new(PresentationNode::Text(denominator.to_string())),
+    };
+    let plain_text = format!("{whole_text} {remainder}/{denominator}");
+    Some(ExactPresentation {
+        relation: ResultRelation::ExactEqual,
+        representation: ExactRepresentationKind::Rational,
+        presentation: PresentationNode::Row(vec![
+            PresentationNode::Text(whole_text),
+            PresentationNode::Text(String::from(" ")),
+            fraction,
+        ]),
+        plain_text,
+    })
 }
 
 fn radical_presentation(value: &SimpleRadical) -> ExactPresentation {
@@ -2465,6 +2583,15 @@ mod tests {
         }
     }
 
+    fn exact_format_request(format: ExactFormatPreference) -> CalculationRequest {
+        CalculationRequest {
+            exact_output: ExactOutputRequest::Include { format },
+            scientific_output: ScientificOutputRequest::Omit,
+            enclosure_output: EnclosureOutputRequest::Omit,
+            ..CalculationRequest::default()
+        }
+    }
+
     fn scientific_plain_text_with_request(source: &str, request: &CalculationRequest) -> String {
         let mut context = EvaluationContext::default();
         let outcome = calculate(source, request, &mut context).expect(source);
@@ -2530,6 +2657,22 @@ mod tests {
         };
         assert_eq!(requested_significant_digits.get(), 5);
         render_plain_text_for_test(&enclosure.presentation)
+    }
+
+    fn exact_output_with_format(source: &str, format: ExactFormatPreference) -> ExactPresentation {
+        let mut context = EvaluationContext::default();
+        let outcome = calculate(source, &exact_format_request(format), &mut context).unwrap();
+        let CalculationOutcome::Complete(calculation) = outcome else {
+            panic!("{source}: expected complete calculation");
+        };
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("{source}: expected exact output");
+        };
+        assert_eq!(
+            calculation.metadata.exact_representation,
+            exact.representation
+        );
+        exact
     }
 
     fn render_plain_text_for_test(node: &PresentationNode) -> String {
@@ -2748,6 +2891,34 @@ mod tests {
     #[test]
     fn decimal_addition_is_exact() {
         assert_eq!(exact_plain_text("0.1 + 0.2"), "3/10");
+    }
+
+    #[test]
+    fn exact_format_preference_controls_rational_presentation() {
+        let finite = exact_output_with_format("0.1 + 0.2", ExactFormatPreference::FiniteDecimal);
+        assert_eq!(
+            finite.representation,
+            ExactRepresentationKind::FiniteDecimal
+        );
+        assert_eq!(finite.plain_text, "0.3");
+        assert_eq!(render_plain_text_for_test(&finite.presentation), "0.3");
+
+        let non_finite = exact_output_with_format("1/3", ExactFormatPreference::FiniteDecimal);
+        assert_eq!(non_finite.representation, ExactRepresentationKind::Rational);
+        assert_eq!(non_finite.plain_text, "1/3");
+
+        let proper = exact_output_with_format("1/2", ExactFormatPreference::MixedFraction);
+        assert_eq!(proper.representation, ExactRepresentationKind::Rational);
+        assert_eq!(proper.plain_text, "1/2");
+
+        let mixed = exact_output_with_format("7/3", ExactFormatPreference::MixedFraction);
+        assert_eq!(mixed.representation, ExactRepresentationKind::Rational);
+        assert_eq!(mixed.plain_text, "2 1/3");
+        assert_eq!(render_plain_text_for_test(&mixed.presentation), "2 1/3");
+
+        let negative = exact_output_with_format("-7/3", ExactFormatPreference::MixedFraction);
+        assert_eq!(negative.representation, ExactRepresentationKind::Rational);
+        assert_eq!(negative.plain_text, "-2 1/3");
     }
 
     #[test]
