@@ -657,6 +657,8 @@ pub enum DomainErrorCodeDto {
     ZeroToNegativePower,
     IndeterminateZeroToZero,
     NonRealPower,
+    IntegerFunctionRequiresInteger,
+    IntegerFunctionRequiresNonNegative,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]

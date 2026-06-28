@@ -96,6 +96,12 @@ fn domain_error_code(kind: calculator_core::DomainErrorKind) -> &'static str {
         calculator_core::DomainErrorKind::ZeroToNegativePower => "zeroToNegativePower",
         calculator_core::DomainErrorKind::IndeterminateZeroToZero => "indeterminateZeroToZero",
         calculator_core::DomainErrorKind::NonRealPower => "nonRealPower",
+        calculator_core::DomainErrorKind::IntegerFunctionRequiresInteger => {
+            "integerFunctionRequiresInteger"
+        }
+        calculator_core::DomainErrorKind::IntegerFunctionRequiresNonNegative => {
+            "integerFunctionRequiresNonNegative"
+        }
     }
 }
 
@@ -114,6 +120,14 @@ mod tests {
         assert_eq!(
             run(["1 / 0".to_owned()]).unwrap_err(),
             "domain.divisionByZero"
+        );
+        assert_eq!(
+            run(["gcd(3/2, 1)".to_owned()]).unwrap_err(),
+            "domain.integerFunctionRequiresInteger"
+        );
+        assert_eq!(
+            run(["fact(-1)".to_owned()]).unwrap_err(),
+            "domain.integerFunctionRequiresNonNegative"
         );
     }
 }

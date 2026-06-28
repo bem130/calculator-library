@@ -476,6 +476,12 @@ fn calculator_error_code(value: &CalculatorError) -> &'static str {
             DomainErrorKind::ZeroToNegativePower => "domain.zeroToNegativePower",
             DomainErrorKind::IndeterminateZeroToZero => "domain.indeterminateZeroToZero",
             DomainErrorKind::NonRealPower => "domain.nonRealPower",
+            DomainErrorKind::IntegerFunctionRequiresInteger => {
+                "domain.integerFunctionRequiresInteger"
+            }
+            DomainErrorKind::IntegerFunctionRequiresNonNegative => {
+                "domain.integerFunctionRequiresNonNegative"
+            }
         },
         CalculatorError::InputLimit(error) => match error.kind {
             InputLimitErrorKind::InputTooLong => "inputLimit.inputTooLong",
@@ -548,9 +554,24 @@ fn function_name(value: Function) -> &'static str {
         Function::Acos => "acos",
         Function::Atan => "atan",
         Function::Sqrt => "sqrt",
+        Function::Root => "root",
         Function::Exp => "exp",
         Function::Log => "log",
         Function::Ln => "ln",
+        Function::Abs => "abs",
+        Function::Floor => "floor",
+        Function::Factorial => "factorial",
+        Function::Permutation => "permutation",
+        Function::Combination => "combination",
+        Function::Modulo => "modulo",
+        Function::Gcd => "gcd",
+        Function::Lcm => "lcm",
+        Function::Sinh => "sinh",
+        Function::Cosh => "cosh",
+        Function::Tanh => "tanh",
+        Function::Asinh => "asinh",
+        Function::Acosh => "acosh",
+        Function::Atanh => "atanh",
     }
 }
 

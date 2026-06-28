@@ -699,6 +699,12 @@ impl From<core::DomainErrorKind> for DomainErrorCodeDto {
             core::DomainErrorKind::ZeroToNegativePower => Self::ZeroToNegativePower,
             core::DomainErrorKind::IndeterminateZeroToZero => Self::IndeterminateZeroToZero,
             core::DomainErrorKind::NonRealPower => Self::NonRealPower,
+            core::DomainErrorKind::IntegerFunctionRequiresInteger => {
+                Self::IntegerFunctionRequiresInteger
+            }
+            core::DomainErrorKind::IntegerFunctionRequiresNonNegative => {
+                Self::IntegerFunctionRequiresNonNegative
+            }
         }
     }
 }
@@ -1519,6 +1525,12 @@ impl From<DomainErrorCodeDto> for core::DomainErrorKind {
             DomainErrorCodeDto::ZeroToNegativePower => Self::ZeroToNegativePower,
             DomainErrorCodeDto::IndeterminateZeroToZero => Self::IndeterminateZeroToZero,
             DomainErrorCodeDto::NonRealPower => Self::NonRealPower,
+            DomainErrorCodeDto::IntegerFunctionRequiresInteger => {
+                Self::IntegerFunctionRequiresInteger
+            }
+            DomainErrorCodeDto::IntegerFunctionRequiresNonNegative => {
+                Self::IntegerFunctionRequiresNonNegative
+            }
         }
     }
 }

@@ -90,6 +90,7 @@ enum TokenKind {
     Slash,
     Caret,
     Percent,
+    Bang,
     OpenParen,
     CloseParen,
     Comma,
@@ -158,6 +159,7 @@ fn lex(source: &str) -> Result<Vec<Token>, ParseError> {
             '/' => TokenKind::Slash,
             '^' => TokenKind::Caret,
             '%' => TokenKind::Percent,
+            '!' => TokenKind::Bang,
             '(' => TokenKind::OpenParen,
             ')' => TokenKind::CloseParen,
             ',' => TokenKind::Comma,
@@ -259,9 +261,28 @@ fn identifier_token(identifier: &str) -> Option<TokenKind> {
         "acos" => TokenKind::Function(Function::Acos),
         "atan" => TokenKind::Function(Function::Atan),
         "sqrt" => TokenKind::Function(Function::Sqrt),
+        "root" => TokenKind::Function(Function::Root),
         "exp" => TokenKind::Function(Function::Exp),
         "log" => TokenKind::Function(Function::Log),
         "ln" => TokenKind::Function(Function::Ln),
+        "abs" => TokenKind::Function(Function::Abs),
+        "floor" => TokenKind::Function(Function::Floor),
+        "fact" => TokenKind::Function(Function::Factorial),
+        "factorial" => TokenKind::Function(Function::Factorial),
+        "perm" => TokenKind::Function(Function::Permutation),
+        "npr" => TokenKind::Function(Function::Permutation),
+        "comb" => TokenKind::Function(Function::Combination),
+        "ncr" => TokenKind::Function(Function::Combination),
+        "mod" => TokenKind::Function(Function::Modulo),
+        "gcd" => TokenKind::Function(Function::Gcd),
+        "lcm" => TokenKind::Function(Function::Lcm),
+        "lcd" => TokenKind::Function(Function::Lcm),
+        "sinh" => TokenKind::Function(Function::Sinh),
+        "cosh" => TokenKind::Function(Function::Cosh),
+        "tanh" => TokenKind::Function(Function::Tanh),
+        "asinh" => TokenKind::Function(Function::Asinh),
+        "acosh" => TokenKind::Function(Function::Acosh),
+        "atanh" => TokenKind::Function(Function::Atanh),
         _ => return None,
     })
 }
@@ -380,6 +401,7 @@ impl Parser<'_> {
             | TokenKind::Slash
             | TokenKind::Caret
             | TokenKind::Percent
+            | TokenKind::Bang
             | TokenKind::OpenParen
             | TokenKind::Comma
             | TokenKind::CloseParen => self.parse_percent(),
@@ -389,22 +411,35 @@ impl Parser<'_> {
     fn parse_percent(&mut self) -> Result<SourceExpr, ParseError> {
         let mut expr = self.parse_power()?;
         while let Some(token) = self.peek() {
-            if token.kind != TokenKind::Percent {
-                return Ok(expr);
+            match token.kind {
+                TokenKind::Percent => {
+                    let percent_span = token.span;
+                    if self.settings.percent == PercentParsePolicy::RejectPercent {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::PercentRejected,
+                            span: percent_span,
+                            expected: Vec::new(),
+                        });
+                    }
+                    self.advance();
+                    expr = SourceExpr::Percent {
+                        span: union(expr.span(), percent_span),
+                        expr: Box::new(expr),
+                    };
+                }
+                TokenKind::Bang => {
+                    let bang_span = token.span;
+                    let span = union(expr.span(), bang_span);
+                    self.advance();
+                    expr = SourceExpr::Function {
+                        function: Function::Factorial,
+                        argument: Box::new(expr),
+                        base: None,
+                        span,
+                    };
+                }
+                _ => return Ok(expr),
             }
-            let percent_span = token.span;
-            if self.settings.percent == PercentParsePolicy::RejectPercent {
-                return Err(ParseError {
-                    kind: ParseErrorKind::PercentRejected,
-                    span: percent_span,
-                    expected: Vec::new(),
-                });
-            }
-            self.advance();
-            expr = SourceExpr::Percent {
-                span: union(expr.span(), percent_span),
-                expr: Box::new(expr),
-            };
         }
         Ok(expr)
     }
@@ -473,6 +508,7 @@ impl Parser<'_> {
             | TokenKind::Slash
             | TokenKind::Caret
             | TokenKind::Percent
+            | TokenKind::Bang
             | TokenKind::Comma
             | TokenKind::CloseParen => Err(ParseError {
                 kind: ParseErrorKind::UnexpectedToken,
@@ -677,11 +713,30 @@ fn with_span(expr: SourceExpr, span: ByteSpan) -> SourceExpr {
 }
 
 fn function_accepts_explicit_base(function: Function) -> bool {
-    matches!(function, Function::Exp | Function::Log)
+    matches!(
+        function,
+        Function::Exp
+            | Function::Log
+            | Function::Root
+            | Function::Permutation
+            | Function::Combination
+            | Function::Modulo
+            | Function::Gcd
+            | Function::Lcm
+    )
 }
 
 fn function_requires_explicit_base(function: Function) -> bool {
-    matches!(function, Function::Log)
+    matches!(
+        function,
+        Function::Log
+            | Function::Root
+            | Function::Permutation
+            | Function::Combination
+            | Function::Modulo
+            | Function::Gcd
+            | Function::Lcm
+    )
 }
 
 fn next_char(source: &str, cursor: usize) -> char {
