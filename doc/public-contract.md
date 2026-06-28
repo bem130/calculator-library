@@ -11,7 +11,7 @@
 * Rust core: `calculator-core` の公開型と `calculate` / `evaluate` / `parse` / `present` / `present_input` / `reduce_input` / `apply_calculation_result`。
 * Wasm DTO: `crates/calculator-wasm/src/dto.rs` と生成 TypeScript `packages/calculator/src/generated/dto.ts`。
 * npm facade: package root `packages/calculator/src/index.ts` と worker subpath `packages/calculator/src/worker.ts` から export される型・関数。
-* protocol snapshot: `crates/xtask/snapshots/protocol-2.0.dto.ts`。
+* protocol snapshot: `crates/xtask/snapshots/protocol-3.0.dto.ts`。
 
 `doc/design.md` は最終設計の目標であり、現行リリースの完全実装リストではない。
 
@@ -31,9 +31,9 @@ author は `bem130`、license は `MIT` とする。license 本文は repository
 
 入力文法、演算子優先順位、implicit multiplication、unicode alias、percent parse policy、angle unit、real principal power semantics は `CalculationRequest` の DTO 値で明示する。
 
-現行 semantics は実数領域を対象とする。負数の偶数根、非実数になる累乗、0 除算、tan の極、log の非正値、log の底 1、逆三角関数の定義域外は domain error として返す。
+現行 semantics は実数領域を対象とする。負数の偶数根、非実数になる累乗、0 除算、tan の極、log の非正値、log の底 1、逆三角関数の定義域外、整数専用関数へ非整数または負の整数を渡した場合は domain error として返す。
 
-`log(argument, base)` と `exp(exponent, base)` は2引数形式を受ける。`ln(argument)` は底 `e` の自然対数として受ける。`log(argument)` のように底を省略した対数は受け付けない。
+`log(argument, base)` と `exp(exponent, base)` は2引数形式を受ける。`ln(argument)` は底 `e` の自然対数として受ける。`log(argument)` のように底を省略した対数は受け付けない。`root(argument, index)` は `argument^(1/index)` と同じ実数主値 semantics へ lower する。`abs(argument)`、`floor(argument)`、postfix `!` / `fact(argument)`、`perm(n,r)`、`comb(n,r)`、`mod(a,b)`、`gcd(a,b)`、`lcm(a,b)` を受ける。`lcd(a,b)` は `lcm(a,b)` の alias として parse し、正規表示名は `lcm` とする。`sinh`、`cosh`、`tanh`、`asinh`、`acosh`、`atanh` は source-level 関数として受け、内部 DAG では exp/log/sqrt の組み合わせへ lower して既存の exact simplification と certified interval の経路を使う。
 
 ## Outputs
 
@@ -47,7 +47,7 @@ Enclosure output は `exactDyadic` または `decimalScientific` を明示して
 
 ## Protocol And Release Policy
 
-`ProtocolVersion` は現行 DTO surface を識別するための version であり、Cargo crate や npm package の semver とは別に扱う。現行 protocol snapshot は `2.0` である。
+`ProtocolVersion` は現行 DTO surface を識別するための version であり、Cargo crate や npm package の semver とは別に扱う。現行 protocol snapshot は `3.0` である。
 
 Protocol major/minor の運用は、後方互換保証ではなく、DTO surface の変更を見落とさないための識別子として扱う。
 

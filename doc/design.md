@@ -444,7 +444,9 @@ lexerは次の契約に固定する。
 | 関数名 | ASCII alphabetic identifierだけを関数名として受理し、未知名はparse error |
 | 予約語 | `nan`、`inf`、`infinity`、`undefined`、`null` は数値として受理しない |
 
-関数は原則として単項関数である。ただし `log(argument, base)` と `exp(exponent, base)` は2引数形式を受ける。`ln(argument)` は底 `e` の自然対数である。底を省略した `log(argument)` は受理しない。`max` / `min`、ユーザー定義関数は受理しない。
+関数は原則として単項関数である。ただし `log(argument, base)`、`exp(exponent, base)`、`root(argument, index)`、`perm(n,r)`、`comb(n,r)`、`mod(a,b)`、`gcd(a,b)`、`lcm(a,b)` は2引数形式を受ける。`ln(argument)` は底 `e` の自然対数である。底を省略した `log(argument)` は受理しない。`lcd(a,b)` は `lcm(a,b)` の source-level alias とする。`abs(argument)`、`floor(argument)`、postfix `!` / `fact(argument)`、双曲線関数 `sinh` / `cosh` / `tanh` と逆双曲線関数 `asinh` / `acosh` / `atanh` を受理する。`max` / `min`、ユーザー定義関数は受理しない。
+
+双曲線関数は source presentation では関数名を保持するが、内部 DAG では exp/log/sqrt の式へ lower する。これにより、個別の暫定評価器を増やさず、既存の指数・対数・平方根の exact simplification、domain check、certified interval 経路に統合する。
 
 source位置はUTF-8 byte offsetを正本とし、parse errorのspanは「そのerrorを確定できた最小のtokenまたはtoken間位置」を指す。Wasm DTOでは同じspanに対応するUTF-16 code unit offsetを追加するが、core内部の正本は常にUTF-8である。
 
@@ -1700,7 +1702,7 @@ minor:
     surfaceの追加で増加する。
 ```
 
-初期公開時のprotocol versionは `1.0` とし、現行の公開DTO contractは `2.0` とする。Rust公開enumのうち、利用者が網羅matchし得るものは、破壊的変更を許容して必要なvariant追加・field変更を行う。ただし、計算意味論に関わる `DomainErrorKind`、`DecimalRoundingMode`、`PowerSemantics` は追加時にminor以上のversion更新を必要とする。
+初期公開時のprotocol versionは `1.0` とし、現行の公開DTO contractは `3.0` とする。Rust公開enumのうち、利用者が網羅matchし得るものは、破壊的変更を許容して必要なvariant追加・field変更を行う。ただし、計算意味論に関わる `DomainErrorKind`、`DecimalRoundingMode`、`PowerSemantics` は追加時にminor以上のversion更新を必要とする。
 
 TypeScript facadeは、未知の `tag` や未知の `code` を受け取った場合、握りつぶさず `unsupportedProtocol` エラーへ変換する。未知のDTOを誤った成功値として扱ってはならない。
 
@@ -2315,12 +2317,15 @@ export type ParseErrorCode =
 export type DomainErrorCode =
     | "divisionByZero"
     | "logarithmOfNonPositive"
+    | "logarithmBaseOne"
     | "evenRootOfNegative"
     | "inverseTrigonometricOutOfRange"
     | "tangentPole"
     | "zeroToNegativePower"
     | "indeterminateZeroToZero"
-    | "nonRealPower";
+    | "nonRealPower"
+    | "integerFunctionRequiresInteger"
+    | "integerFunctionRequiresNonNegative";
 
 export type InputLimitErrorCode =
     | "inputTooLong"

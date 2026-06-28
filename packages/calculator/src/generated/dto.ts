@@ -549,7 +549,9 @@ export type DomainErrorCode =
     | "tangentPole"
     | "zeroToNegativePower"
     | "indeterminateZeroToZero"
-    | "nonRealPower";
+    | "nonRealPower"
+    | "integerFunctionRequiresInteger"
+    | "integerFunctionRequiresNonNegative";
 
 export type InputLimitErrorCode =
     | "inputTooLong"

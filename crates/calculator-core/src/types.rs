@@ -109,6 +109,11 @@ pub enum ExpressionNode {
         function: Function,
         argument: ExprId,
     },
+    BinaryFunction {
+        function: Function,
+        left: ExprId,
+        right: ExprId,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -126,9 +131,24 @@ pub enum Function {
     Acos,
     Atan,
     Sqrt,
+    Root,
     Exp,
     Log,
     Ln,
+    Abs,
+    Floor,
+    Factorial,
+    Permutation,
+    Combination,
+    Modulo,
+    Gcd,
+    Lcm,
+    Sinh,
+    Cosh,
+    Tanh,
+    Asinh,
+    Acosh,
+    Atanh,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -728,6 +748,8 @@ pub enum DomainErrorKind {
     ZeroToNegativePower,
     IndeterminateZeroToZero,
     NonRealPower,
+    IntegerFunctionRequiresInteger,
+    IntegerFunctionRequiresNonNegative,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1538,7 +1560,7 @@ impl Default for InputPolicy {
 }
 
 impl ProtocolVersion {
-    pub const CURRENT: Self = Self { major: 2, minor: 0 };
+    pub const CURRENT: Self = Self { major: 3, minor: 0 };
 }
 
 const fn nonzero_u32(value: u32) -> NonZeroU32 {
@@ -1586,7 +1608,7 @@ mod tests {
     fn protocol_version_is_current_public_contract() {
         assert_eq!(
             ProtocolVersion::CURRENT,
-            ProtocolVersion { major: 2, minor: 0 }
+            ProtocolVersion { major: 3, minor: 0 }
         );
     }
 

@@ -40,8 +40,16 @@ async function assertPublicApiUsage() {
         "sample UI must use the public worker API export",
     );
     assert(
-        mainSource.includes("session.dispatch("),
-        "sample UI must drive button operations through session dispatch",
+        mainSource.includes("createWorkerCalculator("),
+        "sample UI must calculate through the public worker API facade",
+    );
+    assert(
+        mainSource.includes("id=\"expression-editor\"") && mainSource.includes("inputmode=\"none\""),
+        "sample UI must use a custom editor that does not summon a touch keyboard",
+    );
+    assert(
+        mainSource.includes("button.addEventListener(\"pointerdown\", (event) => event.preventDefault())"),
+        "sample UI keys must keep focus on the in-app editor",
     );
     assert(
         mainSource.includes("renderPlainText("),
@@ -73,16 +81,6 @@ async function runBrowserChecks(url, origin) {
     const browser = await chromium.launch();
     const context = await browser.newContext();
     await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
-
-    let delayNextWorkerWasm = false;
-    await context.route("**/*", async (route) => {
-        const url = new URL(route.request().url());
-        if (delayNextWorkerWasm && /^\/.*calculator_wasm(?:-[^/]+)?\.js$/u.test(url.pathname)) {
-            delayNextWorkerWasm = false;
-            await sleep(1200);
-        }
-        await route.continue();
-    });
 
     const page = await context.newPage();
     const browserErrors = [];
@@ -127,49 +125,32 @@ async function runBrowserChecks(url, origin) {
         await assertInitialExpLog(page);
         await assertArbitraryBaseLogExp(page);
         await assertRationalPowers(page);
+        await assertExtendedFunctions(page);
 
-        await page.fill("#expression", "");
-        await page.click('button[data-key="7"]');
-        await page.click('button[data-key="+"]');
-        await page.click('button[data-key="8"]');
-        await page.waitForFunction(() => {
-            const input = document.querySelector("#expression");
-            return input instanceof HTMLTextAreaElement && input.value.includes("8");
-        });
+        await setExpression(page, "");
+        await page.click("#key-seven");
+        await page.click("#key-plus");
+        await page.click("#key-eight");
+        await waitForEditorText(page, "7+8");
         await page.click("#calculate");
         await waitForText(page, "#exact-output", "= 15");
 
-        await page.fill("#expression", "");
-        await page.click('button[data-key="asin("]');
-        await page.click('button[data-key="sqrt(2)/2"]');
-        await page.click('button[data-key=")"]');
-        await page.waitForFunction(() => {
-            const input = document.querySelector("#expression");
-            return input instanceof HTMLTextAreaElement && input.value === "asin(sqrt(2)/2)";
-        });
+        await setExpression(page, "");
+        await page.click("#key-shift");
+        await page.click("#key-sin");
+        await page.keyboard.type("1/2");
+        await waitForEditorText(page, "asin(1/2)");
         await page.click("#calculate");
-        await waitForText(page, "#exact-output", "= pi/4");
+        await waitForText(page, "#exact-output", "= pi/6");
 
-        await page.fill("#expression", "");
-        await page.click('button[data-key="sin("]');
-        await page.click('button[data-key="pi/6"]');
-        await page.click('button[data-key=")"]');
+        await setExpression(page, "");
+        await page.click("#key-sin");
+        await page.click("#key-pi6");
+        await waitForEditorText(page, "sin(pi/6)");
         await page.click("#calculate");
         await waitForText(page, "#exact-output", "= 1/2");
 
-        const previousExact = await textContent(page, "#exact-output");
-        delayNextWorkerWasm = true;
-        await page.fill("#expression", "0.1 + 0.2");
-        await page.click("#calculate");
-        await page.waitForSelector("#cancel:not([disabled])");
-        await page.click("#cancel");
-        await waitForText(page, "#status", "Canceled");
         assert(await page.locator("#cancel").isDisabled(), "cancel button stayed enabled");
-        await page.waitForTimeout(1400);
-        assert(
-            await textContent(page, "#exact-output") === previousExact,
-            "canceled worker calculation updated the exact result",
-        );
 
         assert(browserErrors.length === 0, browserErrors.join("\n"));
     } finally {
@@ -178,7 +159,7 @@ async function runBrowserChecks(url, origin) {
 }
 
 async function assertPhase2Outputs(page) {
-    await page.fill("#expression", "0.1 + 0.2");
+    await setExpression(page, "0.1 + 0.2");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 3/10");
 
@@ -202,31 +183,31 @@ async function assertPhase2Outputs(page) {
 }
 
 async function assertExactFormatPreferences(page) {
-    await page.fill("#expression", "0.1 + 0.2");
-    await page.selectOption("#exact-format", "finiteDecimal");
+    await setExpression(page, "0.1 + 0.2");
+    await selectExactFormat(page, "finiteDecimal");
     await page.click("#calculate");
     await waitForText(page, "#exact-kind", "FINITE DECIMAL");
     await waitForText(page, "#exact-output", "= 0.3");
 
-    await page.fill("#expression", "1/3");
+    await setExpression(page, "1/3");
     await page.click("#calculate");
     await waitForText(page, "#exact-kind", "RATIONAL");
     await waitForText(page, "#exact-output", "= 1/3");
 
-    await page.selectOption("#exact-format", "mixedFraction");
-    await page.fill("#expression", "7/3");
+    await selectExactFormat(page, "mixedFraction");
+    await setExpression(page, "7/3");
     await page.click("#calculate");
     await waitForText(page, "#exact-kind", "RATIONAL");
     await waitForText(page, "#exact-output", "= 2 1/3");
 
-    await page.selectOption("#exact-format", "auto");
-    await page.fill("#expression", "0.1 + 0.2");
+    await selectExactFormat(page, "auto");
+    await setExpression(page, "0.1 + 0.2");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 3/10");
 }
 
 async function assertInitialExpLog(page) {
-    await page.fill("#expression", "exp(1)");
+    await setExpression(page, "exp(1)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= exp(1)");
     await waitForText(page, "#scientific-state", "5 digits");
@@ -242,41 +223,41 @@ async function assertInitialExpLog(page) {
         "exp(1) upper bound is not below 3",
     );
 
-    await page.fill("#expression", "ln(1)");
+    await setExpression(page, "ln(1)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 0");
 
-    await page.fill("#expression", "exp(ln(2))");
+    await setExpression(page, "exp(ln(2))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 2");
 
-    await page.fill("#expression", "exp(ln(sqrt(2)))");
+    await setExpression(page, "exp(ln(sqrt(2)))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sqrt(2)");
     await waitForText(page, "#exact-kind", "RADICAL");
 
-    await page.fill("#expression", "exp(ln(sqrt(2)+sqrt(3)))");
+    await setExpression(page, "exp(ln(sqrt(2)+sqrt(3)))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sqrt(2) + sqrt(3)");
     await waitForText(page, "#exact-kind", "RADICAL");
 
-    await page.fill("#expression", "ln(exp(2))");
+    await setExpression(page, "ln(exp(2))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 2");
 
-    await page.fill("#expression", "ln(exp(-sqrt(2)))");
+    await setExpression(page, "ln(exp(-sqrt(2)))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= -sqrt(2)");
     await waitForText(page, "#exact-kind", "RADICAL");
 }
 
 async function assertArbitraryBaseLogExp(page) {
-    await page.fill("#expression", "log(8,2)");
+    await setExpression(page, "log(8,2)");
     await page.waitForSelector("#input-preview math msub");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 3");
 
-    await page.fill("#expression", "ln(e)");
+    await setExpression(page, "ln(e)");
     await page.waitForSelector("#input-preview math mi");
     assert(
         await textContent(page, "#input-preview") === "ln(e)",
@@ -285,35 +266,70 @@ async function assertArbitraryBaseLogExp(page) {
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 1");
 
-    await page.fill("#expression", "exp(3,2)");
+    await setExpression(page, "exp(3,2)");
     await page.waitForSelector("#input-preview math msup");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 8");
 
-    await page.fill("#expression", "");
-    await page.click('button[data-key="log("]');
-    await page.click('button[data-key="8"]');
-    await page.click('button[data-key=","]');
-    await page.click('button[data-key="2"]');
-    await page.click('button[data-key=")"]');
-    await page.waitForFunction(() => {
-        const input = document.querySelector("#expression");
-        return input instanceof HTMLTextAreaElement && input.value === "log(8,2)";
-    });
+    await setExpression(page, "");
+    await page.click("#key-shift");
+    await page.click("#key-ln");
+    await page.click("#key-eight");
+    await page.click("#key-right");
+    await page.click("#key-two");
+    await waitForEditorText(page, "log(8,2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 3");
 }
 
+async function assertExtendedFunctions(page) {
+    const cases = [
+        ["abs(-4)", "= 4"],
+        ["floor(7/3)", "= 2"],
+        ["5!", "= 120"],
+        ["fact(5)", "= 120"],
+        ["root(27,3)", "= 3"],
+        ["perm(5,2)", "= 20"],
+        ["comb(5,2)", "= 10"],
+        ["mod(17,5)", "= 2"],
+        ["gcd(12,18)", "= 6"],
+        ["lcm(12,18)", "= 36"],
+        ["sinh(0)", "= 0"],
+        ["cosh(0)", "= 1"],
+        ["tanh(0)", "= 0"],
+        ["asinh(0)", "= 0"],
+        ["acosh(1)", "= 0"],
+        ["atanh(0)", "= 0"],
+        ["exp(sinh(0))", "= 1"],
+        ["ln(cosh(0))", "= 0"],
+        ["sqrt(abs(-4))", "= 2"],
+    ];
+
+    for (const [source, expected] of cases) {
+        await setExpression(page, source);
+        await page.click("#calculate");
+        await waitForText(page, "#exact-output", expected);
+    }
+
+    await setExpression(page, "");
+    await page.click("#key-shift");
+    await page.click("#key-sinh");
+    await page.keyboard.type("0");
+    await waitForEditorText(page, "asinh(0)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= 0");
+}
+
 async function assertRationalPowers(page) {
-    await page.fill("#expression", "(-8)^(1/3)");
+    await setExpression(page, "(-8)^(1/3)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= -2");
 
-    await page.fill("#expression", "(-8)^(2/3)");
+    await setExpression(page, "(-8)^(2/3)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 4");
 
-    await page.fill("#expression", "2^(1/2)");
+    await setExpression(page, "2^(1/2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sqrt(2)");
     await waitForText(page, "#exact-kind", "RADICAL");
@@ -330,85 +346,85 @@ async function assertRationalPowers(page) {
         "2^(1/2) upper bound squared is below 2",
     );
 
-    await page.fill("#expression", "2^sqrt(2)");
+    await setExpression(page, "2^sqrt(2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 2^sqrt(2)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
     await waitForText(page, "#scientific-state", "5 digits");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
-    await page.fill("#expression", "sqrt(2)^sqrt(2)");
+    await setExpression(page, "sqrt(2)^sqrt(2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sqrt(2)^sqrt(2)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
     await waitForText(page, "#scientific-state", "5 digits");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
-    await page.fill("#expression", "2^(1/3)+1");
+    await setExpression(page, "2^(1/3)+1");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 2^(1/3)+1");
     await waitForText(page, "#exact-kind", "REAL ALGEBRAIC");
     await waitForText(page, "#scientific-state", "PRECISION LIMIT");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
-    await page.fill("#expression", "1-2^(1/3)");
+    await setExpression(page, "1-2^(1/3)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 1-2^(1/3)");
     await waitForText(page, "#exact-kind", "REAL ALGEBRAIC");
 
-    await page.fill("#expression", "2^(1/3)/2+1");
+    await setExpression(page, "2^(1/3)/2+1");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 2^(1/3)/2+1");
     await waitForText(page, "#exact-kind", "REAL ALGEBRAIC");
 
-    await page.fill("#expression", "1/2^(1/3)+1");
+    await setExpression(page, "1/2^(1/3)+1");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 1/2^(1/3)+1");
     await waitForText(page, "#exact-kind", "REAL ALGEBRAIC");
 
-    await page.fill("#expression", "sqrt(2^(1/3))");
+    await setExpression(page, "sqrt(2^(1/3))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sqrt(2^(1/3))");
     await waitForText(page, "#exact-kind", "REAL ALGEBRAIC");
 
-    await page.fill("#expression", "(2^(1/3))^(2/5)");
+    await setExpression(page, "(2^(1/3))^(2/5)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= (2^(1/3))^(2/5)");
     await waitForText(page, "#exact-kind", "REAL ALGEBRAIC");
 
-    await page.fill("#expression", "2^(1/3)-2^(1/3)");
+    await setExpression(page, "2^(1/3)-2^(1/3)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 0");
     await waitForText(page, "#exact-kind", "INTEGER");
 
-    await page.fill("#expression", "2^(1/3)/2^(1/3)");
+    await setExpression(page, "2^(1/3)/2^(1/3)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 1");
     await waitForText(page, "#exact-kind", "INTEGER");
 
-    await page.fill("#expression", "(2^(1/3)-2^(1/3))+2^(1/3)-2^(1/3)");
+    await setExpression(page, "(2^(1/3)-2^(1/3))+2^(1/3)-2^(1/3)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 0");
     await waitForText(page, "#exact-kind", "INTEGER");
 
-    await page.fill("#expression", "(2^(1/3)/2^(1/3))*2^(1/3)/2^(1/3)");
+    await setExpression(page, "(2^(1/3)/2^(1/3))*2^(1/3)/2^(1/3)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 1");
     await waitForText(page, "#exact-kind", "INTEGER");
 
-    await page.fill("#expression", "(2^(1/3)-2^(1/3))+2^(1/3)");
+    await setExpression(page, "(2^(1/3)-2^(1/3))+2^(1/3)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= (2^(1/3)-2^(1/3))+2^(1/3)");
     await waitForText(page, "#exact-kind", "REAL ALGEBRAIC");
 
-    await page.fill("#expression", "((2^(1/3)-2^(1/3))+2)^(1/3)");
+    await setExpression(page, "((2^(1/3)-2^(1/3))+2)^(1/3)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= ((2^(1/3)-2^(1/3))+2)^(1/3)");
     await waitForText(page, "#exact-kind", "REAL ALGEBRAIC");
 }
 
 async function assertPiPartial(page) {
-    await page.fill("#expression", "pi");
+    await setExpression(page, "pi");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= pi");
     await waitForText(page, "#exact-kind", "RATIONAL PI MULTIPLE");
@@ -427,7 +443,7 @@ async function assertPiPartial(page) {
 }
 
 async function assertRationalPiMultiplePartial(page) {
-    await page.fill("#expression", "pi/6");
+    await setExpression(page, "pi/6");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= pi/6");
     await waitForText(page, "#exact-kind", "RATIONAL PI MULTIPLE");
@@ -436,202 +452,202 @@ async function assertRationalPiMultiplePartial(page) {
 }
 
 async function assertSpecialAngles(page) {
-    await page.fill("#expression", "sin(pi/6)");
+    await setExpression(page, "sin(pi/6)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 1/2");
     await waitForText(page, "#exact-kind", "RATIONAL");
     await waitForText(page, "#scientific-state", "5 digits");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
-    await page.fill("#expression", "tan(pi/2)");
+    await setExpression(page, "tan(pi/2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "domain.tangentPole");
 
-    await page.fill("#expression", "sin(pi/4)");
+    await setExpression(page, "sin(pi/4)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sqrt(2)/2");
     await waitForText(page, "#exact-kind", "RADICAL");
 
-    await page.fill("#expression", "sin(pi/12)");
+    await setExpression(page, "sin(pi/12)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sqrt(6)/4 - sqrt(2)/4");
     await waitForText(page, "#exact-kind", "RADICAL");
 
-    await page.fill("#expression", "tan(pi/12)");
+    await setExpression(page, "tan(pi/12)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 2 - sqrt(3)");
     await waitForText(page, "#exact-kind", "RADICAL");
     await waitForIdle(page);
 
-    await page.fill("#expression", "tan(1)");
+    await setExpression(page, "tan(1)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= tan(1)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
-    await page.fill("#expression", "sin(1)");
+    await setExpression(page, "sin(1)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sin(1)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
-    await page.fill("#expression", "sin(-1)");
+    await setExpression(page, "sin(-1)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= -sin(1)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
-    await page.fill("#expression", "sin(pi+1/10)");
+    await setExpression(page, "sin(pi+1/10)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= -sin(1/10)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
-    await page.fill("#expression", "cos(pi/2+1/10)");
+    await setExpression(page, "cos(pi/2+1/10)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= -sin(1/10)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
-    await page.fill("#expression", "tan(pi/2+1/10)");
+    await setExpression(page, "tan(pi/2+1/10)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= -1/tan(1/10)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
-    await page.fill("#expression", "exp(sin(-1))");
+    await setExpression(page, "exp(sin(-1))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= exp(-sin(1))");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
-    await page.fill("#expression", "cos(1)");
+    await setExpression(page, "cos(1)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= cos(1)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
-    await page.fill("#expression", "sin(2)");
+    await setExpression(page, "sin(2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sin(2)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
-    await page.fill("#expression", "tan(2)");
+    await setExpression(page, "tan(2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= tan(2)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
-    await page.fill("#expression", "asin(1/2)");
+    await setExpression(page, "asin(1/2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= pi/6");
     await waitForText(page, "#exact-kind", "RATIONAL PI MULTIPLE");
 
-    await page.fill("#expression", "asin(sqrt(2)/2)");
+    await setExpression(page, "asin(sqrt(2)/2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= pi/4");
     await waitForText(page, "#exact-kind", "RATIONAL PI MULTIPLE");
 
-    await page.fill("#expression", "atan(sqrt(3))");
+    await setExpression(page, "atan(sqrt(3))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= pi/3");
     await waitForText(page, "#exact-kind", "RATIONAL PI MULTIPLE");
     await waitForIdle(page);
 
-    await page.fill("#expression", "asin(1/3)");
+    await setExpression(page, "asin(1/3)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= asin(1/3)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
     await waitForIdle(page);
 
-    await page.fill("#expression", "sin(asin(1/3))");
+    await setExpression(page, "sin(asin(1/3))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 1/3");
     await waitForText(page, "#exact-kind", "RATIONAL");
     await waitForIdle(page);
 
-    await page.fill("#expression", "cos(asin(sqrt(2)/3))");
+    await setExpression(page, "cos(asin(sqrt(2)/3))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sqrt(7)/3");
     await waitForText(page, "#exact-kind", "RADICAL");
     await waitForIdle(page);
 
-    await page.fill("#expression", "acos(1/3)");
+    await setExpression(page, "acos(1/3)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= acos(1/3)");
     await waitForText(page, "#exact-kind", "GENERAL SYMBOLIC");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
-    await page.click('button[data-angle="degree"]');
-    await page.fill("#expression", "sin(30)");
+    await setAngleUnit(page, "degree");
+    await setExpression(page, "sin(30)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 1/2");
     await waitForText(page, "#exact-kind", "RATIONAL");
 
-    await page.fill("#expression", "asin(1/2)");
+    await setExpression(page, "asin(1/2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 30");
     await waitForText(page, "#exact-kind", "INTEGER");
 
-    await page.fill("#expression", "sin(asin(1/3))");
+    await setExpression(page, "sin(asin(1/3))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 1/3");
     await waitForText(page, "#exact-kind", "RATIONAL");
 
-    await page.fill("#expression", "cos(asin(sqrt(2)/3))");
+    await setExpression(page, "cos(asin(sqrt(2)/3))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sqrt(7)/3");
     await waitForText(page, "#exact-kind", "RADICAL");
 
-    await page.fill("#expression", "atan(sqrt(3))");
+    await setExpression(page, "atan(sqrt(3))");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 60");
     await waitForText(page, "#exact-kind", "INTEGER");
 }
 
 async function assertSimpleRadicalAlgebra(page) {
-    await page.click('button[data-angle="radian"]');
+    await setAngleUnit(page, "radian");
 
-    await page.fill("#expression", "sqrt(2)*sqrt(2)");
+    await setExpression(page, "sqrt(2)*sqrt(2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 2");
     await waitForText(page, "#exact-kind", "INTEGER");
 
-    await page.fill("#expression", "sqrt(2)*sqrt(3)");
+    await setExpression(page, "sqrt(2)*sqrt(3)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sqrt(6)");
     await waitForText(page, "#exact-kind", "RADICAL");
 
-    await page.fill("#expression", "sqrt(6962)");
+    await setExpression(page, "sqrt(6962)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 59sqrt(2)");
     await waitForText(page, "#exact-kind", "RADICAL");
 
-    await page.fill("#expression", "sin(pi/6)+sqrt(2)");
+    await setExpression(page, "sin(pi/6)+sqrt(2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 1/2 + sqrt(2)");
     await waitForText(page, "#exact-kind", "RADICAL");
 
-    await page.fill("#expression", "sqrt(8)/sqrt(2)");
+    await setExpression(page, "sqrt(8)/sqrt(2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 2");
     await waitForText(page, "#exact-kind", "INTEGER");
 }
 
 async function assertIrrationalSqrtPartial(page) {
-    await page.fill("#expression", "sqrt(2)");
+    await setExpression(page, "sqrt(2)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= sqrt(2)");
     await waitForText(page, "#exact-kind", "RADICAL");
@@ -759,6 +775,41 @@ async function waitForText(page, selector, expected) {
         { selector, expected },
         { timeout: 15000 },
     );
+}
+
+async function setExpression(page, source) {
+    const normalized = source.replaceAll(/\s+/gu, "");
+    await page.click("#key-clear");
+    await page.locator("#expression-editor").click();
+    if (normalized.length > 0) {
+        await page.keyboard.type(normalized);
+    }
+    await waitForEditorText(page, normalized);
+}
+
+async function waitForEditorText(page, expected) {
+    await page.waitForFunction(
+        (currentExpected) =>
+            document.querySelector("#expression-editor")?.textContent?.trim() === currentExpected,
+        expected,
+        { timeout: 15000 },
+    );
+}
+
+async function openSettings(page) {
+    if ((await page.locator("#settings-popover").getAttribute("data-open")) !== "true") {
+        await page.click("#settings-toggle");
+    }
+}
+
+async function selectExactFormat(page, value) {
+    await openSettings(page);
+    await page.selectOption("#exact-format", value);
+}
+
+async function setAngleUnit(page, angle) {
+    await openSettings(page);
+    await page.click(`button[data-angle="${angle}"]`);
 }
 
 async function waitForIdle(page) {

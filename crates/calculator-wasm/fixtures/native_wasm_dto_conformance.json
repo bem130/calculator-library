@@ -78,7 +78,7 @@
               "confirmedSignificantDigits": 0,
               "assurance": "exact",
               "protocolVersion": {
-                "major": 2,
+                "major": 3,
                 "minor": 0
               }
             }

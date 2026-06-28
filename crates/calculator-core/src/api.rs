@@ -1429,15 +1429,144 @@ fn source_function_presentation(
             index: RadicalIndex::Square,
             radicand: Box::new(argument),
         },
-        (function, _) => PresentationNode::Function {
-            name: function_presentation_name(function),
+        (Function::Root, Some(index)) => root_source_presentation(argument, index),
+        (Function::Abs, None) => fenced_source_presentation("|", argument, "|"),
+        (Function::Floor, None) => fenced_source_presentation("⌊", argument, "⌋"),
+        (Function::Factorial, None) => {
+            PresentationNode::Row(vec![argument, PresentationNode::Text(String::from("!"))])
+        }
+        (
+            function @ (Function::Permutation
+            | Function::Combination
+            | Function::Modulo
+            | Function::Gcd
+            | Function::Lcm),
+            Some(right),
+        ) => source_binary_function_presentation(
+            symbolic_function_name(function),
+            argument,
+            source_presentation(right).node,
+        ),
+        (
+            function @ (Function::Sin
+            | Function::Cos
+            | Function::Tan
+            | Function::Asin
+            | Function::Acos
+            | Function::Atan
+            | Function::Log),
+            None,
+        ) => PresentationNode::Function {
+            name: legacy_function_presentation_name(function)
+                .expect("legacy function source arm only passes FunctionName-backed functions"),
             argument: Box::new(argument),
         },
+        (
+            function @ (Function::Sin
+            | Function::Cos
+            | Function::Tan
+            | Function::Asin
+            | Function::Acos
+            | Function::Atan
+            | Function::Sqrt
+            | Function::Ln),
+            Some(right),
+        ) => source_binary_function_presentation(
+            symbolic_function_name(function),
+            argument,
+            source_presentation(right).node,
+        ),
+        (
+            function @ (Function::Sinh
+            | Function::Cosh
+            | Function::Tanh
+            | Function::Asinh
+            | Function::Acosh
+            | Function::Atanh),
+            None,
+        ) => text_function_presentation(symbolic_function_name(function), argument),
+        (
+            Function::Root
+            | Function::Abs
+            | Function::Floor
+            | Function::Factorial
+            | Function::Permutation
+            | Function::Combination
+            | Function::Modulo
+            | Function::Gcd
+            | Function::Lcm
+            | Function::Sinh
+            | Function::Cosh
+            | Function::Tanh
+            | Function::Asinh
+            | Function::Acosh
+            | Function::Atanh,
+            _,
+        ) => text_function_presentation(symbolic_function_name(function), argument),
     };
     RenderedSource {
         node,
         precedence: SYMBOLIC_PRECEDENCE_ATOM,
     }
+}
+
+fn root_source_presentation(argument: PresentationNode, index: &SourceExpr) -> PresentationNode {
+    if let Some(index) = source_positive_integer(index) {
+        PresentationNode::Radical {
+            index: RadicalIndex::Nth(index),
+            radicand: Box::new(argument),
+        }
+    } else {
+        source_binary_function_presentation("root", argument, source_presentation(index).node)
+    }
+}
+
+fn source_positive_integer(expression: &SourceExpr) -> Option<PositiveInteger> {
+    let SourceExpr::Number { literal, .. } = expression else {
+        return None;
+    };
+    let value = Rational::from_decimal_literal(literal).ok()?;
+    if value.is_integer() {
+        PositiveInteger::new(value.numerator)
+    } else {
+        None
+    }
+}
+
+fn fenced_source_presentation(
+    left: &str,
+    argument: PresentationNode,
+    right: &str,
+) -> PresentationNode {
+    PresentationNode::Row(vec![
+        PresentationNode::Text(String::from(left)),
+        argument,
+        PresentationNode::Text(String::from(right)),
+    ])
+}
+
+fn source_binary_function_presentation(
+    name: &str,
+    left: PresentationNode,
+    right: PresentationNode,
+) -> PresentationNode {
+    PresentationNode::Row(vec![
+        PresentationNode::Text(String::from(name)),
+        PresentationNode::Text(String::from("(")),
+        left,
+        PresentationNode::Text(String::from(",")),
+        right,
+        PresentationNode::Text(String::from(")")),
+    ])
+}
+
+fn text_function_presentation(name: &str, argument: PresentationNode) -> PresentationNode {
+    PresentationNode::Row(vec![
+        PresentationNode::Text(String::from(name)),
+        PresentationNode::Text(String::from("(")),
+        argument,
+        PresentationNode::Text(String::from(")")),
+    ])
 }
 
 fn log_base_presentation(argument: PresentationNode, base: PresentationNode) -> PresentationNode {
@@ -1452,18 +1581,33 @@ fn log_base_presentation(argument: PresentationNode, base: PresentationNode) -> 
     ])
 }
 
-fn function_presentation_name(function: Function) -> FunctionName {
+fn legacy_function_presentation_name(function: Function) -> Option<FunctionName> {
     match function {
-        Function::Sin => FunctionName::Sin,
-        Function::Cos => FunctionName::Cos,
-        Function::Tan => FunctionName::Tan,
-        Function::Asin => FunctionName::Asin,
-        Function::Acos => FunctionName::Acos,
-        Function::Atan => FunctionName::Atan,
-        Function::Sqrt => FunctionName::Sqrt,
-        Function::Exp => FunctionName::Exp,
-        Function::Log => FunctionName::Log,
-        Function::Ln => FunctionName::Ln,
+        Function::Sin => Some(FunctionName::Sin),
+        Function::Cos => Some(FunctionName::Cos),
+        Function::Tan => Some(FunctionName::Tan),
+        Function::Asin => Some(FunctionName::Asin),
+        Function::Acos => Some(FunctionName::Acos),
+        Function::Atan => Some(FunctionName::Atan),
+        Function::Sqrt => Some(FunctionName::Sqrt),
+        Function::Exp => Some(FunctionName::Exp),
+        Function::Log => Some(FunctionName::Log),
+        Function::Ln => Some(FunctionName::Ln),
+        Function::Root
+        | Function::Abs
+        | Function::Floor
+        | Function::Factorial
+        | Function::Permutation
+        | Function::Combination
+        | Function::Modulo
+        | Function::Gcd
+        | Function::Lcm
+        | Function::Sinh
+        | Function::Cosh
+        | Function::Tanh
+        | Function::Asinh
+        | Function::Acosh
+        | Function::Atanh => None,
     }
 }
 
@@ -1512,7 +1656,8 @@ fn render_signed_symbolic_node(dag: &ExactExpressionDag, id: ExprId) -> SignedRe
         }
         ExpressionNode::Constant(_)
         | ExpressionNode::Power { .. }
-        | ExpressionNode::LogBase { .. } => SignedRenderedSymbolic {
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::BinaryFunction { .. } => SignedRenderedSymbolic {
             negative: false,
             value: render_unsigned_symbolic_node(dag, id),
         },
@@ -1573,6 +1718,23 @@ fn render_unsigned_symbolic_node(dag: &ExactExpressionDag, id: ExprId) -> Render
             let argument = render_symbolic_node(dag, *argument);
             RenderedSymbolic {
                 text: format!("{}({})", symbolic_function_name(*function), argument.text),
+                precedence: SYMBOLIC_PRECEDENCE_ATOM,
+            }
+        }
+        ExpressionNode::BinaryFunction {
+            function,
+            left,
+            right,
+        } => {
+            let left = render_symbolic_node(dag, *left);
+            let right = render_symbolic_node(dag, *right);
+            RenderedSymbolic {
+                text: format!(
+                    "{}({},{})",
+                    symbolic_function_name(*function),
+                    left.text,
+                    right.text
+                ),
                 precedence: SYMBOLIC_PRECEDENCE_ATOM,
             }
         }
@@ -1743,7 +1905,14 @@ fn render_signed_symbolic_function_from_signed_argument(
     signed_argument: SignedRenderedSymbolic,
 ) -> SignedRenderedSymbolic {
     match function {
-        Function::Sin | Function::Tan | Function::Asin | Function::Atan
+        Function::Sin
+        | Function::Tan
+        | Function::Asin
+        | Function::Atan
+        | Function::Sinh
+        | Function::Tanh
+        | Function::Asinh
+        | Function::Atanh
             if signed_argument.negative =>
         {
             SignedRenderedSymbolic {
@@ -1751,10 +1920,12 @@ fn render_signed_symbolic_function_from_signed_argument(
                 value: render_symbolic_function_value(function, &signed_argument.value),
             }
         }
-        Function::Cos if signed_argument.negative => SignedRenderedSymbolic {
-            negative: false,
-            value: render_symbolic_function_value(Function::Cos, &signed_argument.value),
-        },
+        Function::Cos | Function::Cosh | Function::Abs if signed_argument.negative => {
+            SignedRenderedSymbolic {
+                negative: false,
+                value: render_symbolic_function_value(function, &signed_argument.value),
+            }
+        }
         Function::Sin
         | Function::Cos
         | Function::Tan
@@ -1762,9 +1933,24 @@ fn render_signed_symbolic_function_from_signed_argument(
         | Function::Acos
         | Function::Atan
         | Function::Sqrt
+        | Function::Root
         | Function::Exp
         | Function::Log
-        | Function::Ln => {
+        | Function::Ln
+        | Function::Abs
+        | Function::Floor
+        | Function::Factorial
+        | Function::Permutation
+        | Function::Combination
+        | Function::Modulo
+        | Function::Gcd
+        | Function::Lcm
+        | Function::Sinh
+        | Function::Cosh
+        | Function::Tanh
+        | Function::Asinh
+        | Function::Acosh
+        | Function::Atanh => {
             let argument = signed_symbolic_to_rendered(signed_argument);
             SignedRenderedSymbolic {
                 negative: false,
@@ -1803,7 +1989,8 @@ fn symbolic_square_base(dag: &ExactExpressionDag, id: ExprId) -> Option<ExprId> 
         | ExpressionNode::Add(_)
         | ExpressionNode::Divide { .. }
         | ExpressionNode::LogBase { .. }
-        | ExpressionNode::Function { .. } => None,
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. } => None,
     }
 }
 
@@ -1877,9 +2064,25 @@ fn symbolic_log_expansion_terms(
                 | Function::Atan
                 | Function::Exp
                 | Function::Log
-                | Function::Ln,
+                | Function::Ln
+                | Function::Root
+                | Function::Abs
+                | Function::Floor
+                | Function::Factorial
+                | Function::Permutation
+                | Function::Combination
+                | Function::Modulo
+                | Function::Gcd
+                | Function::Lcm
+                | Function::Sinh
+                | Function::Cosh
+                | Function::Tanh
+                | Function::Asinh
+                | Function::Acosh
+                | Function::Atanh,
             ..
-        } => {
+        }
+        | ExpressionNode::BinaryFunction { .. } => {
             if !symbolic_positive_proof(dag, argument) {
                 return None;
             }
@@ -1990,6 +2193,7 @@ fn symbolic_positive_proof(dag: &ExactExpressionDag, id: ExprId) -> bool {
             symbolic_log_base_positive_proof(dag, *argument, *base)
         }
         ExpressionNode::Rational(_)
+        | ExpressionNode::BinaryFunction { .. }
         | ExpressionNode::Function {
             function:
                 Function::Sin
@@ -1997,7 +2201,22 @@ fn symbolic_positive_proof(dag: &ExactExpressionDag, id: ExprId) -> bool {
                 | Function::Tan
                 | Function::Asin
                 | Function::Acos
-                | Function::Atan,
+                | Function::Atan
+                | Function::Root
+                | Function::Abs
+                | Function::Floor
+                | Function::Factorial
+                | Function::Permutation
+                | Function::Combination
+                | Function::Modulo
+                | Function::Gcd
+                | Function::Lcm
+                | Function::Sinh
+                | Function::Cosh
+                | Function::Tanh
+                | Function::Asinh
+                | Function::Acosh
+                | Function::Atanh,
             ..
         } => false,
     }
@@ -2041,9 +2260,25 @@ fn symbolic_nonnegative_proof(dag: &ExactExpressionDag, id: ExprId) -> bool {
                 | Function::Atan
                 | Function::Exp
                 | Function::Log
-                | Function::Ln,
+                | Function::Ln
+                | Function::Root
+                | Function::Abs
+                | Function::Floor
+                | Function::Factorial
+                | Function::Permutation
+                | Function::Combination
+                | Function::Modulo
+                | Function::Gcd
+                | Function::Lcm
+                | Function::Sinh
+                | Function::Cosh
+                | Function::Tanh
+                | Function::Asinh
+                | Function::Acosh
+                | Function::Atanh,
             ..
-        } => false,
+        }
+        | ExpressionNode::BinaryFunction { .. } => false,
     }
 }
 
@@ -2114,9 +2349,24 @@ fn render_symbolic_shifted_trig_function(
             | Function::Acos
             | Function::Atan
             | Function::Sqrt
+            | Function::Root
             | Function::Exp
             | Function::Log
-            | Function::Ln => None,
+            | Function::Ln
+            | Function::Abs
+            | Function::Floor
+            | Function::Factorial
+            | Function::Permutation
+            | Function::Combination
+            | Function::Modulo
+            | Function::Gcd
+            | Function::Lcm
+            | Function::Sinh
+            | Function::Cosh
+            | Function::Tanh
+            | Function::Asinh
+            | Function::Acosh
+            | Function::Atanh => None,
         };
     }
 
@@ -2141,9 +2391,24 @@ fn render_symbolic_shifted_trig_function(
             | Function::Acos
             | Function::Atan
             | Function::Sqrt
+            | Function::Root
             | Function::Exp
             | Function::Log
-            | Function::Ln => None,
+            | Function::Ln
+            | Function::Abs
+            | Function::Floor
+            | Function::Factorial
+            | Function::Permutation
+            | Function::Combination
+            | Function::Modulo
+            | Function::Gcd
+            | Function::Lcm
+            | Function::Sinh
+            | Function::Cosh
+            | Function::Tanh
+            | Function::Asinh
+            | Function::Acosh
+            | Function::Atanh => None,
         };
     }
 
@@ -2279,7 +2544,8 @@ fn symbolic_pi_multiple_coefficient(
         }
         ExpressionNode::Function { .. }
         | ExpressionNode::Power { .. }
-        | ExpressionNode::LogBase { .. } => None,
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::BinaryFunction { .. } => None,
     }
 }
 
@@ -2307,7 +2573,8 @@ fn symbolic_rational_value(dag: &ExactExpressionDag, id: ExprId) -> Option<Ratio
         ExpressionNode::Constant(_)
         | ExpressionNode::Function { .. }
         | ExpressionNode::Power { .. }
-        | ExpressionNode::LogBase { .. } => None,
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::BinaryFunction { .. } => None,
     }
 }
 
@@ -2347,8 +2614,23 @@ fn symbolic_function_name(function: Function) -> &'static str {
         Function::Acos => "acos",
         Function::Atan => "atan",
         Function::Sqrt => "sqrt",
+        Function::Root => "root",
         Function::Exp => "exp",
         Function::Log | Function::Ln => "ln",
+        Function::Abs => "abs",
+        Function::Floor => "floor",
+        Function::Factorial => "fact",
+        Function::Permutation => "perm",
+        Function::Combination => "comb",
+        Function::Modulo => "mod",
+        Function::Gcd => "gcd",
+        Function::Lcm => "lcm",
+        Function::Sinh => "sinh",
+        Function::Cosh => "cosh",
+        Function::Tanh => "tanh",
+        Function::Asinh => "asinh",
+        Function::Acosh => "acosh",
+        Function::Atanh => "atanh",
     }
 }
 
@@ -3069,6 +3351,64 @@ mod tests {
             natural,
             PresentationNode::Function {
                 name: FunctionName::Ln,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn integer_and_hyperbolic_functions_reduce_exact_cases() {
+        for (source, expected) in [
+            ("abs(-3/2)", "3/2"),
+            ("floor(7/3)", "2"),
+            ("floor(-7/3)", "-3"),
+            ("5!", "120"),
+            ("fact(5)", "120"),
+            ("root(27,3)", "3"),
+            ("gcd(84,30)", "6"),
+            ("lcm(12,18)", "36"),
+            ("lcd(12,18)", "36"),
+            ("mod(17,5)", "2"),
+            ("perm(5,2)", "20"),
+            ("comb(5,2)", "10"),
+            ("sinh(0)", "0"),
+            ("cosh(0)", "1"),
+            ("tanh(0)", "0"),
+            ("asinh(0)", "0"),
+            ("acosh(1)", "0"),
+            ("atanh(0)", "0"),
+            ("exp(sinh(0))", "1"),
+            ("ln(cosh(0))", "0"),
+            ("sqrt(abs(-4))", "2"),
+            ("(sin(pi/2)+4)!", "120"),
+        ] {
+            assert_eq!(
+                exact_presentation_for(source).plain_text,
+                expected,
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn input_presentation_renders_extended_function_notation() {
+        let factorial = present_input("5!", &CalculationRequest::default()).unwrap();
+        assert!(matches!(factorial, PresentationNode::Row(_)));
+
+        let absolute = present_input("abs(-2)", &CalculationRequest::default()).unwrap();
+        let PresentationNode::Row(children) = absolute else {
+            panic!("expected absolute value presentation to be a row");
+        };
+        assert!(matches!(
+            children.first(),
+            Some(PresentationNode::Text(text)) if text == "|"
+        ));
+
+        let root = present_input("root(27,3)", &CalculationRequest::default()).unwrap();
+        assert!(matches!(
+            root,
+            PresentationNode::Radical {
+                index: RadicalIndex::Nth(_),
                 ..
             }
         ));

@@ -1,7 +1,9 @@
 use alloc::{vec, vec::Vec};
 use core::cmp::Ordering;
 
-use num_traits::ToPrimitive;
+use num_bigint::BigInt;
+use num_integer::Integer as _;
+use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use crate::{
     interval::{self, IntervalError},
@@ -374,6 +376,22 @@ pub(crate) fn structurally_equal_expressions(
             left_function == right_function
                 && structurally_equal_expressions(dag, *left_argument, *right_argument)
         }
+        (
+            ExpressionNode::BinaryFunction {
+                function: left_function,
+                left: left_left,
+                right: left_right,
+            },
+            ExpressionNode::BinaryFunction {
+                function: right_function,
+                left: right_left,
+                right: right_right,
+            },
+        ) => {
+            left_function == right_function
+                && structurally_equal_expressions(dag, *left_left, *right_left)
+                && structurally_equal_expressions(dag, *left_right, *right_right)
+        }
         _ => false,
     }
 }
@@ -434,8 +452,24 @@ fn prove_expression_nonzero(dag: &ExactExpressionDag, id: ExprId) -> Result<bool
             | Function::Tan
             | Function::Asin
             | Function::Acos
-            | Function::Atan => Ok(false),
+            | Function::Atan
+            | Function::Root
+            | Function::Abs
+            | Function::Floor
+            | Function::Factorial
+            | Function::Permutation
+            | Function::Combination
+            | Function::Modulo
+            | Function::Gcd
+            | Function::Lcm
+            | Function::Sinh
+            | Function::Cosh
+            | Function::Tanh
+            | Function::Asinh
+            | Function::Acosh
+            | Function::Atanh => Ok(false),
         },
+        ExpressionNode::BinaryFunction { .. } => Ok(false),
     }
 }
 
@@ -480,7 +514,23 @@ fn expression_domain_known_well_defined(
                 Ok(true)
             }
             Function::Tan | Function::Asin | Function::Acos => Ok(false),
+            Function::Root
+            | Function::Abs
+            | Function::Floor
+            | Function::Factorial
+            | Function::Permutation
+            | Function::Combination
+            | Function::Modulo
+            | Function::Gcd
+            | Function::Lcm
+            | Function::Sinh
+            | Function::Cosh
+            | Function::Tanh
+            | Function::Asinh
+            | Function::Acosh
+            | Function::Atanh => expression_domain_known_well_defined(dag, *argument),
         },
+        ExpressionNode::BinaryFunction { .. } => Ok(false),
     }
 }
 
@@ -533,9 +583,25 @@ fn prove_expression_positive(
             | Function::Asin
             | Function::Acos
             | Function::Atan
+            | Function::Root
+            | Function::Abs
+            | Function::Floor
+            | Function::Factorial
+            | Function::Permutation
+            | Function::Combination
+            | Function::Modulo
+            | Function::Gcd
+            | Function::Lcm
+            | Function::Sinh
+            | Function::Cosh
+            | Function::Tanh
+            | Function::Asinh
+            | Function::Acosh
+            | Function::Atanh
             | Function::Log
             | Function::Ln => Ok(false),
         },
+        ExpressionNode::BinaryFunction { .. } => Ok(false),
     }
 }
 
@@ -574,9 +640,25 @@ fn prove_expression_nonnegative(
                 | Function::Acos
                 | Function::Atan
                 | Function::Log
-                | Function::Ln,
+                | Function::Ln
+                | Function::Root
+                | Function::Abs
+                | Function::Floor
+                | Function::Factorial
+                | Function::Permutation
+                | Function::Combination
+                | Function::Modulo
+                | Function::Gcd
+                | Function::Lcm
+                | Function::Sinh
+                | Function::Cosh
+                | Function::Tanh
+                | Function::Asinh
+                | Function::Acosh
+                | Function::Atanh,
             ..
-        } => prove_expression_positive(dag, id),
+        }
+        | ExpressionNode::BinaryFunction { .. } => prove_expression_positive(dag, id),
     }
 }
 
@@ -682,6 +764,31 @@ fn evaluate_node(
             evaluate_log_base_function(dag, *argument, *base)
         }
         ExpressionNode::Function { function, argument } => match function {
+            Function::Abs => {
+                let argument = evaluate_node(dag, *argument)?;
+                let value = if argument.value().is_negative() {
+                    argument.value().negate()
+                } else {
+                    argument.value().clone()
+                };
+                Ok(RationalEvaluation::with_origin(
+                    value,
+                    argument.used_special_angle(),
+                ))
+            }
+            Function::Floor => {
+                let argument = evaluate_node(dag, *argument)?;
+                Ok(RationalEvaluation::with_origin(
+                    rational_floor(argument.value()),
+                    argument.used_special_angle(),
+                ))
+            }
+            Function::Factorial => {
+                let argument = evaluate_node(dag, *argument)?;
+                evaluate_factorial(argument.value()).map(|value| {
+                    RationalEvaluation::with_origin(value, argument.used_special_angle())
+                })
+            }
             Function::Sqrt => {
                 let argument = evaluate_node(dag, *argument)?;
                 if argument.value().is_negative() {
@@ -706,8 +813,180 @@ fn evaluate_node(
             Function::Asin | Function::Acos | Function::Atan => {
                 evaluate_inverse_trigonometric_function(dag, *function, *argument)
             }
+            Function::Root
+            | Function::Permutation
+            | Function::Combination
+            | Function::Modulo
+            | Function::Gcd
+            | Function::Lcm
+            | Function::Sinh
+            | Function::Cosh
+            | Function::Tanh
+            | Function::Asinh
+            | Function::Acosh
+            | Function::Atanh => Err(unsupported_function_evaluation()),
         },
+        ExpressionNode::BinaryFunction {
+            function,
+            left,
+            right,
+        } => evaluate_binary_function(dag, *function, *left, *right),
     }
+}
+
+const MAX_EXACT_INTEGER_FUNCTION_ORDER: u32 = 4096;
+
+fn evaluate_binary_function(
+    dag: &ExactExpressionDag,
+    function: Function,
+    left: ExprId,
+    right: ExprId,
+) -> Result<RationalEvaluation, EvaluationError> {
+    let left = evaluate_node(dag, left)?;
+    let right = evaluate_node(dag, right)?;
+    let used_special_angle = left.used_special_angle() || right.used_special_angle();
+    let value = match function {
+        Function::Gcd => evaluate_gcd(left.value(), right.value())?,
+        Function::Lcm => evaluate_lcm(left.value(), right.value())?,
+        Function::Modulo => evaluate_modulo(left.value(), right.value())?,
+        Function::Permutation => evaluate_permutation(left.value(), right.value())?,
+        Function::Combination => evaluate_combination(left.value(), right.value())?,
+        Function::Root
+        | Function::Sin
+        | Function::Cos
+        | Function::Tan
+        | Function::Asin
+        | Function::Acos
+        | Function::Atan
+        | Function::Sqrt
+        | Function::Exp
+        | Function::Log
+        | Function::Ln
+        | Function::Abs
+        | Function::Floor
+        | Function::Factorial
+        | Function::Sinh
+        | Function::Cosh
+        | Function::Tanh
+        | Function::Asinh
+        | Function::Acosh
+        | Function::Atanh => return Err(unsupported_function_evaluation()),
+    };
+    Ok(RationalEvaluation::with_origin(value, used_special_angle))
+}
+
+fn rational_floor(value: &Rational) -> Rational {
+    Rational::from_integer(Integer::from_bigint(
+        value
+            .numerator
+            .inner
+            .div_floor(&value.denominator.inner.inner),
+    ))
+}
+
+fn evaluate_factorial(value: &Rational) -> Result<Rational, EvaluationError> {
+    let n = nonnegative_integer_u32(value)?;
+    ensure_integer_function_order(n)?;
+    Ok(Rational::from_integer(Integer::from_bigint(
+        factorial_bigint(n),
+    )))
+}
+
+fn evaluate_gcd(left: &Rational, right: &Rational) -> Result<Rational, EvaluationError> {
+    let left = integer_bigint(left)?.abs();
+    let right = integer_bigint(right)?.abs();
+    Ok(Rational::from_integer(Integer::from_bigint(
+        left.gcd(&right),
+    )))
+}
+
+fn evaluate_lcm(left: &Rational, right: &Rational) -> Result<Rational, EvaluationError> {
+    let left = integer_bigint(left)?;
+    let right = integer_bigint(right)?;
+    if left.is_zero() || right.is_zero() {
+        return Ok(Rational::zero());
+    }
+    let gcd = left.gcd(&right);
+    Ok(Rational::from_integer(Integer::from_bigint(
+        (left / gcd * right).abs(),
+    )))
+}
+
+fn evaluate_modulo(left: &Rational, right: &Rational) -> Result<Rational, EvaluationError> {
+    let left = integer_bigint(left)?;
+    let right = integer_bigint(right)?;
+    if right.is_zero() {
+        return Err(domain_error(DomainErrorKind::DivisionByZero));
+    }
+    Ok(Rational::from_integer(Integer::from_bigint(
+        left.mod_floor(&right),
+    )))
+}
+
+fn evaluate_permutation(n: &Rational, r: &Rational) -> Result<Rational, EvaluationError> {
+    let n = nonnegative_integer_u32(n)?;
+    let r = nonnegative_integer_u32(r)?;
+    ensure_integer_function_order(n)?;
+    if r > n {
+        return Ok(Rational::zero());
+    }
+    let mut value = BigInt::one();
+    for factor in (n - r + 1)..=n {
+        value *= BigInt::from(factor);
+    }
+    Ok(Rational::from_integer(Integer::from_bigint(value)))
+}
+
+fn evaluate_combination(n: &Rational, r: &Rational) -> Result<Rational, EvaluationError> {
+    let n = nonnegative_integer_u32(n)?;
+    let mut r = nonnegative_integer_u32(r)?;
+    ensure_integer_function_order(n)?;
+    if r > n {
+        return Ok(Rational::zero());
+    }
+    r = r.min(n - r);
+    let mut value = BigInt::one();
+    for i in 1..=r {
+        value *= BigInt::from(n - r + i);
+        value /= BigInt::from(i);
+    }
+    Ok(Rational::from_integer(Integer::from_bigint(value)))
+}
+
+fn integer_bigint(value: &Rational) -> Result<BigInt, EvaluationError> {
+    if value.is_integer() {
+        Ok(value.numerator.inner.clone())
+    } else {
+        Err(domain_error(
+            DomainErrorKind::IntegerFunctionRequiresInteger,
+        ))
+    }
+}
+
+fn nonnegative_integer_u32(value: &Rational) -> Result<u32, EvaluationError> {
+    let integer = integer_bigint(value)?;
+    if integer.is_negative() {
+        return Err(domain_error(
+            DomainErrorKind::IntegerFunctionRequiresNonNegative,
+        ));
+    }
+    integer.to_u32().ok_or_else(logical_work_limit_error)
+}
+
+fn ensure_integer_function_order(value: u32) -> Result<(), EvaluationError> {
+    if value > MAX_EXACT_INTEGER_FUNCTION_ORDER {
+        Err(logical_work_limit_error())
+    } else {
+        Ok(())
+    }
+}
+
+fn factorial_bigint(value: u32) -> BigInt {
+    let mut product = BigInt::one();
+    for factor in 2..=value {
+        product *= BigInt::from(factor);
+    }
+    product
 }
 
 fn evaluate_pi_coefficient(
@@ -813,12 +1092,28 @@ fn evaluate_pi_coefficient(
             | Function::Acos
             | Function::Atan
             | Function::Sqrt
+            | Function::Root
             | Function::Exp
             | Function::Log
-            | Function::Ln => Ok(None),
+            | Function::Ln
+            | Function::Abs
+            | Function::Floor
+            | Function::Factorial
+            | Function::Permutation
+            | Function::Combination
+            | Function::Modulo
+            | Function::Gcd
+            | Function::Lcm
+            | Function::Sinh
+            | Function::Cosh
+            | Function::Tanh
+            | Function::Asinh
+            | Function::Acosh
+            | Function::Atanh => Ok(None),
         },
         ExpressionNode::Power { .. } => Ok(None),
         ExpressionNode::LogBase { .. } => Ok(None),
+        ExpressionNode::BinaryFunction { .. } => Ok(None),
     }
 }
 
@@ -857,7 +1152,24 @@ fn evaluate_radical_node(
             Function::Sin | Function::Cos | Function::Tan => {
                 evaluate_radical_trigonometric_function(dag, *function, *argument)
             }
-            Function::Asin | Function::Acos | Function::Atan => Ok(None),
+            Function::Asin
+            | Function::Acos
+            | Function::Atan
+            | Function::Root
+            | Function::Abs
+            | Function::Floor
+            | Function::Factorial
+            | Function::Permutation
+            | Function::Combination
+            | Function::Modulo
+            | Function::Gcd
+            | Function::Lcm
+            | Function::Sinh
+            | Function::Cosh
+            | Function::Tanh
+            | Function::Asinh
+            | Function::Acosh
+            | Function::Atanh => Ok(None),
         },
         ExpressionNode::Power { base, exponent } => {
             let exponent = match evaluate_node(dag, *exponent) {
@@ -891,7 +1203,8 @@ fn evaluate_radical_node(
         }
         ExpressionNode::Rational(_)
         | ExpressionNode::Constant(_)
-        | ExpressionNode::LogBase { .. } => Ok(None),
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::BinaryFunction { .. } => Ok(None),
     }
 }
 
@@ -939,11 +1252,29 @@ fn evaluate_real_algebraic_node(
                 evaluate_real_algebraic_log_function(dag, *argument, limits)
             }
             Function::Sqrt => evaluate_real_algebraic_sqrt_function(dag, *argument, limits),
-            Function::Asin | Function::Acos | Function::Atan => Ok(None),
+            Function::Asin
+            | Function::Acos
+            | Function::Atan
+            | Function::Root
+            | Function::Abs
+            | Function::Floor
+            | Function::Factorial
+            | Function::Permutation
+            | Function::Combination
+            | Function::Modulo
+            | Function::Gcd
+            | Function::Lcm
+            | Function::Sinh
+            | Function::Cosh
+            | Function::Tanh
+            | Function::Asinh
+            | Function::Acosh
+            | Function::Atanh => Ok(None),
         },
         ExpressionNode::Rational(_)
         | ExpressionNode::Constant(_)
-        | ExpressionNode::LogBase { .. } => Ok(None),
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::BinaryFunction { .. } => Ok(None),
     }
 }
 
@@ -1579,9 +1910,24 @@ fn evaluate_real_algebraic_trigonometric_special_angle(
         | Function::Acos
         | Function::Atan
         | Function::Sqrt
+        | Function::Root
         | Function::Exp
         | Function::Log
-        | Function::Ln => Ok(None),
+        | Function::Ln
+        | Function::Abs
+        | Function::Floor
+        | Function::Factorial
+        | Function::Permutation
+        | Function::Combination
+        | Function::Modulo
+        | Function::Gcd
+        | Function::Lcm
+        | Function::Sinh
+        | Function::Cosh
+        | Function::Tanh
+        | Function::Asinh
+        | Function::Acosh
+        | Function::Atanh => Ok(None),
     }
 }
 
@@ -1835,9 +2181,24 @@ fn evaluate_radical_trigonometric_special_angle(
         | Function::Acos
         | Function::Atan
         | Function::Sqrt
+        | Function::Root
         | Function::Exp
         | Function::Log
-        | Function::Ln => {
+        | Function::Ln
+        | Function::Abs
+        | Function::Floor
+        | Function::Factorial
+        | Function::Permutation
+        | Function::Combination
+        | Function::Modulo
+        | Function::Gcd
+        | Function::Lcm
+        | Function::Sinh
+        | Function::Cosh
+        | Function::Tanh
+        | Function::Asinh
+        | Function::Acosh
+        | Function::Atanh => {
             return Ok(None);
         }
     };
@@ -2787,9 +3148,27 @@ fn evaluate_positive_rational_power_pattern(
                 | Function::Atan
                 | Function::Exp
                 | Function::Log
-                | Function::Ln,
+                | Function::Ln
+                | Function::Root
+                | Function::Abs
+                | Function::Floor
+                | Function::Factorial
+                | Function::Permutation
+                | Function::Combination
+                | Function::Modulo
+                | Function::Gcd
+                | Function::Lcm
+                | Function::Sinh
+                | Function::Cosh
+                | Function::Tanh
+                | Function::Asinh
+                | Function::Acosh
+                | Function::Atanh,
             ..
-        } => evaluate_direct_positive_rational_power_pattern(dag, id),
+        }
+        | ExpressionNode::BinaryFunction { .. } => {
+            evaluate_direct_positive_rational_power_pattern(dag, id)
+        }
     }
 }
 
@@ -2968,9 +3347,24 @@ fn evaluate_rational_trigonometric_special_angle(
         | Function::Acos
         | Function::Atan
         | Function::Sqrt
+        | Function::Root
         | Function::Exp
         | Function::Log
-        | Function::Ln => {
+        | Function::Ln
+        | Function::Abs
+        | Function::Floor
+        | Function::Factorial
+        | Function::Permutation
+        | Function::Combination
+        | Function::Modulo
+        | Function::Gcd
+        | Function::Lcm
+        | Function::Sinh
+        | Function::Cosh
+        | Function::Tanh
+        | Function::Asinh
+        | Function::Acosh
+        | Function::Atanh => {
             return Ok(None);
         }
     }
@@ -3581,9 +3975,24 @@ fn evaluate_inverse_trig_pi_coefficient(
         | Function::Cos
         | Function::Tan
         | Function::Sqrt
+        | Function::Root
         | Function::Exp
         | Function::Log
-        | Function::Ln => {
+        | Function::Ln
+        | Function::Abs
+        | Function::Floor
+        | Function::Factorial
+        | Function::Permutation
+        | Function::Combination
+        | Function::Modulo
+        | Function::Gcd
+        | Function::Lcm
+        | Function::Sinh
+        | Function::Cosh
+        | Function::Tanh
+        | Function::Asinh
+        | Function::Acosh
+        | Function::Atanh => {
             return Ok(None);
         }
     };
@@ -3774,6 +4183,10 @@ fn non_integer_power_error() -> EvaluationError {
 }
 
 fn exponent_too_large_error() -> EvaluationError {
+    logical_work_limit_error()
+}
+
+fn logical_work_limit_error() -> EvaluationError {
     EvaluationError::ComputationLimit(ComputationLimitError {
         kind: ComputationLimitKind::LogicalWorkUnits,
     })
@@ -3899,7 +4312,27 @@ fn evaluate_interval_node(
                 &evaluate_interval_node(dag, *argument, precision_bits)?,
                 precision_bits,
             ),
+            Function::Abs
+            | Function::Floor
+            | Function::Factorial
+            | Function::Root
+            | Function::Permutation
+            | Function::Combination
+            | Function::Modulo
+            | Function::Gcd
+            | Function::Lcm
+            | Function::Sinh
+            | Function::Cosh
+            | Function::Tanh
+            | Function::Asinh
+            | Function::Acosh
+            | Function::Atanh => evaluate_node(dag, id)
+                .map(|value| interval::from_rational(value.value(), precision_bits))
+                .map_err(evaluation_error_to_interval_error),
         },
+        ExpressionNode::BinaryFunction { .. } => evaluate_node(dag, id)
+            .map(|value| interval::from_rational(value.value(), precision_bits))
+            .map_err(evaluation_error_to_interval_error),
     }
 }
 
@@ -4147,7 +4580,7 @@ impl DagBuilder {
                 let argument = self.lower_function_argument(*function, argument);
                 if let Some(base) = base {
                     let base = self.lower(base)?;
-                    return Ok(self.lower_binary_function(*function, argument, base));
+                    return self.lower_binary_function(*function, argument, base);
                 }
                 let function = match function {
                     Function::Ln => Function::Log,
@@ -4158,8 +4591,25 @@ impl DagBuilder {
                     | Function::Acos
                     | Function::Atan
                     | Function::Sqrt
+                    | Function::Abs
+                    | Function::Floor
+                    | Function::Factorial
                     | Function::Exp
                     | Function::Log) => *function,
+                    Function::Sinh
+                    | Function::Cosh
+                    | Function::Tanh
+                    | Function::Asinh
+                    | Function::Acosh
+                    | Function::Atanh => {
+                        return Ok(self.lower_hyperbolic_function(*function, argument));
+                    }
+                    Function::Root
+                    | Function::Permutation
+                    | Function::Combination
+                    | Function::Modulo
+                    | Function::Gcd
+                    | Function::Lcm => *function,
                 };
                 Ok(self.push_node(ExpressionNode::Function { function, argument }))
             }
@@ -4171,25 +4621,45 @@ impl DagBuilder {
         function: Function,
         argument: ExprId,
         base: ExprId,
-    ) -> ExprId {
+    ) -> Result<ExprId, EvaluationError> {
         match function {
             Function::Exp if self.is_euler_constant(base) => {
-                self.push_node(ExpressionNode::Function {
+                Ok(self.push_node(ExpressionNode::Function {
                     function: Function::Exp,
                     argument,
-                })
+                }))
             }
-            Function::Exp => self.push_node(ExpressionNode::Power {
+            Function::Exp => Ok(self.push_node(ExpressionNode::Power {
                 base,
                 exponent: argument,
-            }),
+            })),
             Function::Log if self.is_euler_constant(base) => {
-                self.push_node(ExpressionNode::Function {
+                Ok(self.push_node(ExpressionNode::Function {
                     function: Function::Log,
                     argument,
-                })
+                }))
             }
-            Function::Log => self.push_node(ExpressionNode::LogBase { argument, base }),
+            Function::Log => Ok(self.push_node(ExpressionNode::LogBase { argument, base })),
+            Function::Root => {
+                let one = self.push_rational(Rational::one());
+                let exponent = self.push_node(ExpressionNode::Divide {
+                    numerator: one,
+                    denominator: base,
+                });
+                Ok(self.push_node(ExpressionNode::Power {
+                    base: argument,
+                    exponent,
+                }))
+            }
+            Function::Permutation
+            | Function::Combination
+            | Function::Modulo
+            | Function::Gcd
+            | Function::Lcm => Ok(self.push_node(ExpressionNode::BinaryFunction {
+                function,
+                left: argument,
+                right: base,
+            })),
             Function::Ln
             | Function::Sin
             | Function::Cos
@@ -4197,7 +4667,94 @@ impl DagBuilder {
             | Function::Asin
             | Function::Acos
             | Function::Atan
-            | Function::Sqrt => self.push_node(ExpressionNode::Function { function, argument }),
+            | Function::Sqrt
+            | Function::Abs
+            | Function::Floor
+            | Function::Factorial
+            | Function::Sinh
+            | Function::Cosh
+            | Function::Tanh
+            | Function::Asinh
+            | Function::Acosh
+            | Function::Atanh => {
+                Ok(self.push_node(ExpressionNode::Function { function, argument }))
+            }
+        }
+    }
+
+    fn lower_hyperbolic_function(&mut self, function: Function, argument: ExprId) -> ExprId {
+        match function {
+            Function::Sinh => {
+                let exp_positive = self.exp(argument);
+                let negative_argument = self.negate(argument);
+                let exp_negative = self.exp(negative_argument);
+                let numerator = self.subtract(exp_positive, exp_negative);
+                let two = self.integer(2);
+                self.divide(numerator, two)
+            }
+            Function::Cosh => {
+                let exp_positive = self.exp(argument);
+                let negative_argument = self.negate(argument);
+                let exp_negative = self.exp(negative_argument);
+                let numerator = self.add(exp_positive, exp_negative);
+                let two = self.integer(2);
+                self.divide(numerator, two)
+            }
+            Function::Tanh => {
+                let exp_positive = self.exp(argument);
+                let negative_argument = self.negate(argument);
+                let exp_negative = self.exp(negative_argument);
+                let numerator = self.subtract(exp_positive, exp_negative);
+                let denominator = self.add(exp_positive, exp_negative);
+                self.divide(numerator, denominator)
+            }
+            Function::Asinh => {
+                let two = self.integer(2);
+                let square = self.power(argument, two);
+                let one = self.integer(1);
+                let under_root = self.add(square, one);
+                let root = self.sqrt(under_root);
+                let logarithm_argument = self.add(argument, root);
+                self.log(logarithm_argument)
+            }
+            Function::Acosh => {
+                let two = self.integer(2);
+                let square = self.power(argument, two);
+                let one = self.integer(1);
+                let under_root = self.subtract(square, one);
+                let root = self.sqrt(under_root);
+                let logarithm_argument = self.add(argument, root);
+                self.log(logarithm_argument)
+            }
+            Function::Atanh => {
+                let numerator_one = self.integer(1);
+                let numerator = self.add(numerator_one, argument);
+                let denominator_one = self.integer(1);
+                let denominator = self.subtract(denominator_one, argument);
+                let quotient = self.divide(numerator, denominator);
+                let logarithm = self.log(quotient);
+                let two = self.integer(2);
+                self.divide(logarithm, two)
+            }
+            Function::Sin
+            | Function::Cos
+            | Function::Tan
+            | Function::Asin
+            | Function::Acos
+            | Function::Atan
+            | Function::Sqrt
+            | Function::Root
+            | Function::Exp
+            | Function::Log
+            | Function::Ln
+            | Function::Abs
+            | Function::Floor
+            | Function::Factorial
+            | Function::Permutation
+            | Function::Combination
+            | Function::Modulo
+            | Function::Gcd
+            | Function::Lcm => self.push_node(ExpressionNode::Function { function, argument }),
         }
     }
 
@@ -4215,9 +4772,24 @@ impl DagBuilder {
             | Function::Acos
             | Function::Atan
             | Function::Sqrt
+            | Function::Root
             | Function::Exp
             | Function::Log
-            | Function::Ln => argument,
+            | Function::Ln
+            | Function::Abs
+            | Function::Floor
+            | Function::Factorial
+            | Function::Permutation
+            | Function::Combination
+            | Function::Modulo
+            | Function::Gcd
+            | Function::Lcm
+            | Function::Sinh
+            | Function::Cosh
+            | Function::Tanh
+            | Function::Asinh
+            | Function::Acosh
+            | Function::Atanh => argument,
         }
     }
 
@@ -4244,6 +4816,52 @@ impl DagBuilder {
         let minus_one = self.push_rational(Rational::from_integer(Integer::from(-1)));
         let list = self.push_list(vec![minus_one, value]);
         self.push_node(ExpressionNode::Multiply(list))
+    }
+
+    fn integer(&mut self, value: i64) -> ExprId {
+        self.push_rational(Rational::from_integer(Integer::from(value)))
+    }
+
+    fn add(&mut self, left: ExprId, right: ExprId) -> ExprId {
+        let list = self.push_list(vec![left, right]);
+        self.push_node(ExpressionNode::Add(list))
+    }
+
+    fn subtract(&mut self, left: ExprId, right: ExprId) -> ExprId {
+        let negative_right = self.negate(right);
+        self.add(left, negative_right)
+    }
+
+    fn divide(&mut self, numerator: ExprId, denominator: ExprId) -> ExprId {
+        self.push_node(ExpressionNode::Divide {
+            numerator,
+            denominator,
+        })
+    }
+
+    fn power(&mut self, base: ExprId, exponent: ExprId) -> ExprId {
+        self.push_node(ExpressionNode::Power { base, exponent })
+    }
+
+    fn exp(&mut self, argument: ExprId) -> ExprId {
+        self.push_node(ExpressionNode::Function {
+            function: Function::Exp,
+            argument,
+        })
+    }
+
+    fn log(&mut self, argument: ExprId) -> ExprId {
+        self.push_node(ExpressionNode::Function {
+            function: Function::Log,
+            argument,
+        })
+    }
+
+    fn sqrt(&mut self, argument: ExprId) -> ExprId {
+        self.push_node(ExpressionNode::Function {
+            function: Function::Sqrt,
+            argument,
+        })
     }
 
     fn push_rational(&mut self, rational: Rational) -> ExprId {
