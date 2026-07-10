@@ -5325,7 +5325,7 @@ mod tests {
             panic!("expected exact algebraic output");
         };
         assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
-        assert_eq!(exact.plain_text, source);
+        assert_eq!(exact.plain_text, "(2^(1/3))^2");
     }
 
     #[test]
@@ -5398,7 +5398,12 @@ mod tests {
                 panic!("{source}: expected exact algebraic output");
             };
             assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
-            assert_eq!(exact.plain_text, source);
+            let expected = if source == "(2^(1/3))^-1" {
+                "1/2^(1/3)"
+            } else {
+                source
+            };
+            assert_eq!(exact.plain_text, expected);
         }
     }
 
@@ -5866,19 +5871,23 @@ mod tests {
     #[test]
     fn algebraic_product_limits_fall_back_to_symbolic_without_error() {
         let source = "2^(1/3)*2^(1/3)";
-        assert_source_symbolic_fallback_with_limits(
+        assert_symbolic_fallback_exact_with_limits(
             source,
+            "(2^(1/3))^2",
             ResourceLimits {
                 max_resultant_degree: 2,
                 ..ResourceLimits::default()
             },
+            false,
         );
-        assert_source_symbolic_fallback_with_limits(
+        assert_symbolic_fallback_exact_with_limits(
             source,
+            "(2^(1/3))^2",
             ResourceLimits {
                 max_factorization_work: 0,
                 ..ResourceLimits::default()
             },
+            false,
         );
     }
 
@@ -6124,14 +6133,14 @@ mod tests {
     #[test]
     fn symbolic_logarithm_presentation_expands_only_proven_positive_factors() {
         for (source, expected) in [
-            ("ln(2*3)", "ln(2)+ln(3)"),
-            ("ln(2*2*3)", "ln(3)+2*ln(2)"),
+            ("ln(2*3)", "ln(6)"),
+            ("ln(2*2*3)", "ln(12)"),
             ("ln(2/3)", "ln(2)-ln(3)"),
-            ("ln(2^3)", "3*ln(2)"),
-            ("ln(2^(-3))", "-3*ln(2)"),
+            ("ln(2^3)", "ln(8)"),
+            ("ln(2^(-3))", "-ln(8)"),
             ("ln(sqrt(2))", "1/2*ln(2)"),
             ("ln(sqrt(2)^2)", "ln(2)"),
-            ("ln((2+3)*5)", "ln(5)+ln(2+3)"),
+            ("ln((2+3)*5)", "ln(25)"),
             ("ln(pi*e)", "ln(pi)+ln(e)"),
         ] {
             assert_eq!(
@@ -6141,10 +6150,7 @@ mod tests {
             );
         }
 
-        for (source, expected) in [
-            ("ln((-2)*(-3))", "ln(2*3)"),
-            ("ln(sin(1)*2)", "ln(2*sin(1))"),
-        ] {
+        for (source, expected) in [("ln((-2)*(-3))", "ln(6)"), ("ln(sin(1)*2)", "ln(2*sin(1))")] {
             assert_eq!(
                 symbolic_plain_text_from_source(source),
                 expected,
@@ -6161,7 +6167,7 @@ mod tests {
             ("sqrt(ln(2)^2)", "ln(2)"),
             ("sqrt(log(3,2)^2)", "log(3,2)"),
             ("sqrt(sqrt(2)^2)", "sqrt(2)"),
-            ("sqrt((2+3)^2)", "2+3"),
+            ("sqrt((2+3)^2)", "sqrt(25)"),
             ("sqrt(exp(2)*exp(2))", "exp(2)"),
         ] {
             assert_eq!(
@@ -6174,7 +6180,7 @@ mod tests {
         for (source, expected) in [
             ("sqrt(ln(1/2)^2)", "sqrt((-ln(2))^2)"),
             ("sqrt(sin(1)^2)", "sqrt(sin(1)^2)"),
-            ("sqrt((-exp(2))^2)", "sqrt((-exp(2))^2)"),
+            ("sqrt((-exp(2))^2)", "exp(2)"),
         ] {
             assert_eq!(
                 symbolic_plain_text_from_source(source),
@@ -6565,9 +6571,69 @@ mod tests {
             ("(exp(1)+sin(1))^2-exp(1)^2-2*exp(1)*sin(1)-sin(1)^2", "0"),
             ("(exp(1)*sin(1))/exp(1)", "sin(1)"),
             ("(exp(1)*sin(1)+exp(1)*cos(1))/exp(1)", "sin(1)+cos(1)"),
+            ("sin(pi/2)*exp(1)-exp(1)", "0"),
+            ("sqrt(2)*sqrt(2)*exp(1)-2*exp(1)", "0"),
+            ("(sin(pi/6)+sin(pi/6))*exp(1)-exp(1)", "0"),
+            ("(2^(1/3))^2-2^(2/3)", "0"),
+            ("exp(1)*exp(2)", "exp(3)"),
+            ("exp(sin(1))*exp(cos(1))", "exp(sin(1)+cos(1))"),
+            ("exp(sin(1))*exp(-sin(1))", "1"),
+            ("exp(1)/exp(2)", "exp(-1)"),
         ] {
             assert_eq!(exact_plain_text(source), expected, "{source}");
         }
+    }
+
+    #[test]
+    fn arithmetic_normalization_is_independent_of_order_and_factoring() {
+        for equivalent_sources in [
+            [
+                "sin(1)*cos(1)*exp(1)",
+                "exp(1)*(cos(1)*sin(1))",
+                "(sin(1)*exp(1))*cos(1)",
+            ],
+            [
+                "exp(1)*(sin(1)+cos(1))",
+                "exp(1)*sin(1)+exp(1)*cos(1)",
+                "cos(1)*exp(1)+sin(1)*exp(1)",
+            ],
+            [
+                "(exp(1)+sin(1))/exp(2)",
+                "exp(1)/exp(2)+sin(1)/exp(2)",
+                "sin(1)*exp(-2)+exp(-1)",
+            ],
+        ] {
+            let expected = exact_plain_text(equivalent_sources[0]);
+            for source in &equivalent_sources[1..] {
+                assert_eq!(exact_plain_text(source), expected, "{source}");
+            }
+        }
+    }
+
+    #[test]
+    fn canonical_polynomial_expansion_uses_the_shared_rewrite_budget() {
+        let request = CalculationRequest {
+            scientific_output: ScientificOutputRequest::Omit,
+            enclosure_output: EnclosureOutputRequest::Omit,
+            limits: ResourceLimitRequest::Custom(ResourceLimits {
+                max_rewrite_steps: 2,
+                max_logical_work_units: 2,
+                ..ResourceLimits::default()
+            }),
+            ..CalculationRequest::default()
+        };
+        let mut context = EvaluationContext::default();
+        let outcome = calculate("(sin(1)+cos(1)+exp(1))^8", &request, &mut context)
+            .expect("bounded canonicalization must return a typed partial outcome");
+        let CalculationOutcome::Partial { reason, .. } = outcome else {
+            panic!("insufficient canonicalization budget must be visible");
+        };
+        assert!(matches!(
+            reason,
+            IncompleteReason::ComputationLimit {
+                kind: ComputationLimitKind::RewriteSteps | ComputationLimitKind::LogicalWorkUnits,
+            }
+        ));
     }
 
     #[test]
@@ -6576,16 +6642,30 @@ mod tests {
             "(ln(-1)*exp(1))/ln(-1)",
             "(exp(1)+sin(1))*ln(-1)-exp(1)*ln(-1)-sin(1)*ln(-1)",
         ] {
-            let mut context = EvaluationContext::default();
-            let error = calculate(source, &exact_only_request(), &mut context).expect_err(source);
-            assert_eq!(
-                error,
-                CalculatorError::Domain(DomainError {
-                    kind: DomainErrorKind::LogarithmOfNonPositive,
-                    span: None,
-                }),
-                "{source}"
-            );
+            for request in [
+                exact_only_request(),
+                CalculationRequest {
+                    scientific_output: ScientificOutputRequest::Omit,
+                    enclosure_output: EnclosureOutputRequest::Omit,
+                    limits: ResourceLimitRequest::Custom(ResourceLimits {
+                        max_rewrite_steps: 0,
+                        max_logical_work_units: 0,
+                        ..ResourceLimits::default()
+                    }),
+                    ..CalculationRequest::default()
+                },
+            ] {
+                let mut context = EvaluationContext::default();
+                let error = calculate(source, &request, &mut context).expect_err(source);
+                assert_eq!(
+                    error,
+                    CalculatorError::Domain(DomainError {
+                        kind: DomainErrorKind::LogarithmOfNonPositive,
+                        span: None,
+                    }),
+                    "{source}"
+                );
+            }
         }
     }
 

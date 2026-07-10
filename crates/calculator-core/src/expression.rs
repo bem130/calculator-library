@@ -627,6 +627,15 @@ fn recognize_exact_subexpression(
     if zero_product_has_unproven_factor_domain(dag, id)? {
         return Ok(None);
     }
+    if let Some(value) = recognize_canonical_polynomial_constant(dag, id, limits, budget)? {
+        return Ok(Some(RecognizedExactSubexpression::Rational(
+            RationalEvaluation::direct(value),
+        )));
+    }
+    if budget.limit_reached.is_some() {
+        validate_obvious_domain(dag, id)?;
+        return Ok(None);
+    }
     if let Some(value) = recognize_exact_operation(dag, id, limits)? {
         return Ok(Some(value));
     }
@@ -646,6 +655,355 @@ fn recognize_exact_subexpression(
         return Ok(Some(RecognizedExactSubexpression::RealAlgebraic(value)));
     }
     Ok(None)
+}
+
+fn recognize_canonical_polynomial_constant(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+    limits: &ResourceLimits,
+    budget: &mut ReductionBudget,
+) -> Result<Option<Rational>, EvaluationError> {
+    if !matches!(
+        dag.semantic_node(id),
+        ExpressionNode::Add(_)
+            | ExpressionNode::Multiply(_)
+            | ExpressionNode::Divide { .. }
+            | ExpressionNode::Power { .. }
+    ) || !expression_domain_known_well_defined(dag, id)?
+    {
+        return Ok(None);
+    }
+    let term_limit = usize::try_from(limits.max_expression_nodes).unwrap_or(usize::MAX);
+    let Some(polynomial) = exact_polynomial_from_expression(dag, id, budget, term_limit)? else {
+        return Ok(None);
+    };
+    match polynomial.terms.as_slice() {
+        [] => Ok(Some(Rational::zero())),
+        [term] if term.factors.is_empty() => Ok(Some(term.coefficient.clone())),
+        [_] | [_, ..] => Ok(None),
+    }
+}
+
+fn exact_polynomial_from_expression(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+    budget: &mut ReductionBudget,
+    term_limit: usize,
+) -> Result<Option<BuilderPolynomial>, EvaluationError> {
+    match dag.semantic_node(id) {
+        ExpressionNode::Rational(value) => Ok(Some(BuilderPolynomial {
+            terms: vec![BuilderMonomial {
+                coefficient: dag.rational(*value).clone(),
+                factors: Vec::new(),
+            }],
+        })),
+        ExpressionNode::Add(values) => {
+            let mut polynomial = BuilderPolynomial { terms: Vec::new() };
+            for child in dag.list(*values) {
+                let Some(child) =
+                    exact_polynomial_from_expression(dag, *child, budget, term_limit)?
+                else {
+                    return Ok(None);
+                };
+                let Some(sum) = exact_add_polynomials(dag, polynomial, child, budget, term_limit)
+                else {
+                    return Ok(None);
+                };
+                polynomial = sum;
+            }
+            Ok(Some(polynomial))
+        }
+        ExpressionNode::Multiply(values) => {
+            let mut polynomial = BuilderPolynomial::one();
+            for child in dag.list(*values) {
+                let Some(child) =
+                    exact_polynomial_from_expression(dag, *child, budget, term_limit)?
+                else {
+                    return Ok(None);
+                };
+                let Some(product) =
+                    exact_multiply_polynomials(dag, polynomial, child, budget, term_limit)?
+                else {
+                    return Ok(None);
+                };
+                polynomial = product;
+            }
+            Ok(Some(polynomial))
+        }
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => {
+            if !prove_expression_nonzero(dag, *denominator)? {
+                return Ok(None);
+            }
+            let Some(numerator) =
+                exact_polynomial_from_expression(dag, *numerator, budget, term_limit)?
+            else {
+                return Ok(None);
+            };
+            let Some(denominator) =
+                exact_polynomial_from_expression(dag, *denominator, budget, term_limit)?
+            else {
+                return Ok(None);
+            };
+            let [denominator] = denominator.terms.as_slice() else {
+                return Ok(None);
+            };
+            if denominator.coefficient.is_zero() {
+                return Ok(None);
+            }
+            for (base, _) in &denominator.factors {
+                if !prove_expression_nonzero(dag, *base)? {
+                    return Ok(None);
+                }
+            }
+            let coefficient = Rational::one()
+                .divide(&denominator.coefficient)
+                .map_err(arithmetic_error)?;
+            let mut factors = Vec::with_capacity(denominator.factors.len());
+            for (base, exponent) in &denominator.factors {
+                let Some(exponent) = exponent.checked_neg() else {
+                    return Ok(None);
+                };
+                factors.push((*base, exponent));
+            }
+            exact_multiply_polynomials(
+                dag,
+                numerator,
+                BuilderPolynomial {
+                    terms: vec![BuilderMonomial {
+                        coefficient,
+                        factors,
+                    }],
+                },
+                budget,
+                term_limit,
+            )
+        }
+        ExpressionNode::Power { base, exponent } => {
+            let Ok(exponent) = evaluate_node(dag, *exponent) else {
+                return Ok(Some(exact_atomic_polynomial(id)));
+            };
+            let Some(exponent) = exponent.value().as_i64_if_integer() else {
+                return Ok(Some(exact_atomic_polynomial(id)));
+            };
+            if exponent < 0 && !prove_expression_nonzero(dag, *base)? {
+                return Ok(Some(exact_atomic_polynomial(id)));
+            }
+            let Some(base) = exact_polynomial_from_expression(dag, *base, budget, term_limit)?
+            else {
+                return Ok(None);
+            };
+            if exponent < 0 && base.terms.len() != 1 {
+                return Ok(Some(exact_atomic_polynomial(id)));
+            }
+            exact_power_polynomial(dag, base, exponent, budget, term_limit)
+        }
+        ExpressionNode::Exact(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. } => Ok(Some(exact_atomic_polynomial(id))),
+    }
+}
+
+fn exact_atomic_polynomial(id: ExprId) -> BuilderPolynomial {
+    BuilderPolynomial {
+        terms: vec![BuilderMonomial {
+            coefficient: Rational::one(),
+            factors: vec![(id, 1)],
+        }],
+    }
+}
+
+fn exact_add_polynomials(
+    dag: &ExactExpressionDag,
+    mut left: BuilderPolynomial,
+    right: BuilderPolynomial,
+    budget: &mut ReductionBudget,
+    term_limit: usize,
+) -> Option<BuilderPolynomial> {
+    let work = left.terms.len().saturating_add(right.terms.len());
+    if work > term_limit || !budget.consume_work(u64::try_from(work).unwrap_or(u64::MAX)) {
+        return None;
+    }
+    left.terms.extend(right.terms);
+    exact_normalize_polynomial_terms(dag, left, term_limit)
+}
+
+fn exact_multiply_polynomials(
+    dag: &ExactExpressionDag,
+    left: BuilderPolynomial,
+    right: BuilderPolynomial,
+    budget: &mut ReductionBudget,
+    term_limit: usize,
+) -> Result<Option<BuilderPolynomial>, EvaluationError> {
+    let work = left.terms.len().saturating_mul(right.terms.len());
+    if work > term_limit || !budget.consume_work(u64::try_from(work).unwrap_or(u64::MAX)) {
+        return Ok(None);
+    }
+    let mut terms = Vec::with_capacity(work);
+    for left in &left.terms {
+        for right in &right.terms {
+            let Some(product) = exact_multiply_monomials(dag, left, right)? else {
+                return Ok(None);
+            };
+            terms.push(product);
+        }
+    }
+    Ok(exact_normalize_polynomial_terms(
+        dag,
+        BuilderPolynomial { terms },
+        term_limit,
+    ))
+}
+
+fn exact_multiply_monomials(
+    dag: &ExactExpressionDag,
+    left: &BuilderMonomial,
+    right: &BuilderMonomial,
+) -> Result<Option<BuilderMonomial>, EvaluationError> {
+    let mut factors = left.factors.clone();
+    for (base, exponent) in &right.factors {
+        let mut merged = false;
+        for (existing_base, existing_exponent) in &mut factors {
+            if structurally_equal_expressions(dag, *existing_base, *base) {
+                let Some(exponent) = existing_exponent.checked_add(*exponent) else {
+                    return Ok(None);
+                };
+                *existing_exponent = exponent;
+                merged = true;
+                break;
+            }
+        }
+        if !merged {
+            factors.push((*base, *exponent));
+        }
+    }
+    for (base, exponent) in &factors {
+        if *exponent == 0 && !prove_expression_nonzero(dag, *base)? {
+            return Ok(None);
+        }
+    }
+    factors.retain(|(_, exponent)| *exponent != 0);
+    Ok(Some(BuilderMonomial {
+        coefficient: left.coefficient.multiply(&right.coefficient),
+        factors,
+    }))
+}
+
+fn exact_power_polynomial(
+    dag: &ExactExpressionDag,
+    base: BuilderPolynomial,
+    exponent: i64,
+    budget: &mut ReductionBudget,
+    term_limit: usize,
+) -> Result<Option<BuilderPolynomial>, EvaluationError> {
+    if exponent == 0 {
+        return Ok(Some(BuilderPolynomial::one()));
+    }
+    if exponent < 0 {
+        let [term] = base.terms.as_slice() else {
+            return Ok(None);
+        };
+        let Some(magnitude) = exponent.checked_abs() else {
+            return Ok(None);
+        };
+        let coefficient = term
+            .coefficient
+            .pow_i64(exponent)
+            .map_err(arithmetic_error)?;
+        let mut factors = Vec::with_capacity(term.factors.len());
+        for (base, factor_exponent) in &term.factors {
+            let Some(exponent) = factor_exponent.checked_mul(-magnitude) else {
+                return Ok(None);
+            };
+            factors.push((*base, exponent));
+        }
+        return Ok(Some(BuilderPolynomial {
+            terms: vec![BuilderMonomial {
+                coefficient,
+                factors,
+            }],
+        }));
+    }
+
+    let mut exponent = u64::try_from(exponent).map_err(|_| {
+        EvaluationError::ComputationLimit(ComputationLimitError {
+            kind: ComputationLimitKind::LogicalWorkUnits,
+        })
+    })?;
+    let mut factor = base;
+    let mut result = BuilderPolynomial::one();
+    while exponent > 0 {
+        if exponent & 1 == 1 {
+            let Some(product) =
+                exact_multiply_polynomials(dag, result, factor.clone(), budget, term_limit)?
+            else {
+                return Ok(None);
+            };
+            result = product;
+        }
+        exponent >>= 1;
+        if exponent > 0 {
+            let Some(square) =
+                exact_multiply_polynomials(dag, factor.clone(), factor, budget, term_limit)?
+            else {
+                return Ok(None);
+            };
+            factor = square;
+        }
+    }
+    Ok(Some(result))
+}
+
+fn exact_normalize_polynomial_terms(
+    dag: &ExactExpressionDag,
+    polynomial: BuilderPolynomial,
+    term_limit: usize,
+) -> Option<BuilderPolynomial> {
+    let mut terms = Vec::<BuilderMonomial>::new();
+    for term in polynomial.terms {
+        if term.coefficient.is_zero() {
+            continue;
+        }
+        if let Some(existing) = terms
+            .iter_mut()
+            .find(|existing| exact_monomials_equal(dag, existing, &term))
+        {
+            existing.coefficient = existing.coefficient.add(&term.coefficient);
+        } else {
+            terms.push(term);
+        }
+        if terms.len() > term_limit {
+            return None;
+        }
+    }
+    terms.retain(|term| !term.coefficient.is_zero());
+    Some(BuilderPolynomial { terms })
+}
+
+fn exact_monomials_equal(
+    dag: &ExactExpressionDag,
+    left: &BuilderMonomial,
+    right: &BuilderMonomial,
+) -> bool {
+    if left.factors.len() != right.factors.len() {
+        return false;
+    }
+    let mut matched = vec![false; right.factors.len()];
+    for (left_base, left_exponent) in &left.factors {
+        let Some((index, _)) = right.factors.iter().enumerate().find(|(index, right)| {
+            !matched[*index]
+                && *left_exponent == right.1
+                && structurally_equal_expressions(dag, *left_base, right.0)
+        }) else {
+            return false;
+        };
+        matched[index] = true;
+    }
+    true
 }
 
 fn zero_product_has_unproven_factor_domain(
@@ -7673,7 +8031,22 @@ impl DagBuilder {
     fn materialize_monomial(&mut self, monomial: BuilderMonomial) -> ExprId {
         let mut numerator = Vec::new();
         let mut denominator = Vec::new();
+        let mut exponential_arguments = Vec::new();
         for (base, exponent) in monomial.factors {
+            if let ExpressionNode::Function {
+                function: Function::Exp,
+                argument,
+            } = self.nodes[base.0 as usize]
+            {
+                let argument = if exponent == 1 {
+                    argument
+                } else {
+                    let exponent = self.push_rational(rational_integer(exponent));
+                    self.multiply(exponent, argument)
+                };
+                exponential_arguments.push(argument);
+                continue;
+            }
             let (target, magnitude) = if exponent < 0 {
                 (&mut denominator, exponent.unsigned_abs())
             } else {
@@ -7692,6 +8065,10 @@ impl DagBuilder {
                 self.power_raw(base, exponent)
             };
             target.push(factor);
+        }
+        if !exponential_arguments.is_empty() {
+            let argument = self.add_many(exponential_arguments);
+            numerator.push(self.exp(argument));
         }
         if monomial.coefficient != Rational::one() || numerator.is_empty() {
             numerator.insert(0, self.push_rational(monomial.coefficient));
@@ -8212,9 +8589,7 @@ mod tests {
     #[test]
     fn decimal_addition_lowers_to_rational_addition() {
         let dag = lower("0.1 + 0.2");
-        assert_eq!(dag.rationals[0].to_string(), "1/10");
-        assert_eq!(dag.rationals[1].to_string(), "1/5");
-        assert!(matches!(dag.node(dag.root()), ExpressionNode::Add(_)));
+        assert!(matches!(dag.node(dag.root()), ExpressionNode::Rational(_)));
         assert_eq!(evaluate_rational_dag(&dag).unwrap().to_string(), "3/10");
     }
 
@@ -8249,20 +8624,17 @@ mod tests {
     #[test]
     fn percent_lowers_to_division_by_one_hundred() {
         let dag = lower("50%");
-        let ExpressionNode::Divide { denominator, .. } = dag.node(dag.root()) else {
-            panic!("expected percent to lower to division");
+        let ExpressionNode::Rational(value) = dag.node(dag.root()) else {
+            panic!("expected a canonical rational percent");
         };
-        let ExpressionNode::Rational(id) = dag.node(*denominator) else {
-            panic!("expected rational denominator");
-        };
-        assert_eq!(dag.rational(*id).to_string(), "100");
+        assert_eq!(dag.rational(*value).to_string(), "1/2");
         assert_eq!(evaluate_rational_dag(&dag).unwrap().to_string(), "1/2");
     }
 
     #[test]
     fn subtraction_lowers_to_addition_with_negated_rhs() {
         let dag = lower("7 - 2");
-        assert!(matches!(dag.node(dag.root()), ExpressionNode::Add(_)));
+        assert!(matches!(dag.node(dag.root()), ExpressionNode::Rational(_)));
         assert_eq!(evaluate_rational_dag(&dag).unwrap().to_string(), "5");
     }
 
