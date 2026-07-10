@@ -779,6 +779,7 @@ impl From<core::InternalInvariantCode> for InternalInvariantCodeDto {
             core::InternalInvariantCode::InvalidParsedNumberLiteral => {
                 Self::InvalidParsedNumberLiteral
             }
+            core::InternalInvariantCode::UnprovenDomainObligation => Self::UnprovenDomainObligation,
         }
     }
 }
@@ -1592,6 +1593,7 @@ impl From<InternalInvariantCodeDto> for core::InternalInvariantCode {
             InternalInvariantCodeDto::InvalidParsedNumberLiteral => {
                 Self::InvalidParsedNumberLiteral
             }
+            InternalInvariantCodeDto::UnprovenDomainObligation => Self::UnprovenDomainObligation,
         }
     }
 }

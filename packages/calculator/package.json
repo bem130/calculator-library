@@ -9,7 +9,7 @@
     "./worker": "./src/worker.ts"
   },
   "scripts": {
-    "build:wasm": "wasm-pack build ../../crates/calculator-wasm --target web --out-dir ../../packages/calculator/wasm --release",
+    "build:wasm": "wasm-pack build ../../crates/calculator-wasm --target web --out-dir ../../packages/calculator/wasm --release && node scripts/optimize-wasm.mjs",
     "check": "tsc --noEmit && node --experimental-strip-types tests/presentation-renderers.mjs"
   },
   "devDependencies": {

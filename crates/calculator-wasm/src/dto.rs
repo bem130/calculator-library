@@ -722,6 +722,7 @@ pub enum InternalInvariantCodeDto {
     NonDeterministicCacheAccounting,
     PresentationWithoutEvaluation,
     InvalidParsedNumberLiteral,
+    UnprovenDomainObligation,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
