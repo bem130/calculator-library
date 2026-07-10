@@ -1286,13 +1286,40 @@ fn validate_obvious_domain(dag: &ExactExpressionDag, id: ExprId) -> Result<(), E
             }
         }
         ExpressionNode::Divide { denominator, .. } => {
-            if matches!(evaluate_node(dag, *denominator), Ok(value) if value.value().is_zero()) {
+            if semantic_sign_for_domain(dag, *denominator)? == Some(Ordering::Equal) {
                 return Err(domain_error(DomainErrorKind::DivisionByZero));
             }
         }
-        ExpressionNode::Power { .. } | ExpressionNode::LogBase { .. } => {
-            if let Err(EvaluationError::Domain(error)) = evaluate_node(dag, id) {
-                return Err(EvaluationError::Domain(error));
+        ExpressionNode::Power { base, exponent } => {
+            let base_sign = semantic_sign_for_domain(dag, *base)?;
+            let exponent_value = semantic_rational_for_domain(dag, *exponent);
+            if base_sign == Some(Ordering::Equal) {
+                if exponent_value.as_ref().is_some_and(Rational::is_zero) {
+                    return Err(domain_error(DomainErrorKind::IndeterminateZeroToZero));
+                }
+                if exponent_value.as_ref().is_some_and(Rational::is_negative) {
+                    return Err(domain_error(DomainErrorKind::ZeroToNegativePower));
+                }
+            }
+            if base_sign == Some(Ordering::Less) && prove_noninteger_for_domain(dag, *exponent)? {
+                return Err(domain_error(DomainErrorKind::NonRealPower));
+            }
+        }
+        ExpressionNode::LogBase { argument, base } => {
+            if matches!(
+                semantic_sign_for_domain(dag, *argument)?,
+                Some(Ordering::Less | Ordering::Equal)
+            ) {
+                return Err(logarithm_of_non_positive_error());
+            }
+            if matches!(
+                semantic_sign_for_domain(dag, *base)?,
+                Some(Ordering::Less | Ordering::Equal)
+            ) {
+                return Err(logarithm_of_non_positive_error());
+            }
+            if prove_expression_one_for_domain(dag, *base) {
+                return Err(domain_error(DomainErrorKind::LogarithmBaseOne));
             }
         }
         ExpressionNode::Function {
@@ -1316,16 +1343,19 @@ fn validate_obvious_domain(dag: &ExactExpressionDag, id: ExprId) -> Result<(), E
                     return Err(domain_error(DomainErrorKind::TangentPole));
                 }
             }
-            if let Err(EvaluationError::Domain(error)) = evaluate_node(dag, id) {
-                return Err(EvaluationError::Domain(error));
-            }
         }
         ExpressionNode::Function {
             function: Function::Asin | Function::Acos,
-            ..
+            argument,
         } => {
-            if let Err(EvaluationError::Domain(error)) = evaluate_node(dag, id) {
-                return Err(EvaluationError::Domain(error));
+            if let Some(argument) = semantic_rational_for_domain(dag, *argument) {
+                if argument.compare(&rational_integer(-1)) == Ordering::Less
+                    || argument.compare(&Rational::one()) == Ordering::Greater
+                {
+                    return Err(domain_error(
+                        DomainErrorKind::InverseTrigonometricOutOfRange,
+                    ));
+                }
             }
         }
         ExpressionNode::Function {
@@ -1343,9 +1373,6 @@ fn validate_obvious_domain(dag: &ExactExpressionDag, id: ExprId) -> Result<(), E
                         DomainErrorKind::IntegerFunctionRequiresNonNegative,
                     ));
                 }
-            }
-            if let Err(EvaluationError::Domain(error)) = evaluate_node(dag, id) {
-                return Err(EvaluationError::Domain(error));
             }
         }
         ExpressionNode::BinaryFunction {
@@ -1376,9 +1403,6 @@ fn validate_obvious_domain(dag: &ExactExpressionDag, id: ExprId) -> Result<(), E
             {
                 return Err(domain_error(DomainErrorKind::DivisionByZero));
             }
-            if let Err(EvaluationError::Domain(error)) = evaluate_node(dag, id) {
-                return Err(EvaluationError::Domain(error));
-            }
         }
         ExpressionNode::Rational(_)
         | ExpressionNode::Exact(_)
@@ -1394,14 +1418,8 @@ fn semantic_sign_for_domain(
     dag: &ExactExpressionDag,
     id: ExprId,
 ) -> Result<Option<Ordering>, EvaluationError> {
-    match evaluate_node(dag, id) {
-        Ok(value) => return Ok(Some(rational_sign(value.value()))),
-        Err(error) if is_unsupported_exact_expression(&error) => {}
-        Err(error) => return Err(error),
-    }
-
     match dag.semantic_node(id) {
-        ExpressionNode::Rational(_) => Ok(None),
+        ExpressionNode::Rational(value) => Ok(Some(rational_sign(dag.rational(*value)))),
         ExpressionNode::Exact(value) => Ok(exact_reduction_sign(dag.exact_value(*value))),
         ExpressionNode::Constant(Constant::Pi | Constant::Euler) => Ok(Some(Ordering::Greater)),
         ExpressionNode::Add(values) => {
@@ -1491,13 +1509,24 @@ fn semantic_sign_for_domain(
             match function {
                 Function::Exp => Ok(expression_domain_known_well_defined(dag, *argument)?
                     .then_some(Ordering::Greater)),
+                Function::Sin => {
+                    let Some(argument) = semantic_rational_for_domain(dag, *argument) else {
+                        return Ok(None);
+                    };
+                    let sign = rational_sign(&argument);
+                    let magnitude = if sign == Ordering::Less {
+                        argument.negate()
+                    } else {
+                        argument
+                    };
+                    Ok((magnitude.compare(&rational_integer(3)) == Ordering::Less).then_some(sign))
+                }
                 Function::Sqrt | Function::Abs => match semantic_sign_for_domain(dag, *argument)? {
                     Some(Ordering::Equal) => Ok(Some(Ordering::Equal)),
                     Some(Ordering::Less | Ordering::Greater) => Ok(Some(Ordering::Greater)),
                     None => Ok(None),
                 },
-                Function::Sin
-                | Function::Cos
+                Function::Cos
                 | Function::Tan
                 | Function::Asin
                 | Function::Acos
@@ -1595,7 +1624,10 @@ fn semantic_rational_for_domain(dag: &ExactExpressionDag, id: ExprId) -> Option<
         ExpressionNode::Power { base, exponent } => {
             let base = semantic_rational_for_domain(dag, *base)?;
             let exponent = semantic_rational_for_domain(dag, *exponent)?;
-            base.pow_i64(exponent.as_i64_if_integer()?).ok()
+            let exponent = exponent.as_i64_if_integer()?;
+            (exponent.unsigned_abs() <= 1024)
+                .then(|| base.pow_i64(exponent).ok())
+                .flatten()
         }
         ExpressionNode::Exact(_)
         | ExpressionNode::Constant(_)
@@ -1612,24 +1644,45 @@ fn prove_noninteger_for_domain(
     if let Some(value) = semantic_rational_for_domain(dag, id) {
         return Ok(!value.is_integer());
     }
-    let interval = match evaluate_interval_node(dag, id, 64) {
-        Ok(interval) => interval,
-        Err(IntervalError::Domain(kind)) => return Err(domain_error(kind)),
-        Err(
-            IntervalError::InvalidBounds
-            | IntervalError::UnsupportedExpression
-            | IntervalError::DivisionByIntervalContainingZero
-            | IntervalError::ExponentTooLarge,
-        ) => return Ok(false),
-    };
-    let Some(integer) =
-        interval::unique_floor(&interval).map_err(evaluation_error_from_interval)?
-    else {
-        return Ok(false);
-    };
-    interval::contains_rational(&interval, &integer)
-        .map(|contains| !contains)
-        .map_err(evaluation_error_from_interval)
+    match dag.semantic_node(id) {
+        ExpressionNode::Exact(value) => {
+            Ok(!matches!(dag.exact_value(*value), ExactReduction::Symbolic))
+        }
+        ExpressionNode::Constant(Constant::Pi | Constant::Euler) => Ok(true),
+        ExpressionNode::Function {
+            function: Function::Sqrt,
+            argument,
+        } => {
+            let Some(argument) = semantic_rational_for_domain(dag, *argument) else {
+                return Ok(false);
+            };
+            if argument.is_negative() {
+                return Err(domain_error(DomainErrorKind::EvenRootOfNegative));
+            }
+            Ok(argument.sqrt_if_rational().is_none())
+        }
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Add(_)
+        | ExpressionNode::Multiply(_)
+        | ExpressionNode::Divide { .. }
+        | ExpressionNode::Power { .. }
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. } => Ok(false),
+    }
+}
+
+fn prove_expression_one_for_domain(dag: &ExactExpressionDag, id: ExprId) -> bool {
+    if semantic_rational_for_domain(dag, id).is_some_and(|value| value == Rational::one()) {
+        return true;
+    }
+    matches!(
+        dag.semantic_node(id),
+        ExpressionNode::Function {
+            function: Function::Exp,
+            argument,
+        } if semantic_sign_for_domain(dag, *argument).ok().flatten() == Some(Ordering::Equal)
+    )
 }
 
 fn estimated_additional_work(
@@ -8827,14 +8880,22 @@ impl DagBuilder {
     }
 
     fn push_rational(&mut self, rational: Rational) -> ExprId {
-        let hash = rational_hash(&rational);
-        if let Some(id) = self.rational_index.get(&hash).and_then(|candidates| {
-            candidates
-                .iter()
-                .copied()
-                .find(|id| self.rationals[id.0 as usize] == rational)
-        }) {
-            return self.push_node(ExpressionNode::Rational(id));
+        let (hash, value_work) = rational_hash_and_work(&rational);
+        let candidate_count = self
+            .rational_index
+            .get(&hash)
+            .map_or(0, |candidates| candidates.len());
+        let lookup_allowed =
+            self.reserve_intern_work(value_work.saturating_mul(candidate_count.saturating_add(1)));
+        if lookup_allowed {
+            if let Some(id) = self.rational_index.get(&hash).and_then(|candidates| {
+                candidates
+                    .iter()
+                    .copied()
+                    .find(|id| self.rationals[id.0 as usize] == rational)
+            }) {
+                return self.push_node(ExpressionNode::Rational(id));
+            }
         }
         let id = RationalId(self.rationals.len() as u32);
         self.rationals.push(rational);
@@ -8844,13 +8905,23 @@ impl DagBuilder {
 
     fn push_list(&mut self, values: Vec<ExprId>) -> ExprListId {
         let hash = expression_list_hash(&values);
-        if let Some(id) = self.list_index.get(&hash).and_then(|candidates| {
-            candidates
-                .iter()
-                .copied()
-                .find(|id| self.lists[id.0 as usize] == values)
-        }) {
-            return id;
+        let candidate_count = self
+            .list_index
+            .get(&hash)
+            .map_or(0, |candidates| candidates.len());
+        let lookup_work = values
+            .len()
+            .saturating_add(1)
+            .saturating_mul(candidate_count.saturating_add(1));
+        if self.reserve_intern_work(lookup_work) {
+            if let Some(id) = self.list_index.get(&hash).and_then(|candidates| {
+                candidates
+                    .iter()
+                    .copied()
+                    .find(|id| self.lists[id.0 as usize] == values)
+            }) {
+                return id;
+            }
         }
         let id = ExprListId(self.lists.len() as u32);
         self.lists.push(values);
@@ -8860,18 +8931,37 @@ impl DagBuilder {
 
     fn push_node(&mut self, node: ExpressionNode) -> ExprId {
         let hash = expression_node_hash(&node);
-        if let Some(id) = self.node_index.get(&hash).and_then(|candidates| {
-            candidates
-                .iter()
-                .copied()
-                .find(|id| self.nodes[id.0 as usize] == node)
-        }) {
-            return id;
+        let candidate_count = self
+            .node_index
+            .get(&hash)
+            .map_or(0, |candidates| candidates.len());
+        if self.reserve_intern_work(candidate_count.saturating_add(1)) {
+            if let Some(id) = self.node_index.get(&hash).and_then(|candidates| {
+                candidates
+                    .iter()
+                    .copied()
+                    .find(|id| self.nodes[id.0 as usize] == node)
+            }) {
+                return id;
+            }
         }
         let id = ExprId(self.nodes.len() as u32);
         self.nodes.push(node);
         self.node_index.entry(hash).or_default().push(id);
         id
+    }
+
+    fn reserve_intern_work(&mut self, work: usize) -> bool {
+        if self.canonical_limit_reached.is_some() {
+            return false;
+        }
+        match self.canonical_budget.reserve(1, work) {
+            Ok(()) => true,
+            Err(kind) => {
+                self.canonical_limit_reached.get_or_insert(kind);
+                false
+            }
+        }
     }
 }
 
@@ -8885,10 +8975,13 @@ fn hash_bytes(bytes: &[u8]) -> u64 {
     })
 }
 
-fn rational_hash(value: &Rational) -> u64 {
+fn rational_hash_and_work(value: &Rational) -> (u64, usize) {
     let numerator = value.numerator.inner.to_signed_bytes_le();
     let denominator = value.denominator.inner.inner.to_signed_bytes_le();
-    hash_word(hash_bytes(&numerator), hash_bytes(&denominator))
+    (
+        hash_word(hash_bytes(&numerator), hash_bytes(&denominator)),
+        numerator.len().saturating_add(denominator.len()),
+    )
 }
 
 fn expression_list_hash(values: &[ExprId]) -> u64 {
