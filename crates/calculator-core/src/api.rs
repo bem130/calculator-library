@@ -6614,6 +6614,13 @@ mod tests {
                 "2*exp(1)+cos(1)",
                 "cos(1)+exp(1)*2",
             ],
+            ["sin(pi/2)*exp(1)+exp(2)", "exp(1)+exp(2)", "exp(2)+exp(1)"],
+            ["cos(0)*sin(1)+sin(2)", "sin(1)+sin(2)", "sin(2)+sin(1)"],
+            [
+                "2*sin(pi/6)*2^(1/3)",
+                "2^(1/3)",
+                "sqrt(2)*sqrt(2)/2*2^(1/3)",
+            ],
         ] {
             let expected = exact_plain_text(equivalent_sources[0]);
             for source in &equivalent_sources[1..] {

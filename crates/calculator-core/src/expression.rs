@@ -25,6 +25,7 @@ pub(crate) struct ExactExpressionDag {
     canonical_rewrite_steps_used: u32,
     canonical_logical_work_used: u64,
     domain_obligations: Vec<DomainObligation>,
+    structural_sizes: Vec<usize>,
 }
 
 impl ExactExpressionDag {
@@ -346,6 +347,7 @@ struct DagBuilder {
     canonical_term_limit: usize,
     canonical_limit_reached: Option<ComputationLimitKind>,
     domain_obligations: Vec<DomainObligation>,
+    structural_sizes: Vec<usize>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -444,6 +446,7 @@ pub(crate) fn lower_source_expression(
         canonical_rewrite_steps_used,
         canonical_logical_work_used,
         domain_obligations: builder.domain_obligations,
+        structural_sizes: builder.structural_sizes,
     })
 }
 
@@ -466,6 +469,7 @@ pub(crate) fn normalize_exact_subexpressions(
         canonical_rewrite_steps_used: dag.canonical_rewrite_steps_used,
         canonical_logical_work_used: dag.canonical_logical_work_used,
         domain_obligations: dag.domain_obligations.clone(),
+        structural_sizes: Vec::with_capacity(dag.structural_sizes.len()),
     };
     let mut normalization = dag.normalization;
     let mut budget = ReductionBudget::new(
@@ -495,7 +499,13 @@ pub(crate) fn normalize_exact_subexpressions(
         let id = ExprId(index as u32);
         let presentation = rebuild_node(&dag, id, &mut reduced);
         debug_assert_eq!(reduced.nodes.len(), index);
+        let presentation_size = expression_node_structural_size(
+            &presentation,
+            &reduced.structural_sizes,
+            &reduced.lists,
+        );
         reduced.nodes.push(presentation.clone());
+        reduced.structural_sizes.push(presentation_size);
 
         if matches!(presentation, ExpressionNode::Rational(_)) {
             continue;
@@ -505,6 +515,20 @@ pub(crate) fn normalize_exact_subexpressions(
             .unwrap_or(RecognizedExactSubexpression::Symbolic);
         reduced.nodes[index] =
             store_exact_subexpression(&mut reduced, value, presentation, &mut normalization);
+        reduced.structural_sizes[index] = match reduced.nodes[index] {
+            ExpressionNode::Exact(value) => {
+                presentation_size.max(exact_reduction_structural_size(reduced.exact_value(value)))
+            }
+            ExpressionNode::Rational(_)
+            | ExpressionNode::Constant(_)
+            | ExpressionNode::Add(_)
+            | ExpressionNode::Multiply(_)
+            | ExpressionNode::Divide { .. }
+            | ExpressionNode::Power { .. }
+            | ExpressionNode::LogBase { .. }
+            | ExpressionNode::Function { .. }
+            | ExpressionNode::BinaryFunction { .. } => presentation_size,
+        };
     }
 
     materialize_stored_canonical_polynomials(&mut reduced, limits, &mut budget);
@@ -627,7 +651,10 @@ enum RecognizedExactSubexpression {
     Rational(RationalEvaluation),
     PiMultiple(PiCoefficientEvaluation),
     Radical(RadicalReduction),
-    RealAlgebraic(RealAlgebraicEvaluation),
+    RealAlgebraic {
+        value: RealAlgebraicEvaluation,
+        canonical_polynomial: Option<BuilderPolynomial>,
+    },
     CanonicalPolynomial(BuilderPolynomial),
     Symbolic,
 }
@@ -671,7 +698,11 @@ fn recognize_exact_subexpression(
         return Ok(Some(RecognizedExactSubexpression::Radical(value)));
     }
     if let Some(value) = evaluate_real_algebraic_node(dag, id, limits)? {
-        return Ok(Some(RecognizedExactSubexpression::RealAlgebraic(value)));
+        let canonical_polynomial = recognize_canonical_polynomial(dag, id, limits, budget)?;
+        return Ok(Some(RecognizedExactSubexpression::RealAlgebraic {
+            value,
+            canonical_polynomial,
+        }));
     }
     if let Some(polynomial) = recognize_canonical_polynomial(dag, id, limits, budget)? {
         return Ok(Some(match polynomial.terms.as_slice() {
@@ -845,8 +876,13 @@ fn exact_polynomial_from_expression(
             }
             exact_power_polynomial(dag, base, exponent, budget, term_limit)
         }
-        ExpressionNode::Exact(_)
-        | ExpressionNode::Constant(_)
+        ExpressionNode::Exact(value) => Ok(Some(
+            dag.exact_values[value.0 as usize]
+                .canonical_polynomial
+                .clone()
+                .unwrap_or_else(|| exact_atomic_polynomial(id)),
+        )),
+        ExpressionNode::Constant(_)
         | ExpressionNode::LogBase { .. }
         | ExpressionNode::Function { .. }
         | ExpressionNode::BinaryFunction { .. } => Ok(Some(exact_atomic_polynomial(id))),
@@ -888,7 +924,8 @@ fn exact_multiply_polynomials(
     if work > term_limit || !budget.consume_work(u64::try_from(work).unwrap_or(u64::MAX)) {
         return Ok(None);
     }
-    let factor_work = polynomial_factor_product_work(&left, &right);
+    let factor_work =
+        polynomial_factor_product_work(&left, &right, |id| dag.structural_sizes[id.0 as usize]);
     if !budget.consume_work(u64::try_from(factor_work).unwrap_or(u64::MAX)) {
         return Ok(None);
     }
@@ -1010,27 +1047,50 @@ fn exact_power_polynomial(
 
 fn exact_normalize_polynomial_terms(
     dag: &ExactExpressionDag,
-    polynomial: BuilderPolynomial,
+    mut polynomial: BuilderPolynomial,
     budget: &mut ReductionBudget,
     term_limit: usize,
 ) -> Option<BuilderPolynomial> {
-    let merge_work = polynomial_term_merge_work(&polynomial);
+    let merge_work =
+        polynomial_term_merge_work(&polynomial, |id| dag.structural_sizes[id.0 as usize]);
     if !budget.consume_work(u64::try_from(merge_work).unwrap_or(u64::MAX)) {
         return None;
     }
+    for term in &mut polynomial.terms {
+        term.factors
+            .sort_by(|(left_base, left_exponent), (right_base, right_exponent)| {
+                compare_exact_expressions(dag, *left_base, *right_base)
+                    .then_with(|| left_exponent.cmp(right_exponent))
+            });
+        let mut factors = Vec::<(ExprId, i64)>::with_capacity(term.factors.len());
+        for (base, exponent) in term.factors.drain(..) {
+            if let Some((last_base, last_exponent)) = factors.last_mut() {
+                if compare_exact_expressions(dag, *last_base, base) == Ordering::Equal {
+                    *last_exponent = last_exponent.checked_add(exponent)?;
+                    continue;
+                }
+            }
+            factors.push((base, exponent));
+        }
+        factors.retain(|(_, exponent)| *exponent != 0);
+        term.factors = factors;
+    }
+    polynomial
+        .terms
+        .sort_by(|left, right| compare_exact_monomials(dag, left, right));
+
     let mut terms = Vec::<BuilderMonomial>::new();
     for term in polynomial.terms {
         if term.coefficient.is_zero() {
             continue;
         }
-        if let Some(existing) = terms
-            .iter_mut()
-            .find(|existing| exact_monomials_equal(dag, existing, &term))
-        {
-            existing.coefficient = existing.coefficient.add(&term.coefficient);
-        } else {
-            terms.push(term);
+        if let Some(existing) = terms.last_mut() {
+            if exact_monomials_equal(dag, existing, &term) {
+                existing.coefficient = existing.coefficient.add(&term.coefficient);
+                continue;
+            }
         }
+        terms.push(term);
         if terms.len() > term_limit {
             return None;
         }
@@ -1039,32 +1099,36 @@ fn exact_normalize_polynomial_terms(
     Some(BuilderPolynomial { terms })
 }
 
-fn polynomial_factor_product_work(left: &BuilderPolynomial, right: &BuilderPolynomial) -> usize {
+fn polynomial_factor_product_work(
+    left: &BuilderPolynomial,
+    right: &BuilderPolynomial,
+    factor_weight: impl Fn(ExprId) -> usize + Copy,
+) -> usize {
     left.terms.iter().fold(0usize, |work, left| {
         right.terms.iter().fold(work, |work, right| {
             work.saturating_add(
-                left.factors
-                    .len()
-                    .saturating_add(1)
-                    .saturating_mul(right.factors.len().saturating_add(1)),
+                monomial_structural_weight(left, factor_weight)
+                    .saturating_mul(monomial_structural_weight(right, factor_weight)),
             )
         })
     })
 }
 
-fn polynomial_term_merge_work(polynomial: &BuilderPolynomial) -> usize {
+fn polynomial_term_merge_work(
+    polynomial: &BuilderPolynomial,
+    factor_weight: impl Fn(ExprId) -> usize + Copy,
+) -> usize {
     let term_count = polynomial.terms.len();
-    let max_factor_count = polynomial
+    let max_term_weight = polynomial
         .terms
         .iter()
-        .map(|term| term.factors.len())
+        .map(|term| monomial_structural_weight(term, factor_weight))
         .max()
-        .unwrap_or(0)
-        .saturating_add(1);
+        .unwrap_or(1);
     let pairwise = term_count
         .saturating_mul(term_count.saturating_sub(1))
         .saturating_div(2)
-        .saturating_mul(max_factor_count);
+        .saturating_mul(max_term_weight);
     let sort_levels = if term_count <= 1 {
         0
     } else {
@@ -1073,8 +1137,17 @@ fn polynomial_term_merge_work(polynomial: &BuilderPolynomial) -> usize {
     pairwise.saturating_add(
         term_count
             .saturating_mul(sort_levels)
-            .saturating_mul(max_factor_count),
+            .saturating_mul(max_term_weight),
     )
+}
+
+fn monomial_structural_weight(
+    monomial: &BuilderMonomial,
+    factor_weight: impl Fn(ExprId) -> usize,
+) -> usize {
+    monomial.factors.iter().fold(1usize, |weight, (base, _)| {
+        weight.saturating_add(factor_weight(*base))
+    })
 }
 
 fn exact_monomials_equal(
@@ -1097,6 +1170,298 @@ fn exact_monomials_equal(
         matched[index] = true;
     }
     true
+}
+
+fn compare_exact_monomials(
+    dag: &ExactExpressionDag,
+    left: &BuilderMonomial,
+    right: &BuilderMonomial,
+) -> Ordering {
+    let category = |term: &BuilderMonomial| {
+        if term.factors.is_empty() {
+            1
+        } else if term.coefficient.is_negative() {
+            2
+        } else {
+            0
+        }
+    };
+    category(left).cmp(&category(right)).then_with(|| {
+        for ((left_base, left_exponent), (right_base, right_exponent)) in
+            left.factors.iter().zip(&right.factors)
+        {
+            let order = compare_exact_expressions(dag, *left_base, *right_base)
+                .then_with(|| left_exponent.cmp(right_exponent));
+            if order != Ordering::Equal {
+                return order;
+            }
+        }
+        left.factors.len().cmp(&right.factors.len())
+    })
+}
+
+fn compare_exact_expressions(dag: &ExactExpressionDag, left: ExprId, right: ExprId) -> Ordering {
+    if left == right {
+        return Ordering::Equal;
+    }
+    let left_node = dag.semantic_node(left);
+    let right_node = dag.semantic_node(right);
+    let rank_order = expression_node_rank(left_node).cmp(&expression_node_rank(right_node));
+    if rank_order != Ordering::Equal {
+        return rank_order;
+    }
+    match (left_node, right_node) {
+        (ExpressionNode::Rational(left), ExpressionNode::Rational(right)) => {
+            dag.rational(*left).compare(dag.rational(*right))
+        }
+        (ExpressionNode::Exact(left), ExpressionNode::Exact(right)) => {
+            compare_exact_reductions(dag.exact_value(*left), dag.exact_value(*right))
+        }
+        (ExpressionNode::Constant(left), ExpressionNode::Constant(right)) => {
+            constant_rank(*left).cmp(&constant_rank(*right))
+        }
+        (ExpressionNode::Add(left), ExpressionNode::Add(right))
+        | (ExpressionNode::Multiply(left), ExpressionNode::Multiply(right)) => {
+            compare_exact_expression_lists(dag, *left, *right)
+        }
+        (
+            ExpressionNode::Divide {
+                numerator: left_numerator,
+                denominator: left_denominator,
+            },
+            ExpressionNode::Divide {
+                numerator: right_numerator,
+                denominator: right_denominator,
+            },
+        ) => compare_exact_expressions(dag, *left_numerator, *right_numerator)
+            .then_with(|| compare_exact_expressions(dag, *left_denominator, *right_denominator)),
+        (
+            ExpressionNode::Power {
+                base: left_base,
+                exponent: left_exponent,
+            },
+            ExpressionNode::Power {
+                base: right_base,
+                exponent: right_exponent,
+            },
+        ) => compare_exact_expressions(dag, *left_base, *right_base)
+            .then_with(|| compare_exact_expressions(dag, *left_exponent, *right_exponent)),
+        (
+            ExpressionNode::LogBase {
+                argument: left_argument,
+                base: left_base,
+            },
+            ExpressionNode::LogBase {
+                argument: right_argument,
+                base: right_base,
+            },
+        ) => compare_exact_expressions(dag, *left_argument, *right_argument)
+            .then_with(|| compare_exact_expressions(dag, *left_base, *right_base)),
+        (
+            ExpressionNode::Function {
+                function: left_function,
+                argument: left_argument,
+            },
+            ExpressionNode::Function {
+                function: right_function,
+                argument: right_argument,
+            },
+        ) => function_rank(*left_function)
+            .cmp(&function_rank(*right_function))
+            .then_with(|| compare_exact_expressions(dag, *left_argument, *right_argument)),
+        (
+            ExpressionNode::BinaryFunction {
+                function: left_function,
+                left: left_left,
+                right: left_right,
+            },
+            ExpressionNode::BinaryFunction {
+                function: right_function,
+                left: right_left,
+                right: right_right,
+            },
+        ) => function_rank(*left_function)
+            .cmp(&function_rank(*right_function))
+            .then_with(|| compare_exact_expressions(dag, *left_left, *right_left))
+            .then_with(|| compare_exact_expressions(dag, *left_right, *right_right)),
+        (
+            ExpressionNode::Rational(_)
+            | ExpressionNode::Exact(_)
+            | ExpressionNode::Constant(_)
+            | ExpressionNode::Add(_)
+            | ExpressionNode::Multiply(_)
+            | ExpressionNode::Divide { .. }
+            | ExpressionNode::Power { .. }
+            | ExpressionNode::LogBase { .. }
+            | ExpressionNode::Function { .. }
+            | ExpressionNode::BinaryFunction { .. },
+            ExpressionNode::Rational(_)
+            | ExpressionNode::Exact(_)
+            | ExpressionNode::Constant(_)
+            | ExpressionNode::Add(_)
+            | ExpressionNode::Multiply(_)
+            | ExpressionNode::Divide { .. }
+            | ExpressionNode::Power { .. }
+            | ExpressionNode::LogBase { .. }
+            | ExpressionNode::Function { .. }
+            | ExpressionNode::BinaryFunction { .. },
+        ) => unreachable!("different expression variants have distinct structural ranks"),
+    }
+}
+
+fn expression_node_rank(node: &ExpressionNode) -> u8 {
+    match node {
+        ExpressionNode::Rational(_) => 0,
+        ExpressionNode::Constant(_) => 1,
+        ExpressionNode::Power { .. } => 2,
+        ExpressionNode::Function { .. } => 3,
+        ExpressionNode::LogBase { .. } => 4,
+        ExpressionNode::Multiply(_) => 5,
+        ExpressionNode::Divide { .. } => 6,
+        ExpressionNode::Add(_) => 7,
+        ExpressionNode::BinaryFunction { .. } => 8,
+        ExpressionNode::Exact(_) => 9,
+    }
+}
+
+fn compare_exact_expression_lists(
+    dag: &ExactExpressionDag,
+    left: ExprListId,
+    right: ExprListId,
+) -> Ordering {
+    let left = dag.list(left);
+    let right = dag.list(right);
+    for (left, right) in left.iter().zip(right) {
+        let order = compare_exact_expressions(dag, *left, *right);
+        if order != Ordering::Equal {
+            return order;
+        }
+    }
+    left.len().cmp(&right.len())
+}
+
+fn compare_exact_reductions(left: &ExactReduction, right: &ExactReduction) -> Ordering {
+    let rank = |value: &ExactReduction| match value {
+        ExactReduction::PiMultiple(_) => 0,
+        ExactReduction::Radical(_) => 1,
+        ExactReduction::RealAlgebraic(_) => 2,
+        ExactReduction::Symbolic => 3,
+    };
+    rank(left)
+        .cmp(&rank(right))
+        .then_with(|| match (left, right) {
+            (ExactReduction::PiMultiple(left), ExactReduction::PiMultiple(right)) => {
+                left.coefficient().compare(right.coefficient())
+            }
+            (ExactReduction::Radical(left), ExactReduction::Radical(right)) => {
+                compare_radical_reductions(left, right)
+            }
+            (ExactReduction::RealAlgebraic(left), ExactReduction::RealAlgebraic(right)) => {
+                compare_real_algebraic_evaluations(left, right)
+            }
+            (ExactReduction::Symbolic, ExactReduction::Symbolic) => Ordering::Equal,
+            (
+                ExactReduction::PiMultiple(_)
+                | ExactReduction::Radical(_)
+                | ExactReduction::RealAlgebraic(_)
+                | ExactReduction::Symbolic,
+                ExactReduction::PiMultiple(_)
+                | ExactReduction::Radical(_)
+                | ExactReduction::RealAlgebraic(_)
+                | ExactReduction::Symbolic,
+            ) => unreachable!("different exact reduction variants have distinct ranks"),
+        })
+}
+
+fn compare_radical_reductions(left: &RadicalReduction, right: &RadicalReduction) -> Ordering {
+    let rank = |value: &RadicalReduction| match value {
+        RadicalReduction::Rational(_) => 0,
+        RadicalReduction::Radical(_) => 1,
+        RadicalReduction::LinearCombination(_) => 2,
+    };
+    rank(left)
+        .cmp(&rank(right))
+        .then_with(|| match (left, right) {
+            (RadicalReduction::Rational(left), RadicalReduction::Rational(right)) => {
+                left.value().compare(right.value())
+            }
+            (RadicalReduction::Radical(left), RadicalReduction::Radical(right)) => {
+                compare_simple_radicals(left.value(), right.value())
+            }
+            (
+                RadicalReduction::LinearCombination(left),
+                RadicalReduction::LinearCombination(right),
+            ) => compare_radical_linear_combinations(left.value(), right.value()),
+            (
+                RadicalReduction::Rational(_)
+                | RadicalReduction::Radical(_)
+                | RadicalReduction::LinearCombination(_),
+                RadicalReduction::Rational(_)
+                | RadicalReduction::Radical(_)
+                | RadicalReduction::LinearCombination(_),
+            ) => unreachable!("different radical variants have distinct ranks"),
+        })
+}
+
+fn compare_simple_radicals(left: &SimpleRadical, right: &SimpleRadical) -> Ordering {
+    left.coefficient
+        .compare(&right.coefficient)
+        .then_with(|| left.radicand.inner.inner.cmp(&right.radicand.inner.inner))
+}
+
+fn compare_radical_linear_combinations(
+    left: &RadicalLinearCombination,
+    right: &RadicalLinearCombination,
+) -> Ordering {
+    left.rational.compare(&right.rational).then_with(|| {
+        for (left, right) in left.radicals.iter().zip(&right.radicals) {
+            let order = compare_simple_radicals(left, right);
+            if order != Ordering::Equal {
+                return order;
+            }
+        }
+        left.radicals.len().cmp(&right.radicals.len())
+    })
+}
+
+fn compare_real_algebraic_evaluations(
+    left: &RealAlgebraicEvaluation,
+    right: &RealAlgebraicEvaluation,
+) -> Ordering {
+    match (left, right) {
+        (RealAlgebraicEvaluation::Rational(left), RealAlgebraicEvaluation::Rational(right)) => {
+            left.value().compare(right.value())
+        }
+        (RealAlgebraicEvaluation::Rational(_), RealAlgebraicEvaluation::Algebraic(_)) => {
+            Ordering::Less
+        }
+        (RealAlgebraicEvaluation::Algebraic(_), RealAlgebraicEvaluation::Rational(_)) => {
+            Ordering::Greater
+        }
+        (RealAlgebraicEvaluation::Algebraic(left), RealAlgebraicEvaluation::Algebraic(right)) => {
+            compare_primitive_polynomials(&left.minimal_polynomial, &right.minimal_polynomial)
+                .then_with(|| left.real_root_index.cmp(&right.real_root_index))
+        }
+    }
+}
+
+fn compare_primitive_polynomials(
+    left: &PrimitivePolynomial,
+    right: &PrimitivePolynomial,
+) -> Ordering {
+    for (left, right) in left
+        .coefficients_low_to_high
+        .iter()
+        .zip(&right.coefficients_low_to_high)
+    {
+        let order = left.inner.cmp(&right.inner);
+        if order != Ordering::Equal {
+            return order;
+        }
+    }
+    left.coefficients_low_to_high
+        .len()
+        .cmp(&right.coefficients_low_to_high.len())
 }
 
 fn zero_product_has_unproven_factor_domain(
@@ -2125,7 +2490,10 @@ fn recognized_from_exact_reduction(value: ExactReduction) -> RecognizedExactSube
     match value {
         ExactReduction::PiMultiple(value) => RecognizedExactSubexpression::PiMultiple(value),
         ExactReduction::Radical(value) => RecognizedExactSubexpression::Radical(value),
-        ExactReduction::RealAlgebraic(value) => RecognizedExactSubexpression::RealAlgebraic(value),
+        ExactReduction::RealAlgebraic(value) => RecognizedExactSubexpression::RealAlgebraic {
+            value,
+            canonical_polynomial: None,
+        },
         ExactReduction::Symbolic => RecognizedExactSubexpression::Symbolic,
     }
 }
@@ -2161,7 +2529,11 @@ fn store_exact_subexpression(
                 }
             }
         }
-        RecognizedExactSubexpression::RealAlgebraic(value) => {
+        RecognizedExactSubexpression::RealAlgebraic {
+            value,
+            canonical_polynomial: polynomial,
+        } => {
+            canonical_polynomial = polynomial;
             normalization.used_algebraic_reduction = true;
             normalization.used_cyclotomic_reduction |= matches!(
                 &presentation,
@@ -2369,8 +2741,114 @@ fn append_rational_expr(dag: &mut ExactExpressionDag, value: Rational) -> ExprId
 
 fn append_expression_node(dag: &mut ExactExpressionDag, node: ExpressionNode) -> ExprId {
     let id = ExprId(dag.nodes.len() as u32);
+    let structural_size = match &node {
+        ExpressionNode::Exact(value) => exact_reduction_structural_size(dag.exact_value(*value)),
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::Add(_)
+        | ExpressionNode::Multiply(_)
+        | ExpressionNode::Divide { .. }
+        | ExpressionNode::Power { .. }
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. } => {
+            expression_node_structural_size(&node, &dag.structural_sizes, &dag.lists)
+        }
+    };
     dag.nodes.push(node);
+    dag.structural_sizes.push(structural_size);
     id
+}
+
+fn expression_node_structural_size(
+    node: &ExpressionNode,
+    structural_sizes: &[usize],
+    lists: &[Vec<ExprId>],
+) -> usize {
+    let child_size = |id: ExprId| structural_sizes[id.0 as usize];
+    match node {
+        ExpressionNode::Rational(_) | ExpressionNode::Exact(_) | ExpressionNode::Constant(_) => 1,
+        ExpressionNode::Add(values) | ExpressionNode::Multiply(values) => {
+            lists[values.0 as usize].iter().fold(1usize, |size, child| {
+                size.saturating_add(child_size(*child))
+            })
+        }
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => 1usize
+            .saturating_add(child_size(*numerator))
+            .saturating_add(child_size(*denominator)),
+        ExpressionNode::Power { base, exponent }
+        | ExpressionNode::LogBase {
+            argument: base,
+            base: exponent,
+        } => 1usize
+            .saturating_add(child_size(*base))
+            .saturating_add(child_size(*exponent)),
+        ExpressionNode::Function { argument, .. } => 1usize.saturating_add(child_size(*argument)),
+        ExpressionNode::BinaryFunction { left, right, .. } => 1usize
+            .saturating_add(child_size(*left))
+            .saturating_add(child_size(*right)),
+    }
+}
+
+fn exact_reduction_structural_size(value: &ExactReduction) -> usize {
+    match value {
+        ExactReduction::PiMultiple(value) => {
+            1usize.saturating_add(rational_structural_size(value.coefficient()))
+        }
+        ExactReduction::Radical(value) => match value {
+            RadicalReduction::Rational(value) => {
+                1usize.saturating_add(rational_structural_size(value.value()))
+            }
+            RadicalReduction::Radical(value) => {
+                1usize.saturating_add(simple_radical_structural_size(value.value()))
+            }
+            RadicalReduction::LinearCombination(value) => {
+                let value = value.value();
+                value.radicals.iter().fold(
+                    1usize.saturating_add(rational_structural_size(&value.rational)),
+                    |size, radical| size.saturating_add(simple_radical_structural_size(radical)),
+                )
+            }
+        },
+        ExactReduction::RealAlgebraic(value) => match value {
+            RealAlgebraicEvaluation::Rational(value) => {
+                1usize.saturating_add(rational_structural_size(value.value()))
+            }
+            RealAlgebraicEvaluation::Algebraic(value) => value
+                .minimal_polynomial
+                .coefficients_low_to_high
+                .iter()
+                .fold(2usize, |size, coefficient| {
+                    size.saturating_add(integer_structural_size(coefficient))
+                }),
+        },
+        ExactReduction::Symbolic => 1,
+    }
+}
+
+fn simple_radical_structural_size(value: &SimpleRadical) -> usize {
+    1usize
+        .saturating_add(rational_structural_size(&value.coefficient))
+        .saturating_add(integer_structural_size(&value.radicand.inner))
+}
+
+fn rational_structural_size(value: &Rational) -> usize {
+    1usize
+        .saturating_add(integer_structural_size(&value.numerator))
+        .saturating_add(integer_structural_size(&value.denominator.inner))
+}
+
+fn integer_structural_size(value: &Integer) -> usize {
+    value
+        .inner
+        .to_signed_bytes_le()
+        .len()
+        .saturating_add(core::mem::size_of::<u64>() - 1)
+        .saturating_div(core::mem::size_of::<u64>())
+        .max(1)
 }
 
 #[cfg(test)]
@@ -2423,7 +2901,8 @@ pub(crate) fn structurally_equal_expressions(
             dag.rational(*left) == dag.rational(*right)
         }
         (ExpressionNode::Exact(left), ExpressionNode::Exact(right)) => {
-            dag.exact_value(*left) == dag.exact_value(*right)
+            compare_exact_reductions(dag.exact_value(*left), dag.exact_value(*right))
+                == Ordering::Equal
         }
         (ExpressionNode::Constant(left), ExpressionNode::Constant(right)) => left == right,
         (ExpressionNode::Add(left), ExpressionNode::Add(right))
@@ -8305,7 +8784,12 @@ impl DagBuilder {
             return Err(ComputationLimitKind::LogicalWorkUnits);
         }
         budget.reserve(work, work)?;
-        budget.reserve(0, polynomial_factor_product_work(&left, &right))?;
+        budget.reserve(
+            0,
+            polynomial_factor_product_work(&left, &right, |id| {
+                self.structural_sizes[id.0 as usize]
+            }),
+        )?;
         let mut terms = Vec::with_capacity(work);
         for left in &left.terms {
             for right in &right.terms {
@@ -8407,7 +8891,10 @@ impl DagBuilder {
         mut polynomial: BuilderPolynomial,
         budget: &mut CanonicalBudget,
     ) -> Result<BuilderPolynomial, ComputationLimitKind> {
-        budget.reserve(0, polynomial_term_merge_work(&polynomial))?;
+        budget.reserve(
+            0,
+            polynomial_term_merge_work(&polynomial, |id| self.structural_sizes[id.0 as usize]),
+        )?;
         polynomial.terms.retain(|term| !term.coefficient.is_zero());
         polynomial
             .terms
@@ -8720,19 +9207,7 @@ impl DagBuilder {
         }
         let left_node = &self.nodes[left.0 as usize];
         let right_node = &self.nodes[right.0 as usize];
-        let rank = |node: &ExpressionNode| match node {
-            ExpressionNode::Rational(_) => 0,
-            ExpressionNode::Constant(_) => 1,
-            ExpressionNode::Power { .. } => 2,
-            ExpressionNode::Function { .. } => 3,
-            ExpressionNode::LogBase { .. } => 4,
-            ExpressionNode::Multiply(_) => 5,
-            ExpressionNode::Divide { .. } => 6,
-            ExpressionNode::Add(_) => 7,
-            ExpressionNode::BinaryFunction { .. } => 8,
-            ExpressionNode::Exact(_) => 9,
-        };
-        let rank_order = rank(left_node).cmp(&rank(right_node));
+        let rank_order = expression_node_rank(left_node).cmp(&expression_node_rank(right_node));
         if rank_order != Ordering::Equal {
             return rank_order;
         }
@@ -8946,7 +9421,10 @@ impl DagBuilder {
             }
         }
         let id = ExprId(self.nodes.len() as u32);
+        let structural_size =
+            expression_node_structural_size(&node, &self.structural_sizes, &self.lists);
         self.nodes.push(node);
+        self.structural_sizes.push(structural_size);
         self.node_index.entry(hash).or_default().push(id);
         id
     }
@@ -9205,7 +9683,29 @@ mod tests {
                 .collect(),
         };
         let pairwise_factor_comparisons = 32usize * 31 / 2 * 9;
-        assert!(polynomial_term_merge_work(&polynomial) >= pairwise_factor_comparisons);
+        assert!(polynomial_term_merge_work(&polynomial, |_| 1) >= pairwise_factor_comparisons);
+
+        let shallow = lower("sin(1)");
+        let deep = lower("exp(exp(exp(exp(sin(1)))))");
+        let repeated_atom = |id| BuilderPolynomial {
+            terms: vec![
+                BuilderMonomial {
+                    coefficient: Rational::one(),
+                    factors: vec![(id, 1)],
+                },
+                BuilderMonomial {
+                    coefficient: rational_integer(-1),
+                    factors: vec![(id, 1)],
+                },
+            ],
+        };
+        let shallow_work = polynomial_term_merge_work(&repeated_atom(shallow.root()), |id| {
+            shallow.structural_sizes[id.0 as usize]
+        });
+        let deep_work = polynomial_term_merge_work(&repeated_atom(deep.root()), |id| {
+            deep.structural_sizes[id.0 as usize]
+        });
+        assert!(deep_work > shallow_work);
     }
 
     #[test]
@@ -9303,6 +9803,26 @@ mod tests {
         let (renormalized, _) =
             normalize_exact_subexpressions(dag, &ResourceLimits::default()).unwrap();
         assert_eq!(renormalized, expected);
+    }
+
+    #[test]
+    fn post_exact_canonical_presentation_absorbs_algebraic_coefficients() {
+        let dag = lower("2*sin(pi/6)*2^(1/3)");
+        let (dag, _) = normalize_exact_subexpressions(dag, &ResourceLimits::default()).unwrap();
+        let ExpressionNode::Exact(root) = dag.node(dag.root()) else {
+            panic!("expected a stored exact algebraic root: {dag:#?}");
+        };
+        assert!(
+            matches!(
+                dag.exact_value(*root),
+                ExactReduction::RealAlgebraic(RealAlgebraicEvaluation::Algebraic(_))
+            ),
+            "expected real algebraic reduction: {dag:#?}"
+        );
+        assert!(
+            matches!(dag.exact_presentation(*root), ExpressionNode::Exact(_)),
+            "canonical algebraic presentation should alias the coefficient-free factor: {dag:#?}"
+        );
     }
 
     fn expression_node_children(dag: &ExactExpressionDag, node: &ExpressionNode) -> Vec<ExprId> {

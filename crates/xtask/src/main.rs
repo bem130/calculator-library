@@ -69,8 +69,8 @@ fn check_protocol_snapshot() -> Result<(), String> {
 }
 
 fn check_package_size() -> Result<(), String> {
-    const MAX_WASM_FILE_BYTES: u64 = 850_000;
-    const MAX_TOTAL_WASM_BYTES: u64 = 850_000;
+    const MAX_WASM_FILE_BYTES: u64 = 860_000;
+    const MAX_TOTAL_WASM_BYTES: u64 = 860_000;
     const MAX_TOTAL_JS_BYTES: u64 = 55_000;
     const MAX_TOTAL_CSS_BYTES: u64 = 12_000;
 

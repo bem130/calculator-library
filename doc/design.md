@@ -1282,7 +1282,7 @@ Term         = RationalCoefficient * Product(Factor ^ IntegerMultiplicity)
 
 sparse polynomial formは計算用であり、常に人間向けに最短の因数分解表示になるとは限らない。共通因子を括り出す、既約多項式へ因数分解するなどの表示候補生成は計算正規形と分離する。計算の正本を一意な展開形にすることで、表示上の因数分解方法に評価結果を依存させない。
 
-分配で生成するterm数、term同士のpairwise merge、factor scanと構造比較、sort、hash collision候補比較、新規node見積りは、操作開始前に`max_rewrite_steps`、`max_logical_work_units`、`max_expression_nodes`へ保守的上界を予約する。予約できない場合は部分的に展開せず、元の厳密式を保持してtyped partialへ進む。
+分配で生成するterm数、term同士のpairwise merge、factor scanと構造比較、sort、hash collision候補比較、新規node見積りは、操作開始前に`max_rewrite_steps`、`max_logical_work_units`、`max_expression_nodes`へ保守的上界を予約する。各nodeはchildren-before-parentで計算したbounded structural sizeをside tableに持ち、atom 1個を定数costとみなさず、そのAST sizeとexact valueの係数サイズをfactor比較costへ掛ける。予約できない場合は部分的に展開せず、元の厳密式を保持してtyped partialへ進む。
 
 Multiplyのstorage自体は常に平坦化しない。`(sqrt(2)*sqrt(2))`のように子を先にexact reductionするための境界はDAGに保持し、同類項比較に使う論理的なAC keyだけを平坦化する。これにより結合順に依存しない比較と、bottom-up exact value伝播を両立する。
 
@@ -1780,7 +1780,7 @@ minor:
     surfaceの追加で増加する。
 ```
 
-初期公開時のprotocol versionは `1.0` とし、現行の公開DTO contractは `3.0` とする。Rust公開enumのうち、利用者が網羅matchし得るものは、破壊的変更を許容して必要なvariant追加・field変更を行う。ただし、計算意味論に関わる `DomainErrorKind`、`DecimalRoundingMode`、`PowerSemantics` は追加時にminor以上のversion更新を必要とする。
+初期公開時のprotocol versionは `1.0` とし、現行の公開DTO contractは `4.1` とする。Rust公開enumのうち、利用者が網羅matchし得るものは、破壊的変更を許容して必要なvariant追加・field変更を行う。ただし、計算意味論に関わる `DomainErrorKind`、`DecimalRoundingMode`、`PowerSemantics` と公開error codeの追加はminor以上のversion更新を必要とする。
 
 TypeScript facadeは、未知の `tag` や未知の `code` を受け取った場合、握りつぶさず `unsupportedProtocol` エラーへ変換する。未知のDTOを誤った成功値として扱ってはならない。
 
