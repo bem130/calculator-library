@@ -6335,9 +6335,9 @@ impl DagBuilder {
                 let left = self.lower(left)?;
                 let right = self.lower(right)?;
                 Ok(match op {
-                    BinaryOperator::Add => self.add(left, right),
-                    BinaryOperator::Subtract => self.subtract(left, right),
-                    BinaryOperator::Multiply => self.multiply(left, right),
+                    BinaryOperator::Add => self.add_source(left, right),
+                    BinaryOperator::Subtract => self.subtract_source(left, right),
+                    BinaryOperator::Multiply => self.multiply_source(left, right),
                     BinaryOperator::Divide => self.divide(left, right),
                     BinaryOperator::Power => self.lower_power(left, right),
                 })
@@ -6585,6 +6585,9 @@ impl DagBuilder {
     }
 
     fn negate(&mut self, value: ExprId) -> ExprId {
+        if let ExpressionNode::Rational(rational) = self.nodes[value.0 as usize] {
+            return self.push_rational(self.rationals[rational.0 as usize].negate());
+        }
         let minus_one = self.push_rational(Rational::from_integer(Integer::from(-1)));
         self.multiply(minus_one, value)
     }
@@ -6597,13 +6600,62 @@ impl DagBuilder {
         self.add_many(vec![left, right])
     }
 
+    fn add_source(&mut self, left: ExprId, right: ExprId) -> ExprId {
+        if matches!(self.nodes[left.0 as usize], ExpressionNode::Rational(_))
+            && matches!(self.nodes[right.0 as usize], ExpressionNode::Rational(_))
+        {
+            let list = self.push_list(vec![left, right]);
+            self.push_node(ExpressionNode::Add(list))
+        } else {
+            self.add(left, right)
+        }
+    }
+
     fn subtract(&mut self, left: ExprId, right: ExprId) -> ExprId {
         let negative_right = self.negate(right);
         self.add(left, negative_right)
     }
 
+    fn subtract_source(&mut self, left: ExprId, right: ExprId) -> ExprId {
+        let negative_right = self.negate(right);
+        self.add_source(left, negative_right)
+    }
+
     fn multiply(&mut self, left: ExprId, right: ExprId) -> ExprId {
         self.multiply_many(vec![left, right])
+    }
+
+    fn multiply_source(&mut self, left: ExprId, right: ExprId) -> ExprId {
+        if matches!(self.nodes[left.0 as usize], ExpressionNode::Rational(_))
+            && matches!(self.nodes[right.0 as usize], ExpressionNode::Rational(_))
+        {
+            let mut factors = vec![left, right];
+            factors.sort_by(|left, right| {
+                let ExpressionNode::Rational(left) = self.nodes[left.0 as usize] else {
+                    unreachable!()
+                };
+                let ExpressionNode::Rational(right) = self.nodes[right.0 as usize] else {
+                    unreachable!()
+                };
+                let left = &self.rationals[left.0 as usize];
+                let right = &self.rationals[right.0 as usize];
+                let left_magnitude = if left.is_negative() {
+                    left.negate()
+                } else {
+                    left.clone()
+                };
+                let right_magnitude = if right.is_negative() {
+                    right.negate()
+                } else {
+                    right.clone()
+                };
+                left_magnitude.compare(&right_magnitude)
+            });
+            let list = self.push_list(factors);
+            self.push_node(ExpressionNode::Multiply(list))
+        } else {
+            self.multiply(left, right)
+        }
     }
 
     fn divide(&mut self, numerator: ExprId, denominator: ExprId) -> ExprId {
@@ -6711,7 +6763,10 @@ impl DagBuilder {
         terms: &mut Vec<BuilderLinearTerm>,
     ) {
         if self.is_proven_defined(expression) {
-            if let Some(term) = terms.iter_mut().find(|term| term.expression == expression) {
+            if let Some(term) = terms
+                .iter_mut()
+                .find(|term| self.builder_terms_equal(term.expression, expression))
+            {
                 term.coefficient = term.coefficient.add(&coefficient);
                 return;
             }
@@ -6720,6 +6775,34 @@ impl DagBuilder {
             expression,
             coefficient,
         });
+    }
+
+    fn builder_terms_equal(&self, left: ExprId, right: ExprId) -> bool {
+        if left == right {
+            return true;
+        }
+        if !matches!(self.nodes[left.0 as usize], ExpressionNode::Multiply(_))
+            || !matches!(self.nodes[right.0 as usize], ExpressionNode::Multiply(_))
+        {
+            return false;
+        }
+        let mut left_factors = Vec::new();
+        let mut right_factors = Vec::new();
+        self.collect_flat_product_ids(left, &mut left_factors);
+        self.collect_flat_product_ids(right, &mut right_factors);
+        left_factors.sort_by(|left, right| self.compare_expressions(*left, *right));
+        right_factors.sort_by(|left, right| self.compare_expressions(*left, *right));
+        left_factors == right_factors
+    }
+
+    fn collect_flat_product_ids(&self, id: ExprId, factors: &mut Vec<ExprId>) {
+        if let ExpressionNode::Multiply(values) = self.nodes[id.0 as usize] {
+            for factor in &self.lists[values.0 as usize] {
+                self.collect_flat_product_ids(*factor, factors);
+            }
+        } else {
+            factors.push(id);
+        }
     }
 
     fn multiply_many(&mut self, values: Vec<ExprId>) -> ExprId {
@@ -6753,11 +6836,6 @@ impl DagBuilder {
         match self.nodes[id.0 as usize] {
             ExpressionNode::Rational(value) => {
                 *coefficient = coefficient.multiply(&self.rationals[value.0 as usize]);
-            }
-            ExpressionNode::Multiply(values) => {
-                for factor in &self.lists[values.0 as usize] {
-                    self.collect_product_factors(*factor, coefficient, factors);
-                }
             }
             _ => factors.push(id),
         }
@@ -6979,6 +7057,45 @@ impl DagBuilder {
             | (ExpressionNode::Multiply(left), ExpressionNode::Multiply(right)) => {
                 self.compare_expression_lists(*left, *right)
             }
+            (
+                ExpressionNode::Divide {
+                    numerator: left_numerator,
+                    denominator: left_denominator,
+                },
+                ExpressionNode::Divide {
+                    numerator: right_numerator,
+                    denominator: right_denominator,
+                },
+            ) => self
+                .compare_expressions(*left_numerator, *right_numerator)
+                .then_with(|| self.compare_expressions(*left_denominator, *right_denominator)),
+            (
+                ExpressionNode::LogBase {
+                    argument: left_argument,
+                    base: left_base,
+                },
+                ExpressionNode::LogBase {
+                    argument: right_argument,
+                    base: right_base,
+                },
+            ) => self
+                .compare_expressions(*left_argument, *right_argument)
+                .then_with(|| self.compare_expressions(*left_base, *right_base)),
+            (
+                ExpressionNode::BinaryFunction {
+                    function: left_function,
+                    left: left_argument,
+                    right: left_base,
+                },
+                ExpressionNode::BinaryFunction {
+                    function: right_function,
+                    left: right_argument,
+                    right: right_base,
+                },
+            ) => function_rank(*left_function)
+                .cmp(&function_rank(*right_function))
+                .then_with(|| self.compare_expressions(*left_argument, *right_argument))
+                .then_with(|| self.compare_expressions(*left_base, *right_base)),
             _ => left.0.cmp(&right.0),
         }
     }

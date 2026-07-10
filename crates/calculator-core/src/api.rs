@@ -3846,10 +3846,13 @@ mod tests {
             max_logical_work_units: 0,
             ..ResourceLimits::default()
         });
-        for source in ["log(2,10)+log(3,10)", "log(5,7)*log(7,3)*log(3,2)"] {
+        for (source, expected) in [
+            ("log(2,10)+log(3,10)", "log(2,10)+log(3,10)"),
+            ("log(5,7)*log(7,3)*log(3,2)", "log(3,2)*log(5,7)*log(7,3)"),
+        ] {
             let mut context = EvaluationContext::default();
             let outcome = calculate(source, &request, &mut context).unwrap();
-            assert_eq!(exact_plain_text_from_partial_outcome(outcome), source);
+            assert_eq!(exact_plain_text_from_partial_outcome(outcome), expected);
         }
     }
 
@@ -6095,13 +6098,13 @@ mod tests {
     fn symbolic_logarithm_presentation_expands_only_proven_positive_factors() {
         for (source, expected) in [
             ("ln(2*3)", "ln(2)+ln(3)"),
-            ("ln(2*2*3)", "2*ln(2)+ln(3)"),
+            ("ln(2*2*3)", "ln(3)+2*ln(2)"),
             ("ln(2/3)", "ln(2)-ln(3)"),
             ("ln(2^3)", "3*ln(2)"),
             ("ln(2^(-3))", "-3*ln(2)"),
             ("ln(sqrt(2))", "1/2*ln(2)"),
             ("ln(sqrt(2)^2)", "ln(2)"),
-            ("ln((2+3)*5)", "ln(2+3)+ln(5)"),
+            ("ln((2+3)*5)", "ln(5)+ln(2+3)"),
             ("ln(pi*e)", "ln(pi)+ln(e)"),
         ] {
             assert_eq!(
@@ -6113,7 +6116,7 @@ mod tests {
 
         for (source, expected) in [
             ("ln((-2)*(-3))", "ln(2*3)"),
-            ("ln(sin(1)*2)", "ln(sin(1)*2)"),
+            ("ln(sin(1)*2)", "ln(2*sin(1))"),
         ] {
             assert_eq!(
                 symbolic_plain_text_from_source(source),
@@ -6460,8 +6463,10 @@ mod tests {
             ("cosh(100)-sinh(100)", "exp(-100)"),
             ("cosh(1000)-sinh(1000)-e^(-1000)", "0"),
             ("e^sin(1)-exp(sin(1))", "0"),
+            ("exp(sin(1),e)-exp(sin(1))", "0"),
             ("sin(1)*cos(1)-cos(1)*sin(1)", "0"),
             ("2*(sin(1)*cos(1))-2*(cos(1)*sin(1))", "0"),
+            ("(sin(1)*cos(1))*exp(1)-sin(1)*(cos(1)*exp(1))", "0"),
             ("exp(cosh(100)-sinh(100)-e^(-100))", "1"),
         ] {
             assert_eq!(exact_plain_text(source), expected, "{source}");
