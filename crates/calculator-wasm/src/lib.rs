@@ -584,7 +584,7 @@ mod dto_differential {
             request: RequestProfile::ExactOnly,
             expected: ExpectedOutcome::Complete {
                 representation: ExactRepresentationKindDto::RealAlgebraic,
-                plain_text: "((2^(1/3)-2^(1/3))+2)^(1/3)",
+                plain_text: "2^(1/3)",
                 methods: &[
                     MethodTagDto::AlgebraicMinimalPolynomial,
                     MethodTagDto::AlgebraicRootIsolation,
@@ -891,7 +891,7 @@ mod dto_differential {
                 else {
                     panic!("{}: expected requested enclosure output", case.id);
                 };
-                assert_eq!(certified_enclosure, enclosure, "{}", case.id);
+                assert_eq!(certified_enclosure.as_ref(), Some(enclosure), "{}", case.id);
                 assert_calculation(case.id, calculation, *representation, plain_text, methods);
             }
             (
@@ -1167,7 +1167,7 @@ mod tests {
         let EnclosureOutputDto::Included { value: enclosure } = calculation.enclosure else {
             panic!("expected enclosure output");
         };
-        assert_eq!(certified_enclosure, enclosure);
+        assert_eq!(certified_enclosure, Some(enclosure));
         assert_eq!(calculation.metadata.assurance, AssuranceLevelDto::Exact);
         assert!(calculation
             .metadata
@@ -1216,7 +1216,7 @@ mod tests {
         let EnclosureOutputDto::Included { value: enclosure } = calculation.enclosure else {
             panic!("expected enclosure output");
         };
-        assert_eq!(certified_enclosure, enclosure);
+        assert_eq!(certified_enclosure, Some(enclosure));
         assert_eq!(calculation.metadata.assurance, AssuranceLevelDto::Exact);
         assert!(calculation
             .metadata
@@ -1391,7 +1391,7 @@ mod tests {
         let EnclosureOutputDto::Included { value: enclosure } = calculation.enclosure else {
             panic!("{source}: expected enclosure output");
         };
-        assert_eq!(certified_enclosure, enclosure);
+        assert_eq!(certified_enclosure, Some(enclosure));
         assert_eq!(
             calculation.metadata.assurance,
             AssuranceLevelDto::CertifiedEnclosure
@@ -1492,13 +1492,13 @@ mod tests {
         for (source, expected, expected_representation, special_angle) in [
             (
                 "sqrt(72)",
-                "6sqrt(2)",
+                "6*sqrt(2)",
                 ExactRepresentationKindDto::Radical,
                 false,
             ),
             (
                 "sqrt(6962)",
-                "59sqrt(2)",
+                "59*sqrt(2)",
                 ExactRepresentationKindDto::Radical,
                 false,
             ),
@@ -1742,7 +1742,7 @@ mod tests {
         let EnclosureOutputDto::Included { value: enclosure } = calculation.enclosure else {
             panic!("expected enclosure output");
         };
-        assert_eq!(certified_enclosure, enclosure);
+        assert_eq!(certified_enclosure, Some(enclosure));
         assert_eq!(
             calculation.metadata.assurance,
             AssuranceLevelDto::CertifiedEnclosure
@@ -1855,7 +1855,7 @@ mod tests {
         let EnclosureOutputDto::Included { value: enclosure } = calculation.enclosure else {
             panic!("expected enclosure output");
         };
-        assert_eq!(certified_enclosure, enclosure);
+        assert_eq!(certified_enclosure, Some(enclosure));
         assert_eq!(
             calculation.metadata.assurance,
             AssuranceLevelDto::CertifiedEnclosure
@@ -1948,7 +1948,7 @@ mod tests {
     }
 
     #[test]
-    fn calculation_outcome_partial_requires_certified_enclosure() {
+    fn calculation_outcome_partial_requires_nullable_certified_enclosure_field() {
         let ApiResultDto::Ok {
             value: CalculationOutcomeDto::Complete { calculation },
         } = calculate_dto("1", exact_only_request())
@@ -1960,27 +1960,17 @@ mod tests {
             reason: IncompleteReasonDto::ComputationLimit {
                 kind: ComputationLimitCodeDto::LogicalWorkUnits,
             },
-            certified_enclosure: CertifiedIntervalPresentationDto {
-                relation: ResultRelationDto::ExactEqual,
-                bounds: CertifiedIntervalBoundsDto::ExactDyadic {
-                    lower: ExactDyadicDto {
-                        coefficient: String::from("1"),
-                        exponent_two: String::from("0"),
-                    },
-                    upper: ExactDyadicDto {
-                        coefficient: String::from("1"),
-                        exponent_two: String::from("0"),
-                    },
-                },
-                presentation: PresentationNodeDto::Text {
-                    text: String::from("[1, 1]"),
-                },
-            },
+            certified_enclosure: None,
         };
         let mut value = serde_json::to_value(partial).expect("partial DTO must serialize");
+        assert!(serde_json::from_value::<CalculationOutcomeDto>(value.clone()).is_ok());
         let serde_json::Value::Object(ref mut object) = value else {
             panic!("partial DTO must serialize as object");
         };
+        assert_eq!(
+            object.get("certifiedEnclosure"),
+            Some(&serde_json::Value::Null)
+        );
         object.remove("certifiedEnclosure");
 
         assert!(serde_json::from_value::<CalculationOutcomeDto>(value).is_err());
@@ -2106,7 +2096,7 @@ mod tests {
                             refinement_rounds: 0,
                             confirmed_significant_digits: 50,
                             assurance: AssuranceLevelDto::Exact,
-                            protocol_version: ProtocolVersionDto { major: 3, minor: 0 },
+                            protocol_version: ProtocolVersionDto { major: 4, minor: 0 },
                         },
                     },
                 },
@@ -2372,8 +2362,8 @@ pub mod wasm_tests {
     #[wasm_bindgen_test]
     fn wasm32_calculates_simple_radical_exact_output() {
         for (source, expected) in [
-            ("sqrt(72)", "6sqrt(2)"),
-            ("sqrt(6962)", "59sqrt(2)"),
+            ("sqrt(72)", "6*sqrt(2)"),
+            ("sqrt(6962)", "59*sqrt(2)"),
             ("sqrt(1/2)", "sqrt(2)/2"),
             ("2^(1/2)", "sqrt(2)"),
             ("sqrt(2) * sqrt(2)", "2"),

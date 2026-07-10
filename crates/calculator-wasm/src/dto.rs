@@ -1,5 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+fn deserialize_required_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::deserialize(deserializer)
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProtocolVersionDto {
@@ -191,7 +199,8 @@ pub enum CalculationOutcomeDto {
     Partial {
         calculation: CalculationDto,
         reason: IncompleteReasonDto,
-        certified_enclosure: CertifiedIntervalPresentationDto,
+        #[serde(deserialize_with = "deserialize_required_nullable")]
+        certified_enclosure: Option<CertifiedIntervalPresentationDto>,
     },
 }
 
@@ -235,6 +244,8 @@ pub enum EnclosureOutputDto {
     Included {
         value: CertifiedIntervalPresentationDto,
     },
+    #[serde(rename = "unavailable")]
+    Unavailable { reason: IncompleteReasonDto },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -329,6 +340,8 @@ pub enum IncompleteReasonDto {
     },
     #[serde(rename = "computationLimit")]
     ComputationLimit { kind: ComputationLimitCodeDto },
+    #[serde(rename = "unsupportedFeature")]
+    UnsupportedFeature { feature: UnsupportedFeatureCodeDto },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]

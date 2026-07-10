@@ -11,7 +11,7 @@
 * Rust core: `calculator-core` の公開型と `calculate` / `evaluate` / `parse` / `present` / `present_input` / `reduce_input` / `apply_calculation_result`。
 * Wasm DTO: `crates/calculator-wasm/src/dto.rs` と生成 TypeScript `packages/calculator/src/generated/dto.ts`。
 * npm facade: package root `packages/calculator/src/index.ts` と worker subpath `packages/calculator/src/worker.ts` から export される型・関数。
-* protocol snapshot: `crates/xtask/snapshots/protocol-3.0.dto.ts`。
+* protocol snapshot: `crates/xtask/snapshots/protocol-4.0.dto.ts`。
 
 `doc/design.md` は最終設計の目標であり、現行リリースの完全実装リストではない。
 
@@ -47,7 +47,7 @@ Enclosure output は `exactDyadic` または `decimalScientific` を明示して
 
 ## Protocol And Release Policy
 
-`ProtocolVersion` は現行 DTO surface を識別するための version であり、Cargo crate や npm package の semver とは別に扱う。現行 protocol snapshot は `3.0` である。
+`ProtocolVersion` は現行 DTO surface を識別するための version であり、Cargo crate や npm package の semver とは別に扱う。現行 protocol snapshot は `4.0` である。
 
 Protocol major/minor の運用は、後方互換保証ではなく、DTO surface の変更を見落とさないための識別子として扱う。
 
@@ -63,7 +63,7 @@ Release で公開 surface を変える場合は、生成 DTO、protocol snapshot
 
 Resource limits は公開契約であり、入力 byte 数、source AST nodes/depth、expression nodes、integer bits、cyclotomic order、algebraic degree、polynomial coefficient bits、resultant degree、factorization work、root isolation steps、rewrite steps、precision bits、refinement rounds、logical work units、presentation nodes、output bytes を制限する。制限超過時に近似値へ破壊的に落としてはならない。
 
-`maxPresentationNodes` と `maxOutputBytes` は `calculate` の exact/scientific/enclosure output、`partial` outcome に添付する certified enclosure、Rust `present()` の出力、npm facade の `presentInput()` preview に適用する。表示 tree が大きすぎる場合は `computationLimit.presentationNodes`、表示 payload の可変文字列が大きすぎる場合は `inputLimit.outputTooLarge` として返す。
+`maxPresentationNodes` と `maxOutputBytes` は `calculate` の exact/scientific/enclosure output、`partial` outcome に添付できた certified enclosure、Rust `present()` の出力、npm facade の `presentInput()` preview に適用する。resource limit内で保証区間を生成できない場合、partial DTOの `certifiedEnclosure` は `null`、enclosure outputはtyped `unavailable` となる。表示 tree が大きすぎる場合は `computationLimit.presentationNodes`、表示 payload の可変文字列が大きすぎる場合は `inputLimit.outputTooLarge` として返す。
 
 ## Session And Worker
 

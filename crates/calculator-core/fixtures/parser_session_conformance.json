@@ -63,13 +63,13 @@
       "id": "simple_radical_sqrt",
       "source": "sqrt(72)",
       "expectedParseTree": "sqrt(number(72))",
-      "expectedExact": "6sqrt(2)"
+      "expectedExact": "6*sqrt(2)"
     },
     {
       "id": "bounded_square_factor_radical_sqrt",
       "source": "sqrt(6962)",
       "expectedParseTree": "sqrt(number(6962))",
-      "expectedExact": "59sqrt(2)"
+      "expectedExact": "59*sqrt(2)"
     },
     {
       "id": "radical_product_reduces_to_rational",

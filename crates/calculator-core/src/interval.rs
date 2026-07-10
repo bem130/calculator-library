@@ -67,6 +67,47 @@ pub(crate) fn intersect(
     from_rational_bounds(&lower, &upper, precision_bits)
 }
 
+pub(crate) fn absolute(
+    value: &CertifiedInterval,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    let lower = dyadic_to_rational(&value.lower)?;
+    let upper = dyadic_to_rational(&value.upper)?;
+    let zero = Rational::zero();
+    if compare_rationals(&lower, &zero) != Ordering::Less {
+        return from_rational_bounds(&lower, &upper, precision_bits);
+    }
+    if compare_rationals(&upper, &zero) != Ordering::Greater {
+        return from_rational_bounds(&upper.negate(), &lower.negate(), precision_bits);
+    }
+    let magnitude = if compare_rationals(&lower.negate(), &upper) == Ordering::Greater {
+        lower.negate()
+    } else {
+        upper
+    };
+    from_rational_bounds(&zero, &magnitude, precision_bits)
+}
+
+pub(crate) fn unique_floor(value: &CertifiedInterval) -> Result<Option<Rational>, IntervalError> {
+    let lower = dyadic_to_rational(&value.lower)?;
+    let upper = dyadic_to_rational(&value.upper)?;
+    let lower_floor = lower
+        .numerator
+        .inner
+        .div_floor(&lower.denominator.inner.inner);
+    let upper_floor = upper
+        .numerator
+        .inner
+        .div_floor(&upper.denominator.inner.inner);
+    if lower_floor == upper_floor {
+        Ok(Some(Rational::from_integer(Integer::from_bigint(
+            lower_floor,
+        ))))
+    } else {
+        Ok(None)
+    }
+}
+
 pub(crate) fn constant(
     value: Constant,
     precision_bits: u32,

@@ -127,7 +127,7 @@ export type CalculationOutcome =
         readonly tag: "partial";
         readonly calculation: Calculation;
         readonly reason: IncompleteReason;
-        readonly certifiedEnclosure: CertifiedIntervalPresentation;
+        readonly certifiedEnclosure: CertifiedIntervalPresentation | null;
     };
 
 export type Calculation = {
@@ -166,6 +166,10 @@ export type EnclosureOutput =
     | {
         readonly tag: "included";
         readonly value: CertifiedIntervalPresentation;
+    }
+    | {
+        readonly tag: "unavailable";
+        readonly reason: IncompleteReason;
     };
 
 export type ExactPresentation = {
@@ -242,6 +246,10 @@ export type IncompleteReason =
     | {
         readonly tag: "computationLimit";
         readonly kind: ComputationLimitCode;
+    }
+    | {
+        readonly tag: "unsupportedFeature";
+        readonly feature: UnsupportedFeatureCode;
     };
 
 export type SimplificationStatus =

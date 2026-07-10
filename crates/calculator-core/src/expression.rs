@@ -20,6 +20,7 @@ pub(crate) struct ExactExpressionDag {
     lists: Vec<Vec<ExprId>>,
     rationals: Vec<Rational>,
     exact_values: Vec<StoredExactValue>,
+    normalization: ExactNormalization,
     semantics: SemanticSettings,
 }
 
@@ -56,6 +57,17 @@ impl ExactExpressionDag {
         &self.exact_values[id.0 as usize].presentation
     }
 
+    pub(crate) fn semantic_node(&self, id: ExprId) -> &ExpressionNode {
+        match self.node(id) {
+            ExpressionNode::Exact(value)
+                if matches!(self.exact_value(*value), ExactReduction::Symbolic) =>
+            {
+                self.exact_presentation(*value)
+            }
+            node => node,
+        }
+    }
+
     fn push_list(&mut self, values: Vec<ExprId>) -> ExprListId {
         let id = ExprListId(self.lists.len() as u32);
         self.lists.push(values);
@@ -69,6 +81,7 @@ pub(crate) struct ExactNormalization {
     used_radical_reduction: bool,
     used_algebraic_reduction: bool,
     used_cyclotomic_reduction: bool,
+    limit_reached: Option<ComputationLimitKind>,
 }
 
 impl ExactNormalization {
@@ -86,6 +99,10 @@ impl ExactNormalization {
 
     pub(crate) fn used_cyclotomic_reduction(self) -> bool {
         self.used_cyclotomic_reduction
+    }
+
+    pub(crate) fn limit_reached(self) -> Option<ComputationLimitKind> {
+        self.limit_reached
     }
 }
 
@@ -268,6 +285,7 @@ pub(crate) enum ExactReduction {
     PiMultiple(PiCoefficientEvaluation),
     Radical(RadicalReduction),
     RealAlgebraic(RealAlgebraicEvaluation),
+    Symbolic,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -321,6 +339,7 @@ pub(crate) fn lower_source_expression(
         lists: builder.lists,
         rationals: builder.rationals,
         exact_values: Vec::new(),
+        normalization: ExactNormalization::default(),
         semantics,
     })
 }
@@ -329,8 +348,8 @@ pub(crate) fn normalize_exact_subexpressions(
     dag: ExactExpressionDag,
     limits: &ResourceLimits,
 ) -> Result<(ExactExpressionDag, ExactNormalization), EvaluationError> {
-    if !dag.exact_values.is_empty() {
-        let normalization = exact_normalization_metadata(&dag);
+    if !dag.exact_values.is_empty() || dag.normalization != ExactNormalization::default() {
+        let normalization = dag.normalization;
         return Ok((dag, normalization));
     }
     let mut reduced = ExactExpressionDag {
@@ -339,9 +358,11 @@ pub(crate) fn normalize_exact_subexpressions(
         lists: Vec::with_capacity(dag.lists.len()),
         rationals: Vec::with_capacity(dag.rationals.len()),
         exact_values: Vec::new(),
+        normalization: ExactNormalization::default(),
         semantics: dag.semantics,
     };
     let mut normalization = ExactNormalization::default();
+    let mut budget = ReductionBudget::new(limits);
 
     // Lowering assigns children before parents. Each source node is rebuilt and reduced
     // exactly once, so parents always observe memoized exact children.
@@ -351,18 +372,62 @@ pub(crate) fn normalize_exact_subexpressions(
         debug_assert_eq!(reduced.nodes.len(), index);
         reduced.nodes.push(presentation.clone());
 
-        if id == dag.root || matches!(presentation, ExpressionNode::Rational(_)) {
+        if matches!(presentation, ExpressionNode::Rational(_)) {
             continue;
         }
 
-        let Some(value) = recognize_exact_subexpression(&reduced, id, limits)? else {
-            continue;
-        };
+        let value = recognize_exact_subexpression(&reduced, id, limits, &mut budget)?
+            .unwrap_or(RecognizedExactSubexpression::Symbolic);
         reduced.nodes[index] =
             store_exact_subexpression(&mut reduced, value, presentation, &mut normalization);
     }
 
+    normalization.limit_reached = budget.limit_reached;
+
+    reduced.normalization = normalization;
     Ok((reduced, normalization))
+}
+
+struct ReductionBudget {
+    rewrite_steps_remaining: u32,
+    logical_work_remaining: u64,
+    limit_reached: Option<ComputationLimitKind>,
+}
+
+impl ReductionBudget {
+    fn new(limits: &ResourceLimits) -> Self {
+        Self {
+            rewrite_steps_remaining: limits.max_rewrite_steps,
+            logical_work_remaining: limits.max_logical_work_units,
+            limit_reached: None,
+        }
+    }
+
+    fn consume_node(&mut self) -> bool {
+        if self.rewrite_steps_remaining == 0 {
+            self.limit_reached
+                .get_or_insert(ComputationLimitKind::RewriteSteps);
+            return false;
+        }
+        if self.logical_work_remaining == 0 {
+            self.limit_reached
+                .get_or_insert(ComputationLimitKind::LogicalWorkUnits);
+            return false;
+        }
+        self.rewrite_steps_remaining -= 1;
+        self.logical_work_remaining -= 1;
+        true
+    }
+
+    fn consume_work(&mut self, units: u64) -> bool {
+        let Some(remaining) = self.logical_work_remaining.checked_sub(units) else {
+            self.limit_reached
+                .get_or_insert(ComputationLimitKind::LogicalWorkUnits);
+            return false;
+        };
+        self.logical_work_remaining = remaining;
+        true
+    }
 }
 
 fn rebuild_node(
@@ -422,13 +487,26 @@ enum RecognizedExactSubexpression {
     PiMultiple(PiCoefficientEvaluation),
     Radical(RadicalReduction),
     RealAlgebraic(RealAlgebraicEvaluation),
+    Symbolic,
 }
 
 fn recognize_exact_subexpression(
     dag: &ExactExpressionDag,
     id: ExprId,
     limits: &ResourceLimits,
+    budget: &mut ReductionBudget,
 ) -> Result<Option<RecognizedExactSubexpression>, EvaluationError> {
+    if !budget.consume_node() {
+        validate_obvious_domain(dag, id)?;
+        return Ok(None);
+    }
+    if !budget.consume_work(estimated_additional_work(dag, id, limits)?) {
+        validate_obvious_domain(dag, id)?;
+        return Ok(None);
+    }
+    if let Some(value) = recognize_exact_operation(dag, id, limits)? {
+        return Ok(Some(value));
+    }
     match evaluate_node(dag, id) {
         Ok(value) => return Ok(Some(RecognizedExactSubexpression::Rational(value))),
         Err(error) if is_unsupported_exact_expression(&error) => {}
@@ -445,6 +523,384 @@ fn recognize_exact_subexpression(
         return Ok(Some(RecognizedExactSubexpression::RealAlgebraic(value)));
     }
     Ok(None)
+}
+
+fn recognize_exact_operation(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+    limits: &ResourceLimits,
+) -> Result<Option<RecognizedExactSubexpression>, EvaluationError> {
+    match dag.semantic_node(id) {
+        ExpressionNode::Add(list) => recognize_structural_zero_sum(dag, *list),
+        ExpressionNode::Function {
+            function: Function::Abs,
+            argument,
+        } => recognize_exact_absolute_value(dag, *argument, limits),
+        ExpressionNode::Function {
+            function: Function::Floor,
+            argument,
+        } => recognize_exact_floor(dag, *argument),
+        ExpressionNode::Function {
+            function: Function::Factorial,
+            argument,
+        } if exact_node_is_proven_noninteger(dag, *argument) => Err(domain_error(
+            DomainErrorKind::IntegerFunctionRequiresInteger,
+        )),
+        ExpressionNode::BinaryFunction {
+            function:
+                Function::Permutation
+                | Function::Combination
+                | Function::Modulo
+                | Function::Gcd
+                | Function::Lcm,
+            left,
+            right,
+        } if exact_node_is_proven_noninteger(dag, *left)
+            || exact_node_is_proven_noninteger(dag, *right) =>
+        {
+            Err(domain_error(
+                DomainErrorKind::IntegerFunctionRequiresInteger,
+            ))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn validate_obvious_domain(dag: &ExactExpressionDag, id: ExprId) -> Result<(), EvaluationError> {
+    match dag.semantic_node(id) {
+        ExpressionNode::Function {
+            function: Function::Sqrt,
+            argument,
+        } => {
+            if matches!(evaluate_node(dag, *argument), Ok(value) if value.value().is_negative()) {
+                return Err(domain_error(DomainErrorKind::EvenRootOfNegative));
+            }
+        }
+        ExpressionNode::Divide { denominator, .. } => {
+            if matches!(evaluate_node(dag, *denominator), Ok(value) if value.value().is_zero()) {
+                return Err(domain_error(DomainErrorKind::DivisionByZero));
+            }
+        }
+        ExpressionNode::Function {
+            function: Function::Log | Function::Ln,
+            argument,
+        } => {
+            if matches!(
+                evaluate_node(dag, *argument),
+                Ok(value) if value.value().is_negative() || value.value().is_zero()
+            ) {
+                return Err(logarithm_of_non_positive_error());
+            }
+        }
+        ExpressionNode::Function {
+            function: Function::Factorial,
+            argument,
+        } if exact_node_is_proven_noninteger(dag, *argument) => {
+            return Err(domain_error(
+                DomainErrorKind::IntegerFunctionRequiresInteger,
+            ));
+        }
+        ExpressionNode::BinaryFunction {
+            function:
+                Function::Permutation
+                | Function::Combination
+                | Function::Modulo
+                | Function::Gcd
+                | Function::Lcm,
+            left,
+            right,
+        } if exact_node_is_proven_noninteger(dag, *left)
+            || exact_node_is_proven_noninteger(dag, *right) =>
+        {
+            return Err(domain_error(
+                DomainErrorKind::IntegerFunctionRequiresInteger,
+            ));
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn estimated_additional_work(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+    limits: &ResourceLimits,
+) -> Result<u64, EvaluationError> {
+    let integer_work = |argument: ExprId| -> Result<u64, EvaluationError> {
+        let value = match evaluate_node(dag, argument) {
+            Ok(value) => value,
+            Err(error) if is_unsupported_exact_expression(&error) => return Ok(0),
+            Err(error) => return Err(error),
+        };
+        if !value.value().is_integer() || value.value().is_negative() {
+            return Ok(0);
+        }
+        Ok(value.value().numerator.inner.to_u64().unwrap_or(u64::MAX))
+    };
+
+    let integer_work = match dag.semantic_node(id) {
+        ExpressionNode::Function {
+            function: Function::Factorial,
+            argument,
+        } => integer_work(*argument),
+        ExpressionNode::BinaryFunction {
+            function: Function::Permutation | Function::Combination,
+            left,
+            ..
+        } => integer_work(*left),
+        _ => Ok(0),
+    }?;
+    Ok(integer_work.saturating_add(reserved_algebraic_work(dag, id, limits)))
+}
+
+// Algebraic algorithms have operation-local limits, but normalization needs one
+// cumulative limit for the whole expression. Reserve a deterministic upper bound
+// before entering an algebraic operation; unused work is intentionally not
+// refunded, so actual work can never exceed the shared logical-work budget.
+fn reserved_algebraic_work(dag: &ExactExpressionDag, id: ExprId, limits: &ResourceLimits) -> u64 {
+    let pipeline = |resultant_work: u64| {
+        resultant_work
+            .saturating_add(u64::from(limits.max_factorization_work))
+            .saturating_add(u64::from(limits.max_root_isolation_steps))
+    };
+    let binary_pipeline = |lhs_degree: u64, rhs_degree: u64| {
+        let matrix_degree = lhs_degree.saturating_add(rhs_degree);
+        let interpolation_points = lhs_degree.saturating_mul(rhs_degree).saturating_add(1);
+        pipeline(interpolation_points.saturating_mul(matrix_degree.saturating_pow(3)))
+    };
+    let power_pipeline = |base_degree: u64, exponent: i64| {
+        let magnitude = exponent.unsigned_abs();
+        if magnitude == 0 {
+            return 0;
+        }
+        let maximum_degree = u64::from(limits.max_algebraic_degree);
+        let mut remaining = magnitude;
+        let mut factor_degree = base_degree;
+        let mut result_degree = None;
+        let mut work = 0u64;
+        while remaining > 0 {
+            if remaining & 1 == 1 {
+                if let Some(current_degree) = result_degree {
+                    work = work.saturating_add(binary_pipeline(current_degree, factor_degree));
+                    result_degree = Some(
+                        current_degree
+                            .saturating_mul(factor_degree)
+                            .min(maximum_degree),
+                    );
+                } else {
+                    result_degree = Some(factor_degree);
+                }
+            }
+            remaining >>= 1;
+            if remaining > 0 {
+                work = work.saturating_add(binary_pipeline(factor_degree, factor_degree));
+                factor_degree = factor_degree
+                    .saturating_mul(factor_degree)
+                    .min(maximum_degree);
+            }
+        }
+        if exponent < 0 {
+            work.saturating_add(pipeline(base_degree))
+        } else {
+            work
+        }
+    };
+
+    match dag.semantic_node(id) {
+        ExpressionNode::Power { base, exponent } => {
+            let Ok(exponent) = evaluate_node(dag, *exponent) else {
+                return 0;
+            };
+            if exponent.value().is_integer() {
+                let Some(base_degree) = exact_algebraic_degree(dag, *base) else {
+                    return 0;
+                };
+                let Some(exponent) = exponent.value().as_i64_if_integer() else {
+                    return u64::MAX;
+                };
+                power_pipeline(base_degree, exponent)
+            } else {
+                let root_index = exponent
+                    .value()
+                    .denominator
+                    .inner
+                    .inner
+                    .to_u64()
+                    .unwrap_or(u64::MAX);
+                let algebraic_degree = exact_algebraic_degree(dag, *base);
+                let integer_power = algebraic_degree
+                    .and_then(|degree| {
+                        exponent
+                            .value()
+                            .numerator
+                            .inner
+                            .to_i64()
+                            .map(|numerator| power_pipeline(degree, numerator))
+                    })
+                    .unwrap_or(0);
+                let sign_proofs = algebraic_degree
+                    .map(|_| u64::from(limits.max_root_isolation_steps).saturating_mul(2))
+                    .unwrap_or(0);
+                integer_power
+                    .saturating_add(sign_proofs)
+                    .saturating_add(pipeline(root_index))
+            }
+        }
+        ExpressionNode::Function {
+            function: Function::Sqrt,
+            argument,
+        } => {
+            if exact_algebraic_degree(dag, *argument).is_some()
+                || evaluate_node(dag, *argument).is_ok()
+            {
+                pipeline(2)
+            } else {
+                0
+            }
+        }
+        ExpressionNode::Add(values) | ExpressionNode::Multiply(values) => {
+            let degrees = dag
+                .list(*values)
+                .iter()
+                .filter_map(|child| exact_algebraic_degree(dag, *child))
+                .collect::<Vec<_>>();
+            match degrees.as_slice() {
+                [] => 0,
+                [degree] => pipeline(*degree),
+                [first, rest @ ..] => {
+                    let (work, result_degree) =
+                        rest.iter()
+                            .fold((0u64, *first), |(work, accumulated_degree), degree| {
+                                let operation = binary_pipeline(accumulated_degree, *degree);
+                                let result_degree = accumulated_degree
+                                    .saturating_mul(*degree)
+                                    .min(u64::from(limits.max_algebraic_degree));
+                                (work.saturating_add(operation), result_degree)
+                            });
+                    work.saturating_add(pipeline(result_degree))
+                }
+            }
+        }
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => match (
+            exact_algebraic_degree(dag, *numerator),
+            exact_algebraic_degree(dag, *denominator),
+        ) {
+            (Some(lhs), Some(rhs)) => pipeline(rhs).saturating_add(binary_pipeline(lhs, rhs)),
+            (Some(degree), None) | (None, Some(degree)) => pipeline(degree),
+            (None, None) => 0,
+        },
+        ExpressionNode::Function {
+            function: Function::Sin | Function::Cos | Function::Tan,
+            ..
+        } => pipeline(u64::from(limits.max_cyclotomic_order)),
+        _ => 0,
+    }
+}
+
+fn exact_algebraic_degree(dag: &ExactExpressionDag, id: ExprId) -> Option<u64> {
+    let ExpressionNode::Exact(value) = dag.node(id) else {
+        return None;
+    };
+    match dag.exact_value(*value) {
+        ExactReduction::RealAlgebraic(RealAlgebraicEvaluation::Algebraic(value)) => value
+            .minimal_polynomial()
+            .degree()
+            .and_then(|degree| u64::try_from(degree).ok()),
+        ExactReduction::RealAlgebraic(RealAlgebraicEvaluation::Rational(_)) => Some(1),
+        _ => None,
+    }
+}
+
+fn exact_node_is_proven_noninteger(dag: &ExactExpressionDag, id: ExprId) -> bool {
+    let ExpressionNode::Exact(value) = dag.node(id) else {
+        return false;
+    };
+    !matches!(dag.exact_value(*value), ExactReduction::Symbolic)
+}
+
+fn recognize_structural_zero_sum(
+    dag: &ExactExpressionDag,
+    list: ExprListId,
+) -> Result<Option<RecognizedExactSubexpression>, EvaluationError> {
+    let terms = dag.list(list);
+    if terms.len() != 2 {
+        return Ok(None);
+    }
+    for (positive, negative) in [(terms[0], terms[1]), (terms[1], terms[0])] {
+        let ExpressionNode::Multiply(factors) = dag.semantic_node(negative) else {
+            continue;
+        };
+        let factors = dag.list(*factors);
+        if factors.len() != 2 {
+            continue;
+        }
+        let value = if matches!(
+            evaluate_node(dag, factors[0]),
+            Ok(value) if value.value() == &rational_integer(-1)
+        ) {
+            factors[1]
+        } else if matches!(
+            evaluate_node(dag, factors[1]),
+            Ok(value) if value.value() == &rational_integer(-1)
+        ) {
+            factors[0]
+        } else {
+            continue;
+        };
+        if structurally_equal_expressions(dag, positive, value) {
+            return Ok(Some(RecognizedExactSubexpression::Rational(
+                RationalEvaluation::direct(Rational::zero()),
+            )));
+        }
+    }
+    Ok(None)
+}
+
+fn recognize_exact_absolute_value(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+    limits: &ResourceLimits,
+) -> Result<Option<RecognizedExactSubexpression>, EvaluationError> {
+    let ExpressionNode::Exact(value) = dag.node(argument) else {
+        return Ok(None);
+    };
+    let reduction = dag.exact_value(*value);
+    let sign = exact_reduction_sign_bounded(reduction, limits)?;
+    match sign {
+        Some(Ordering::Greater | Ordering::Equal) => {
+            Ok(Some(recognized_from_exact_reduction(reduction.clone())))
+        }
+        Some(Ordering::Less) => {
+            Ok(negate_exact_reduction(reduction, limits)?.map(recognized_from_exact_reduction))
+        }
+        None => Ok(None),
+    }
+}
+
+fn recognize_exact_floor(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+) -> Result<Option<RecognizedExactSubexpression>, EvaluationError> {
+    let ExpressionNode::Exact(_value) = dag.node(argument) else {
+        return Ok(None);
+    };
+    let interval =
+        evaluate_interval_node(dag, argument, 128).map_err(evaluation_error_from_interval)?;
+    Ok(interval::unique_floor(&interval)
+        .map_err(evaluation_error_from_interval)?
+        .map(|value| RecognizedExactSubexpression::Rational(RationalEvaluation::direct(value))))
+}
+
+fn recognized_from_exact_reduction(value: ExactReduction) -> RecognizedExactSubexpression {
+    match value {
+        ExactReduction::PiMultiple(value) => RecognizedExactSubexpression::PiMultiple(value),
+        ExactReduction::Radical(value) => RecognizedExactSubexpression::Radical(value),
+        ExactReduction::RealAlgebraic(value) => RecognizedExactSubexpression::RealAlgebraic(value),
+        ExactReduction::Symbolic => RecognizedExactSubexpression::Symbolic,
+    }
 }
 
 fn store_exact_subexpression(
@@ -492,7 +948,9 @@ fn store_exact_subexpression(
                 value => ExactReduction::RealAlgebraic(value),
             }
         }
+        RecognizedExactSubexpression::Symbolic => ExactReduction::Symbolic,
     };
+    let presentation = canonical_exact_presentation(dag, &presentation, &reduction);
     let value = ExactValueId(dag.exact_values.len() as u32);
     dag.exact_values.push(StoredExactValue {
         reduction,
@@ -501,32 +959,29 @@ fn store_exact_subexpression(
     ExpressionNode::Exact(value)
 }
 
-fn exact_normalization_metadata(dag: &ExactExpressionDag) -> ExactNormalization {
-    let mut metadata = ExactNormalization::default();
-    for stored in &dag.exact_values {
-        match &stored.reduction {
-            ExactReduction::PiMultiple(value) => {
-                metadata.used_special_angle |= value.used_special_angle();
-            }
-            ExactReduction::Radical(value) => {
-                metadata.used_special_angle |= value.used_special_angle();
-                metadata.used_radical_reduction = true;
-            }
-            ExactReduction::RealAlgebraic(value) => {
-                metadata.used_algebraic_reduction = true;
-                metadata.used_cyclotomic_reduction |=
-                    matches!(value, RealAlgebraicEvaluation::Algebraic(_))
-                        && matches!(
-                            &stored.presentation,
-                            ExpressionNode::Function {
-                                function: Function::Sin | Function::Cos | Function::Tan,
-                                ..
-                            }
-                        );
-            }
-        }
+fn canonical_exact_presentation(
+    dag: &ExactExpressionDag,
+    presentation: &ExpressionNode,
+    reduction: &ExactReduction,
+) -> ExpressionNode {
+    if !matches!(reduction, ExactReduction::RealAlgebraic(_)) {
+        return presentation.clone();
     }
-    metadata
+    let ExpressionNode::Function {
+        function: Function::Abs,
+        argument,
+    } = presentation
+    else {
+        return presentation.clone();
+    };
+    let ExpressionNode::Exact(value) = dag.node(*argument) else {
+        return presentation.clone();
+    };
+    if exact_reduction_sign(dag.exact_value(*value)) == Some(Ordering::Greater) {
+        dag.exact_presentation(*value).clone()
+    } else {
+        presentation.clone()
+    }
 }
 
 fn store_rational_node(dag: &mut ExactExpressionDag, value: Rational) -> ExpressionNode {
@@ -580,7 +1035,7 @@ pub(crate) fn structurally_equal_expressions(
         return true;
     }
 
-    match (dag.node(left), dag.node(right)) {
+    match (dag.semantic_node(left), dag.semantic_node(right)) {
         (ExpressionNode::Rational(left), ExpressionNode::Rational(right)) => {
             dag.rational(*left) == dag.rational(*right)
         }
@@ -685,7 +1140,7 @@ fn prove_expression_nonzero(dag: &ExactExpressionDag, id: ExprId) -> Result<bool
         Err(error) => return Err(error),
     }
 
-    match dag.node(id) {
+    match dag.semantic_node(id) {
         ExpressionNode::Rational(_) => Ok(false),
         ExpressionNode::Exact(value) => Ok(exact_reduction_sign(dag.exact_value(*value)).is_some()),
         ExpressionNode::Constant(Constant::Pi | Constant::Euler) => Ok(true),
@@ -752,7 +1207,7 @@ fn expression_domain_known_well_defined(
         Err(error) => return Err(error),
     }
 
-    match dag.node(id) {
+    match dag.semantic_node(id) {
         ExpressionNode::Rational(_) | ExpressionNode::Exact(_) | ExpressionNode::Constant(_) => {
             Ok(true)
         }
@@ -815,7 +1270,7 @@ fn prove_expression_positive(
         Err(error) => return Err(error),
     }
 
-    match dag.node(id) {
+    match dag.semantic_node(id) {
         ExpressionNode::Rational(_) => Ok(false),
         ExpressionNode::Exact(value) => {
             Ok(exact_reduction_sign(dag.exact_value(*value)) == Some(Ordering::Greater))
@@ -889,7 +1344,7 @@ fn prove_expression_nonnegative(
         Err(error) => return Err(error),
     }
 
-    match dag.node(id) {
+    match dag.semantic_node(id) {
         ExpressionNode::Exact(value) => Ok(matches!(
             exact_reduction_sign(dag.exact_value(*value)),
             Some(Ordering::Equal | Ordering::Greater)
@@ -1288,7 +1743,9 @@ fn evaluate_pi_coefficient(
         }
         ExpressionNode::Exact(value) => match dag.exact_value(*value) {
             ExactReduction::PiMultiple(value) => Ok(Some(value.clone())),
-            ExactReduction::Radical(_) | ExactReduction::RealAlgebraic(_) => Ok(None),
+            ExactReduction::Radical(_)
+            | ExactReduction::RealAlgebraic(_)
+            | ExactReduction::Symbolic => Ok(None),
         },
         ExpressionNode::Constant(Constant::Euler) => Ok(None),
         ExpressionNode::Add(list_id) => {
@@ -1411,7 +1868,9 @@ fn evaluate_radical_node(
     match dag.node(id) {
         ExpressionNode::Exact(value) => match dag.exact_value(*value) {
             ExactReduction::Radical(value) => Ok(Some(value.clone())),
-            ExactReduction::PiMultiple(_) | ExactReduction::RealAlgebraic(_) => Ok(None),
+            ExactReduction::PiMultiple(_)
+            | ExactReduction::RealAlgebraic(_)
+            | ExactReduction::Symbolic => Ok(None),
         },
         ExpressionNode::Add(list_id) => evaluate_radical_sum(dag, *list_id),
         ExpressionNode::Multiply(list_id) => evaluate_radical_product(dag, *list_id),
@@ -1531,6 +1990,7 @@ fn evaluate_real_algebraic_node(
                 evaluate_real_algebraic_expression_node(dag, dag.exact_presentation(*value), limits)
             }
             ExactReduction::PiMultiple(_) => Ok(None),
+            ExactReduction::Symbolic => Ok(None),
         },
         node => evaluate_real_algebraic_expression_node(dag, node, limits),
     }
@@ -2133,7 +2593,7 @@ fn evaluate_real_algebraic_exp_function(
     let ExpressionNode::Function {
         function: Function::Log,
         argument,
-    } = dag.node(argument)
+    } = dag.semantic_node(argument)
     else {
         return Ok(None);
     };
@@ -2155,7 +2615,7 @@ fn evaluate_real_algebraic_log_function(
     let ExpressionNode::Function {
         function: Function::Exp,
         argument,
-    } = dag.node(argument)
+    } = dag.semantic_node(argument)
     else {
         return Ok(None);
     };
@@ -2521,7 +2981,7 @@ fn evaluate_radical_exp_function(
     let ExpressionNode::Function {
         function: Function::Log,
         argument,
-    } = dag.node(argument)
+    } = dag.semantic_node(argument)
     else {
         return Ok(None);
     };
@@ -2542,7 +3002,7 @@ fn evaluate_radical_log_function(
     let ExpressionNode::Function {
         function: Function::Exp,
         argument,
-    } = dag.node(argument)
+    } = dag.semantic_node(argument)
     else {
         return Ok(None);
     };
@@ -3079,7 +3539,81 @@ fn exact_reduction_sign(value: &ExactReduction) -> Option<Ordering> {
         ExactReduction::RealAlgebraic(RealAlgebraicEvaluation::Algebraic(value)) => {
             stored_real_algebraic_sign(value)
         }
+        ExactReduction::Symbolic => None,
     }
+}
+
+pub(crate) fn node_is_exact_zero(dag: &ExactExpressionDag, id: ExprId) -> bool {
+    match dag.node(id) {
+        ExpressionNode::Rational(value) => dag.rational(*value).is_zero(),
+        ExpressionNode::Exact(value) => {
+            exact_reduction_sign(dag.exact_value(*value)) == Some(Ordering::Equal)
+        }
+        _ => false,
+    }
+}
+
+fn exact_reduction_sign_bounded(
+    value: &ExactReduction,
+    limits: &ResourceLimits,
+) -> Result<Option<Ordering>, EvaluationError> {
+    if let Some(sign) = exact_reduction_sign(value) {
+        return Ok(Some(sign));
+    }
+    let ExactReduction::RealAlgebraic(RealAlgebraicEvaluation::Algebraic(value)) = value else {
+        return Ok(None);
+    };
+    match value.sign_bounded(limits.max_root_isolation_steps) {
+        Ok(sign) => Ok(sign),
+        Err(RealAlgebraicConstructionError::RootIsolation(
+            PrimitivePolynomialRootIsolationError::StepLimitExceeded,
+        )) => Ok(None),
+        Err(error) => Err(real_algebraic_construction_error(error)),
+    }
+}
+
+fn negate_exact_reduction(
+    value: &ExactReduction,
+    limits: &ResourceLimits,
+) -> Result<Option<ExactReduction>, EvaluationError> {
+    Ok(match value {
+        ExactReduction::PiMultiple(value) => Some(ExactReduction::PiMultiple(
+            PiCoefficientEvaluation::with_origin(
+                value.coefficient().negate(),
+                value.used_special_angle(),
+            ),
+        )),
+        ExactReduction::Radical(RadicalReduction::Rational(value)) => {
+            Some(ExactReduction::Radical(RadicalReduction::Rational(
+                RationalEvaluation::with_origin(value.value().negate(), value.used_special_angle()),
+            )))
+        }
+        ExactReduction::Radical(RadicalReduction::Radical(value)) => {
+            let mut radical = value.value().clone();
+            radical.coefficient = radical.coefficient.negate();
+            Some(ExactReduction::Radical(RadicalReduction::radical(
+                radical,
+                value.used_special_angle(),
+            )))
+        }
+        ExactReduction::Radical(RadicalReduction::LinearCombination(value)) => {
+            let mut combination = value.value().clone();
+            combination.rational = combination.rational.negate();
+            for radical in &mut combination.radicals {
+                radical.coefficient = radical.coefficient.negate();
+            }
+            Some(ExactReduction::Radical(
+                RadicalReduction::linear_combination(combination, value.used_special_angle()),
+            ))
+        }
+        ExactReduction::RealAlgebraic(value) => multiply_real_algebraic_evaluation_by_rational(
+            value.clone(),
+            &rational_integer(-1),
+            limits,
+        )?
+        .map(ExactReduction::RealAlgebraic),
+        ExactReduction::Symbolic => None,
+    })
 }
 
 fn evaluate_exact_reduction_interval(
@@ -3102,6 +3636,7 @@ fn evaluate_exact_reduction_interval(
                 precision_bits,
             )
         }
+        ExactReduction::Symbolic => Err(IntervalError::UnsupportedExpression),
     }
 }
 
@@ -3359,7 +3894,7 @@ fn evaluate_log_function(
         return Ok(value);
     }
     if matches!(
-        dag.node(argument),
+        dag.semantic_node(argument),
         ExpressionNode::Constant(Constant::Euler)
     ) {
         return Ok(RationalEvaluation::direct(Rational::one()));
@@ -3692,18 +4227,53 @@ fn evaluate_exp_log_identity(
     dag: &ExactExpressionDag,
     argument: ExprId,
 ) -> Result<Option<RationalEvaluation>, EvaluationError> {
-    let ExpressionNode::Function {
-        function: Function::Log,
-        argument,
-    } = dag.node(argument)
-    else {
-        return Ok(None);
+    let (scale, argument) = match dag.semantic_node(argument) {
+        ExpressionNode::Function {
+            function: Function::Log,
+            argument,
+        } => (RationalEvaluation::direct(Rational::one()), *argument),
+        ExpressionNode::Multiply(list) => {
+            let mut scale = Rational::one();
+            let mut used_special_angle = false;
+            let mut logarithm_argument = None;
+            for factor in dag.list(*list) {
+                if let ExpressionNode::Function {
+                    function: Function::Log,
+                    argument,
+                } = dag.semantic_node(*factor)
+                {
+                    if logarithm_argument.replace(*argument).is_some() {
+                        return Ok(None);
+                    }
+                    continue;
+                }
+                let factor = match evaluate_node(dag, *factor) {
+                    Ok(value) => value,
+                    Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+                    Err(error) => return Err(error),
+                };
+                scale = scale.multiply(factor.value());
+                used_special_angle |= factor.used_special_angle();
+            }
+            let Some(argument) = logarithm_argument else {
+                return Ok(None);
+            };
+            (
+                RationalEvaluation::with_origin(scale, used_special_angle),
+                argument,
+            )
+        }
+        _ => return Ok(None),
     };
-    let value = evaluate_node(dag, *argument)?;
+    let value = evaluate_node(dag, argument)?;
     if value.value().is_negative() || value.value().is_zero() {
         Err(logarithm_of_non_positive_error())
     } else {
-        Ok(Some(value))
+        let result = evaluate_rational_power(value.value(), scale.value())?;
+        Ok(Some(RationalEvaluation::with_origin(
+            result,
+            value.used_special_angle() || scale.used_special_angle(),
+        )))
     }
 }
 
@@ -3714,7 +4284,7 @@ fn evaluate_log_exp_identity(
     let ExpressionNode::Function {
         function: Function::Exp,
         argument,
-    } = dag.node(argument)
+    } = dag.semantic_node(argument)
     else {
         return Ok(None);
     };
@@ -3974,7 +4544,7 @@ fn direct_inverse_trig_composition(
     let ExpressionNode::Function {
         function: inner_function,
         argument: inner_argument,
-    } = dag.node(argument)
+    } = dag.semantic_node(argument)
     else {
         return None;
     };
@@ -3993,7 +4563,7 @@ fn scaled_inverse_trig_composition(
     argument: ExprId,
     unit_denominator: i64,
 ) -> Result<Option<InverseTrigComposition>, EvaluationError> {
-    let ExpressionNode::Multiply(list_id) = dag.node(argument) else {
+    let ExpressionNode::Multiply(list_id) = dag.semantic_node(argument) else {
         return Ok(None);
     };
     let mut composition = None;
@@ -4002,7 +4572,7 @@ fn scaled_inverse_trig_composition(
         if let ExpressionNode::Function {
             function: inner_function,
             argument: inner_argument,
-        } = dag.node(*child)
+        } = dag.semantic_node(*child)
         {
             if let Some((domain, kind)) =
                 inverse_trig_composition_rule(outer_function, *inner_function)
@@ -4669,6 +5239,14 @@ fn evaluate_interval_expression_node(
         }
         ExpressionNode::Exact(value) => {
             let reduction = dag.exact_value(*value);
+            if matches!(reduction, ExactReduction::Symbolic) {
+                return evaluate_interval_expression_node(
+                    dag,
+                    dag.exact_presentation(*value),
+                    None,
+                    precision_bits,
+                );
+            }
             let exact = evaluate_exact_reduction_interval(reduction, precision_bits)?;
             if !matches!(
                 reduction,
@@ -4676,12 +5254,16 @@ fn evaluate_interval_expression_node(
             ) {
                 return Ok(exact);
             }
-            let presentation = evaluate_interval_expression_node(
+            let presentation = match evaluate_interval_expression_node(
                 dag,
                 dag.exact_presentation(*value),
                 None,
                 precision_bits,
-            )?;
+            ) {
+                Ok(value) => value,
+                Err(IntervalError::UnsupportedExpression) => return Ok(exact),
+                Err(error) => return Err(error),
+            };
             interval::intersect(&exact, &presentation, precision_bits)
         }
         ExpressionNode::Constant(value) => interval::constant(*value, precision_bits),
@@ -4747,8 +5329,11 @@ fn evaluate_interval_expression_node(
                 &evaluate_interval_node(dag, *argument, precision_bits)?,
                 precision_bits,
             ),
-            Function::Abs
-            | Function::Floor
+            Function::Abs => interval::absolute(
+                &evaluate_interval_node(dag, *argument, precision_bits)?,
+                precision_bits,
+            ),
+            Function::Floor
             | Function::Factorial
             | Function::Root
             | Function::Permutation
@@ -4761,19 +5346,23 @@ fn evaluate_interval_expression_node(
             | Function::Tanh
             | Function::Asinh
             | Function::Acosh
-            | Function::Atanh => evaluate_node(
-                dag,
-                id.expect("stored non-rational exact values do not use integer-only functions"),
-            )
-            .map(|value| interval::from_rational(value.value(), precision_bits))
-            .map_err(evaluation_error_to_interval_error),
+            | Function::Atanh => {
+                let Some(id) = id else {
+                    return Err(IntervalError::UnsupportedExpression);
+                };
+                evaluate_node(dag, id)
+                    .map(|value| interval::from_rational(value.value(), precision_bits))
+                    .map_err(evaluation_error_to_interval_error)
+            }
         },
-        ExpressionNode::BinaryFunction { .. } => evaluate_node(
-            dag,
-            id.expect("stored non-rational exact values do not use integer-only functions"),
-        )
-        .map(|value| interval::from_rational(value.value(), precision_bits))
-        .map_err(evaluation_error_to_interval_error),
+        ExpressionNode::BinaryFunction { .. } => {
+            let Some(id) = id else {
+                return Err(IntervalError::UnsupportedExpression);
+            };
+            evaluate_node(dag, id)
+                .map(|value| interval::from_rational(value.value(), precision_bits))
+                .map_err(evaluation_error_to_interval_error)
+        }
     }
 }
 
@@ -4933,6 +5522,16 @@ fn evaluation_error_to_interval_error(error: EvaluationError) -> IntervalError {
         | EvaluationError::InputLimit(_)
         | EvaluationError::UnsupportedFeature(_)
         | EvaluationError::InternalInvariant(_) => IntervalError::UnsupportedExpression,
+    }
+}
+
+fn evaluation_error_from_interval(error: IntervalError) -> EvaluationError {
+    match error {
+        IntervalError::Domain(kind) => domain_error(kind),
+        IntervalError::ExponentTooLarge => exponent_too_large_error(),
+        IntervalError::InvalidBounds
+        | IntervalError::UnsupportedExpression
+        | IntervalError::DivisionByIntervalContainingZero => unsupported_function_evaluation(),
     }
 }
 
@@ -5389,8 +5988,12 @@ mod tests {
             normalize_exact_subexpressions(dag, &ResourceLimits::default()).unwrap();
         assert_eq!(dag.nodes.len(), source_node_count);
         assert_eq!(dag.lists.len(), source_list_count);
-        let ExpressionNode::Function { argument, .. } = dag.node(dag.root()) else {
-            panic!("expected outer function");
+        let ExpressionNode::Exact(root) = dag.node(dag.root()) else {
+            panic!("expected memoized symbolic root");
+        };
+        assert!(matches!(dag.exact_value(*root), ExactReduction::Symbolic));
+        let ExpressionNode::Function { argument, .. } = dag.exact_presentation(*root) else {
+            panic!("expected outer function presentation");
         };
         let ExpressionNode::Exact(value) = dag.node(*argument) else {
             panic!("expected the nested algebraic value to be materialized");
@@ -5417,6 +6020,43 @@ mod tests {
             normalize_exact_subexpressions(dag, &ResourceLimits::default()).unwrap();
         assert_eq!(renormalized, expected);
         assert_eq!(repeated_metadata, normalization);
+    }
+
+    #[test]
+    fn normalization_idempotence_preserves_rational_and_cyclotomic_provenance() {
+        let dag = lower("exp(sin(pi/6)+sin(pi/5))");
+        let (dag, metadata) =
+            normalize_exact_subexpressions(dag, &ResourceLimits::default()).unwrap();
+        assert!(metadata.used_special_angle());
+        assert!(metadata.used_cyclotomic_reduction());
+
+        let expected = dag.clone();
+        let (renormalized, repeated_metadata) =
+            normalize_exact_subexpressions(dag, &ResourceLimits::default()).unwrap();
+        assert_eq!(renormalized, expected);
+        assert_eq!(repeated_metadata, metadata);
+    }
+
+    #[test]
+    fn rational_algebraic_power_reserves_integer_power_before_root() {
+        let limits = ResourceLimits {
+            max_logical_work_units: 500_000,
+            ..ResourceLimits::default()
+        };
+        let dag = lower("(2^(1/3))^(7/5)");
+        let (dag, _) = normalize_exact_subexpressions(dag, &limits).unwrap();
+        let root_only_work = u64::from(limits.max_factorization_work)
+            + u64::from(limits.max_root_isolation_steps)
+            + 5;
+        let positive_work = reserved_algebraic_work(&dag, dag.root(), &limits);
+        assert!(
+            positive_work
+                > root_only_work + u64::from(limits.max_root_isolation_steps).saturating_mul(2)
+        );
+
+        let dag = lower("(2^(1/3))^(-7/5)");
+        let (dag, _) = normalize_exact_subexpressions(dag, &limits).unwrap();
+        assert!(reserved_algebraic_work(&dag, dag.root(), &limits) > positive_work);
     }
 
     #[test]

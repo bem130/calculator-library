@@ -264,7 +264,7 @@ impl From<core::CalculationOutcome> for CalculationOutcomeDto {
             } => Self::Partial {
                 calculation: calculation.into(),
                 reason: reason.into(),
-                certified_enclosure: certified_enclosure.into(),
+                certified_enclosure: certified_enclosure.map(Into::into),
             },
         }
     }
@@ -312,6 +312,9 @@ impl From<core::EnclosureOutput> for EnclosureOutputDto {
             core::EnclosureOutput::Omitted => Self::Omitted,
             core::EnclosureOutput::Included(value) => Self::Included {
                 value: value.into(),
+            },
+            core::EnclosureOutput::Unavailable(value) => Self::Unavailable {
+                reason: value.reason.into(),
             },
         }
     }
@@ -466,6 +469,9 @@ impl From<core::IncompleteReason> for IncompleteReasonDto {
             core::IncompleteReason::ComputationLimit { kind } => {
                 Self::ComputationLimit { kind: kind.into() }
             }
+            core::IncompleteReason::UnsupportedFeature { feature } => Self::UnsupportedFeature {
+                feature: feature.into(),
+            },
         }
     }
 }
@@ -938,7 +944,7 @@ impl TryFrom<CalculationOutcomeDto> for core::CalculationOutcome {
             } => Ok(Self::Partial {
                 calculation: calculation.try_into()?,
                 reason: reason.try_into()?,
-                certified_enclosure: certified_enclosure.try_into()?,
+                certified_enclosure: certified_enclosure.map(TryInto::try_into).transpose()?,
             }),
         }
     }
@@ -1043,6 +1049,11 @@ impl TryFrom<EnclosureOutputDto> for core::EnclosureOutput {
         match value {
             EnclosureOutputDto::Omitted => Ok(Self::Omitted),
             EnclosureOutputDto::Included { value } => Ok(Self::Included(value.try_into()?)),
+            EnclosureOutputDto::Unavailable { reason } => {
+                Ok(Self::Unavailable(core::UnavailableEnclosureOutput {
+                    reason: reason.try_into()?,
+                }))
+            }
         }
     }
 }
@@ -1159,6 +1170,9 @@ impl TryFrom<IncompleteReasonDto> for core::IncompleteReason {
             IncompleteReasonDto::ComputationLimit { kind } => {
                 Ok(Self::ComputationLimit { kind: kind.into() })
             }
+            IncompleteReasonDto::UnsupportedFeature { feature } => Ok(Self::UnsupportedFeature {
+                feature: feature.into(),
+            }),
         }
     }
 }
