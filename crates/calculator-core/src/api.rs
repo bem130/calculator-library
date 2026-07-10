@@ -5772,7 +5772,9 @@ mod tests {
             )
             .unwrap();
             let RecognizedExact::Rational(value) = &evaluation.value.recognized_exact else {
-                panic!("{source}: expected rational recognition after algebraic reduction");
+                panic!(
+                    "{source}: expected rational recognition after algebraic reduction: {evaluation:#?}"
+                );
             };
             assert_eq!(value, &expected);
             assert!(evaluation
@@ -6377,7 +6379,7 @@ mod tests {
             ("ln(2)", "ln(2)"),
             ("ln(1/2)", "-ln(2)"),
             ("exp(2)", "exp(2)"),
-            ("sqrt(2)+ln(2)", "sqrt(2)+ln(2)"),
+            ("sqrt(2)+ln(2)", "ln(2)+sqrt(2)"),
             ("ln(sqrt(2))", "1/2*ln(2)"),
             ("sqrt(exp(2)^2)", "exp(2)"),
             ("exp(sqrt(2))", "exp(sqrt(2))"),

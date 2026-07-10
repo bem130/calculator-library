@@ -503,6 +503,7 @@ pub(crate) fn normalize_exact_subexpressions(
             &presentation,
             &reduced.structural_sizes,
             &reduced.lists,
+            &reduced.rationals,
         );
         reduced.nodes.push(presentation.clone());
         reduced.structural_sizes.push(presentation_size);
@@ -876,12 +877,22 @@ fn exact_polynomial_from_expression(
             }
             exact_power_polynomial(dag, base, exponent, budget, term_limit)
         }
-        ExpressionNode::Exact(value) => Ok(Some(
-            dag.exact_values[value.0 as usize]
+        ExpressionNode::Exact(value) => {
+            let stored = &dag.exact_values[value.0 as usize];
+            let scaled_monomial = stored
                 .canonical_polynomial
-                .clone()
-                .unwrap_or_else(|| exact_atomic_polynomial(id)),
-        )),
+                .as_ref()
+                .filter(|polynomial| {
+                    matches!(
+                        polynomial.terms.as_slice(),
+                        [term] if term.coefficient != Rational::one()
+                    )
+                })
+                .cloned();
+            Ok(Some(
+                scaled_monomial.unwrap_or_else(|| exact_atomic_polynomial(id)),
+            ))
+        }
         ExpressionNode::Constant(_)
         | ExpressionNode::LogBase { .. }
         | ExpressionNode::Function { .. }
@@ -951,29 +962,37 @@ fn exact_multiply_monomials(
     left: &BuilderMonomial,
     right: &BuilderMonomial,
 ) -> Result<Option<BuilderMonomial>, EvaluationError> {
-    let mut factors = left.factors.clone();
-    for (base, exponent) in &right.factors {
-        let mut merged = false;
-        for (existing_base, existing_exponent) in &mut factors {
-            if structurally_equal_expressions(dag, *existing_base, *base) {
-                let Some(exponent) = existing_exponent.checked_add(*exponent) else {
+    let mut factors = Vec::with_capacity(left.factors.len().saturating_add(right.factors.len()));
+    let mut left_index = 0;
+    let mut right_index = 0;
+    while left_index < left.factors.len() && right_index < right.factors.len() {
+        let left_factor = left.factors[left_index];
+        let right_factor = right.factors[right_index];
+        match compare_exact_expressions(dag, left_factor.0, right_factor.0) {
+            Ordering::Less => {
+                factors.push(left_factor);
+                left_index += 1;
+            }
+            Ordering::Greater => {
+                factors.push(right_factor);
+                right_index += 1;
+            }
+            Ordering::Equal => {
+                let Some(exponent) = left_factor.1.checked_add(right_factor.1) else {
                     return Ok(None);
                 };
-                *existing_exponent = exponent;
-                merged = true;
-                break;
+                if exponent != 0 {
+                    factors.push((left_factor.0, exponent));
+                } else if !prove_expression_nonzero(dag, left_factor.0)? {
+                    return Ok(None);
+                }
+                left_index += 1;
+                right_index += 1;
             }
         }
-        if !merged {
-            factors.push((*base, *exponent));
-        }
     }
-    for (base, exponent) in &factors {
-        if *exponent == 0 && !prove_expression_nonzero(dag, *base)? {
-            return Ok(None);
-        }
-    }
-    factors.retain(|(_, exponent)| *exponent != 0);
+    factors.extend_from_slice(&left.factors[left_index..]);
+    factors.extend_from_slice(&right.factors[right_index..]);
     Ok(Some(BuilderMonomial {
         coefficient: left.coefficient.multiply(&right.coefficient),
         factors,
@@ -1155,21 +1174,13 @@ fn exact_monomials_equal(
     left: &BuilderMonomial,
     right: &BuilderMonomial,
 ) -> bool {
-    if left.factors.len() != right.factors.len() {
-        return false;
-    }
-    let mut matched = vec![false; right.factors.len()];
-    for (left_base, left_exponent) in &left.factors {
-        let Some((index, _)) = right.factors.iter().enumerate().find(|(index, right)| {
-            !matched[*index]
-                && *left_exponent == right.1
-                && structurally_equal_expressions(dag, *left_base, right.0)
-        }) else {
-            return false;
-        };
-        matched[index] = true;
-    }
-    true
+    left.factors.len() == right.factors.len()
+        && left.factors.iter().zip(&right.factors).all(
+            |((left_base, left_exponent), (right_base, right_exponent))| {
+                left_exponent == right_exponent
+                    && compare_exact_expressions(dag, *left_base, *right_base) == Ordering::Equal
+            },
+        )
 }
 
 fn compare_exact_monomials(
@@ -2751,9 +2762,12 @@ fn append_expression_node(dag: &mut ExactExpressionDag, node: ExpressionNode) ->
         | ExpressionNode::Power { .. }
         | ExpressionNode::LogBase { .. }
         | ExpressionNode::Function { .. }
-        | ExpressionNode::BinaryFunction { .. } => {
-            expression_node_structural_size(&node, &dag.structural_sizes, &dag.lists)
-        }
+        | ExpressionNode::BinaryFunction { .. } => expression_node_structural_size(
+            &node,
+            &dag.structural_sizes,
+            &dag.lists,
+            &dag.rationals,
+        ),
     };
     dag.nodes.push(node);
     dag.structural_sizes.push(structural_size);
@@ -2764,10 +2778,12 @@ fn expression_node_structural_size(
     node: &ExpressionNode,
     structural_sizes: &[usize],
     lists: &[Vec<ExprId>],
+    rationals: &[Rational],
 ) -> usize {
     let child_size = |id: ExprId| structural_sizes[id.0 as usize];
     match node {
-        ExpressionNode::Rational(_) | ExpressionNode::Exact(_) | ExpressionNode::Constant(_) => 1,
+        ExpressionNode::Rational(value) => rational_structural_size(&rationals[value.0 as usize]),
+        ExpressionNode::Exact(_) | ExpressionNode::Constant(_) => 1,
         ExpressionNode::Add(values) | ExpressionNode::Multiply(values) => {
             lists[values.0 as usize].iter().fold(1usize, |size, child| {
                 size.saturating_add(child_size(*child))
@@ -8804,28 +8820,38 @@ impl DagBuilder {
         left: &BuilderMonomial,
         right: &BuilderMonomial,
     ) -> Result<BuilderMonomial, ComputationLimitKind> {
-        let mut factors = left.factors.clone();
-        factors.extend(right.factors.iter().copied());
-        factors.sort_by(|(left, _), (right, _)| self.compare_expressions(*left, *right));
-        let mut merged = Vec::<(ExprId, i64)>::with_capacity(factors.len());
-        for (base, exponent) in factors {
-            if let Some((last_base, last_exponent)) = merged.last_mut() {
-                if *last_base == base {
-                    *last_exponent = last_exponent
-                        .checked_add(exponent)
+        let mut merged = Vec::with_capacity(left.factors.len().saturating_add(right.factors.len()));
+        let mut left_index = 0;
+        let mut right_index = 0;
+        while left_index < left.factors.len() && right_index < right.factors.len() {
+            let left_factor = left.factors[left_index];
+            let right_factor = right.factors[right_index];
+            match self.compare_expressions(left_factor.0, right_factor.0) {
+                Ordering::Less => {
+                    merged.push(left_factor);
+                    left_index += 1;
+                }
+                Ordering::Greater => {
+                    merged.push(right_factor);
+                    right_index += 1;
+                }
+                Ordering::Equal => {
+                    let exponent = left_factor
+                        .1
+                        .checked_add(right_factor.1)
                         .ok_or(ComputationLimitKind::LogicalWorkUnits)?;
-                    continue;
+                    if exponent != 0 {
+                        merged.push((left_factor.0, exponent));
+                    } else if !self.is_proven_nonzero(left_factor.0) {
+                        return Err(ComputationLimitKind::LogicalWorkUnits);
+                    }
+                    left_index += 1;
+                    right_index += 1;
                 }
             }
-            merged.push((base, exponent));
         }
-        if merged
-            .iter()
-            .any(|(base, exponent)| *exponent == 0 && !self.is_proven_nonzero(*base))
-        {
-            return Err(ComputationLimitKind::LogicalWorkUnits);
-        }
-        merged.retain(|(_, exponent)| *exponent != 0);
+        merged.extend_from_slice(&left.factors[left_index..]);
+        merged.extend_from_slice(&right.factors[right_index..]);
         Ok(BuilderMonomial {
             coefficient: left.coefficient.multiply(&right.coefficient),
             factors: merged,
@@ -9421,8 +9447,12 @@ impl DagBuilder {
             }
         }
         let id = ExprId(self.nodes.len() as u32);
-        let structural_size =
-            expression_node_structural_size(&node, &self.structural_sizes, &self.lists);
+        let structural_size = expression_node_structural_size(
+            &node,
+            &self.structural_sizes,
+            &self.lists,
+            &self.rationals,
+        );
         self.nodes.push(node);
         self.structural_sizes.push(structural_size);
         self.node_index.entry(hash).or_default().push(id);
@@ -9672,6 +9702,20 @@ mod tests {
 
     #[test]
     fn polynomial_work_estimate_covers_pairwise_factor_comparisons() {
+        let wide_monomial = BuilderMonomial {
+            coefficient: Rational::one(),
+            factors: (0..32).map(|factor| (ExprId(factor), 1)).collect(),
+        };
+        let wide = BuilderPolynomial {
+            terms: vec![wide_monomial.clone()],
+        };
+        assert!(polynomial_factor_product_work(&BuilderPolynomial::one(), &wide, |_| 1) >= 33);
+
+        let equal_wide_terms = BuilderPolynomial {
+            terms: vec![wide_monomial.clone(), wide_monomial],
+        };
+        assert!(polynomial_term_merge_work(&equal_wide_terms, |_| 1) >= 64);
+
         let polynomial = BuilderPolynomial {
             terms: (0..32)
                 .map(|term| BuilderMonomial {
@@ -9706,6 +9750,13 @@ mod tests {
             deep.structural_sizes[id.0 as usize]
         });
         assert!(deep_work > shallow_work);
+
+        let small_integer = lower("1");
+        let large_integer = lower("340282366920938463463374607431768211455");
+        assert!(
+            large_integer.structural_sizes[large_integer.root().0 as usize]
+                > small_integer.structural_sizes[small_integer.root().0 as usize]
+        );
     }
 
     #[test]
@@ -9729,11 +9780,15 @@ mod tests {
     fn normalization_materializes_nested_real_algebraic_values() {
         let dag = lower("sin((2^(1/3)+2^(1/3))/2)");
         let source_node_count = dag.nodes.len();
-        let source_list_count = dag.lists.len();
         let (dag, normalization) =
             normalize_exact_subexpressions(dag, &ResourceLimits::default()).unwrap();
-        assert_eq!(dag.nodes.len(), source_node_count);
-        assert_eq!(dag.lists.len(), source_list_count);
+        assert!(dag.nodes.len() >= source_node_count);
+        assert_eq!(dag.structural_sizes.len(), dag.nodes.len());
+        for (index, node) in dag.nodes.iter().enumerate().skip(source_node_count) {
+            assert!(expression_node_children(&dag, node)
+                .iter()
+                .all(|child| child.0 < index as u32));
+        }
         let ExpressionNode::Exact(root) = dag.node(dag.root()) else {
             panic!("expected memoized symbolic root");
         };
