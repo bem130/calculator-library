@@ -16,9 +16,9 @@ use crate::expression::{
     evaluate_rational_pi_multiple_dag, evaluate_real_algebraic_dag, logarithm_product_reduction,
     logarithm_quotient_identity, logarithm_sum_reduction, lower_source_expression,
     node_is_exact_zero, normalize_exact_subexpressions, structurally_equal_expressions,
-    ExactExpressionDag, ExactNormalization, ExactReduction, LogarithmArgumentOperation,
-    PiCoefficientEvaluation, RadicalEvaluation, RadicalLinearCombinationEvaluation,
-    RadicalReduction, RationalEvaluation, RealAlgebraicEvaluation,
+    ExactExpressionDag, ExactNormalization, ExactReduction, PiCoefficientEvaluation,
+    RadicalEvaluation, RadicalLinearCombinationEvaluation, RadicalReduction, RationalEvaluation,
+    RealAlgebraicEvaluation,
 };
 use crate::interval;
 use crate::syntax::{SourceExpr, UnaryOperator};
@@ -1950,23 +1950,35 @@ fn render_signed_symbolic_sum(
     dag: &ExactExpressionDag,
     list_id: ExprListId,
 ) -> SignedRenderedSymbolic {
-    if let Ok(Some(reduction)) = logarithm_sum_reduction(dag, dag.list(list_id)) {
-        let left = render_symbolic_node(dag, reduction.left_argument);
-        let right = render_symbolic_node(dag, reduction.right_argument);
-        let argument = match reduction.operation {
-            LogarithmArgumentOperation::Multiply => format!(
-                "{}*{}",
-                parenthesize_symbolic(&left, SYMBOLIC_PRECEDENCE_MULTIPLY),
-                parenthesize_symbolic(&right, SYMBOLIC_PRECEDENCE_MULTIPLY)
-            ),
-            LogarithmArgumentOperation::Divide => format!(
-                "{}/{}",
-                parenthesize_symbolic(&left, SYMBOLIC_PRECEDENCE_MULTIPLY),
-                parenthesize_symbolic(&right, SYMBOLIC_PRECEDENCE_MULTIPLY)
-            ),
-        };
-        let base = render_symbolic_node(dag, reduction.base);
-        return render_scaled_symbolic_log_text(&argument, &base.text, &reduction.scale);
+    if dag.symbolic_rewrites_allowed() {
+        if let Ok(Some(reduction)) = logarithm_sum_reduction(dag, dag.list(list_id)) {
+            let numerator =
+                render_symbolic_log_argument_product(dag, &reduction.numerator_arguments);
+            let denominator =
+                render_symbolic_log_argument_product(dag, &reduction.denominator_arguments);
+            let argument = if reduction.denominator_arguments.is_empty() {
+                numerator
+            } else {
+                format!(
+                    "{numerator}/{}",
+                    if reduction.denominator_arguments.len() > 1 {
+                        format!("({denominator})")
+                    } else {
+                        denominator
+                    }
+                )
+            };
+            let base = render_symbolic_node(dag, reduction.base);
+            let logarithm =
+                render_scaled_symbolic_log_text(&argument, &base.text, &reduction.scale);
+            if reduction.offset.value().is_zero() {
+                return logarithm;
+            }
+            return render_signed_symbolic_sum_terms(&[
+                signed_rational_symbolic(reduction.offset.value()),
+                logarithm,
+            ]);
+        }
     }
     let terms = dag
         .list(list_id)
@@ -1975,6 +1987,22 @@ fn render_signed_symbolic_sum(
         .map(|child| render_signed_symbolic_node(dag, *child))
         .collect::<Vec<_>>();
     render_signed_symbolic_sum_terms(&terms)
+}
+
+fn render_symbolic_log_argument_product(dag: &ExactExpressionDag, values: &[ExprId]) -> String {
+    if values.is_empty() {
+        return String::from("1");
+    }
+    values
+        .iter()
+        .map(|value| {
+            parenthesize_symbolic(
+                &render_symbolic_node(dag, *value),
+                SYMBOLIC_PRECEDENCE_MULTIPLY,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("*")
 }
 
 fn render_signed_symbolic_sum_terms(terms: &[SignedRenderedSymbolic]) -> SignedRenderedSymbolic {
@@ -2038,10 +2066,12 @@ fn render_signed_symbolic_division(
     numerator: ExprId,
     denominator: ExprId,
 ) -> SignedRenderedSymbolic {
-    if let Ok(Some((argument, base, scale))) =
-        logarithm_quotient_identity(dag, numerator, denominator)
-    {
-        return render_scaled_symbolic_log_base(dag, argument, base, &scale);
+    if dag.symbolic_rewrites_allowed() {
+        if let Ok(Some((argument, base, scale))) =
+            logarithm_quotient_identity(dag, numerator, denominator)
+        {
+            return render_scaled_symbolic_log_base(dag, argument, base, &scale);
+        }
     }
     let numerator = render_signed_symbolic_node(dag, numerator);
     let denominator = render_signed_symbolic_node(dag, denominator);
@@ -2063,11 +2093,13 @@ fn render_signed_symbolic_product(
     list_id: ExprListId,
 ) -> SignedRenderedSymbolic {
     let children = dag.list(list_id);
-    if let Ok(Some(reduction)) = logarithm_product_reduction(dag, children) {
-        if let Some((argument, base)) = reduction.logarithm {
-            return render_scaled_symbolic_log_base(dag, argument, base, &reduction.scale);
+    if dag.symbolic_rewrites_allowed() {
+        if let Ok(Some(reduction)) = logarithm_product_reduction(dag, children) {
+            if let Some((argument, base)) = reduction.logarithm {
+                return render_scaled_symbolic_log_base(dag, argument, base, &reduction.scale);
+            }
+            return signed_rational_symbolic(reduction.scale.value());
         }
-        return signed_rational_symbolic(reduction.scale.value());
     }
     let mut negative = false;
     let mut factors = Vec::new();
@@ -3746,6 +3778,7 @@ mod tests {
             ("log(2,10)+log(5,10)", "1"),
             ("log(6,2)-log(3,2)", "1"),
             ("2*log(2,10)+2*log(5,10)", "2"),
+            ("log(2,10)+log(5,10)+log(2,10)+log(5,10)", "2"),
         ] {
             assert_eq!(exact_plain_text(source), expected, "{source}");
         }
@@ -3759,16 +3792,64 @@ mod tests {
             ("log(3,2)/log(3,5)", "log(5,2)"),
             ("log(5,3)*log(3,2)", "log(5,2)"),
             ("2*ln(3)/(3*ln(2))", "2/3*log(3,2)"),
+            ("(2*ln(3)/3)/ln(2)", "2/3*log(3,2)"),
             ("log(5,7)*log(7,3)*log(3,2)", "log(5,2)"),
             ("log(2,10)+log(3,10)", "log(2*3,10)"),
             ("log(6,10)-log(3,10)", "log(6/3,10)"),
             ("2*log(2,10)+2*log(3,10)", "2*log(2*3,10)"),
+            ("-log(5,3)/log(2,3)", "-log(5,2)"),
+            ("log(5,3)/(-log(2,3))", "-log(5,2)"),
+            ("-log(2,10)-log(3,10)", "-log(2*3,10)"),
+            ("-log(5,3)*log(3,2)", "-log(5,2)"),
+            ("log(2,10)+log(3,10)+log(5,10)", "log(2*3*5,10)"),
+            ("log(2,10)+(log(3,10)+log(5,10))", "log(2*3*5,10)"),
+            ("log(2,10)-log(3,10)-log(5,10)", "log(2/(3*5),10)"),
+            ("log(2,10)-(log(3,10)+log(5,10))", "log(2/(3*5),10)"),
         ] {
             assert_eq!(exact_plain_text(source), expected, "{source}");
         }
 
         for source in ["ln(sin(1))/ln(2)", "log(sin(1),3)/log(2,3)"] {
             assert_eq!(exact_plain_text(source), source, "{source}");
+        }
+    }
+
+    #[test]
+    fn logarithm_identity_reduction_preserves_domain_errors() {
+        let mut context = EvaluationContext::default();
+        let error = calculate("ln(2)/ln(1)", &exact_only_request(), &mut context)
+            .expect_err("the denominator logarithm is zero");
+        assert_eq!(
+            error,
+            CalculatorError::Domain(DomainError {
+                kind: DomainErrorKind::DivisionByZero,
+                span: None,
+            })
+        );
+
+        let error = calculate("log(2,1)*log(1,3)", &exact_only_request(), &mut context)
+            .expect_err("base one must be rejected before logarithm cancellation");
+        assert_eq!(
+            error,
+            CalculatorError::Domain(DomainError {
+                kind: DomainErrorKind::LogarithmBaseOne,
+                span: None,
+            })
+        );
+    }
+
+    #[test]
+    fn logarithm_renderer_does_not_bypass_reduction_budget() {
+        let mut request = exact_only_request();
+        request.limits = ResourceLimitRequest::Custom(ResourceLimits {
+            max_rewrite_steps: 0,
+            max_logical_work_units: 0,
+            ..ResourceLimits::default()
+        });
+        for source in ["log(2,10)+log(3,10)", "log(5,7)*log(7,3)*log(3,2)"] {
+            let mut context = EvaluationContext::default();
+            let outcome = calculate(source, &request, &mut context).unwrap();
+            assert_eq!(exact_plain_text_from_partial_outcome(outcome), source);
         }
     }
 
