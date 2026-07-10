@@ -68,6 +68,10 @@ impl ExactExpressionDag {
         }
     }
 
+    pub(crate) fn symbolic_rewrites_allowed(&self) -> bool {
+        self.normalization.limit_reached().is_none()
+    }
+
     fn push_list(&mut self, values: Vec<ExprId>) -> ExprListId {
         let id = ExprListId(self.lists.len() as u32);
         self.lists.push(values);
@@ -500,7 +504,13 @@ fn recognize_exact_subexpression(
         validate_obvious_domain(dag, id)?;
         return Ok(None);
     }
-    if !budget.consume_work(estimated_additional_work(dag, id, limits)?) {
+    let Some(logarithm_work) = reserved_logarithm_identity_work(dag, id, budget) else {
+        validate_obvious_domain(dag, id)?;
+        return Ok(None);
+    };
+    if !budget
+        .consume_work(estimated_additional_work(dag, id, limits)?.saturating_add(logarithm_work))
+    {
         validate_obvious_domain(dag, id)?;
         return Ok(None);
     }
@@ -531,7 +541,18 @@ fn recognize_exact_operation(
     limits: &ResourceLimits,
 ) -> Result<Option<RecognizedExactSubexpression>, EvaluationError> {
     match dag.semantic_node(id) {
-        ExpressionNode::Add(list) => recognize_structural_zero_sum(dag, *list),
+        ExpressionNode::Add(list) => {
+            if let Some(value) = recognize_logarithm_sum(dag, *list)? {
+                Ok(Some(value))
+            } else {
+                recognize_structural_zero_sum(dag, *list)
+            }
+        }
+        ExpressionNode::Multiply(list) => recognize_logarithm_chain_product(dag, *list),
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => recognize_logarithm_change_of_base(dag, *numerator, *denominator),
         ExpressionNode::Function {
             function: Function::Abs,
             argument,
@@ -564,6 +585,102 @@ fn recognize_exact_operation(
         }
         _ => Ok(None),
     }
+}
+
+fn recognize_logarithm_sum(
+    dag: &ExactExpressionDag,
+    list: ExprListId,
+) -> Result<Option<RecognizedExactSubexpression>, EvaluationError> {
+    let Some(reduction) = logarithm_sum_reduction(dag, dag.list(list))? else {
+        return Ok(None);
+    };
+    let mut argument = Rational::one();
+    let mut used_special_angle = reduction.scale.used_special_angle();
+    for argument_id in &reduction.numerator_arguments {
+        let value = match evaluate_node(dag, *argument_id) {
+            Ok(value) => value,
+            Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        argument = argument.multiply(value.value());
+        used_special_angle |= value.used_special_angle();
+    }
+    for argument_id in &reduction.denominator_arguments {
+        let value = match evaluate_node(dag, *argument_id) {
+            Ok(value) => value,
+            Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        argument = argument.divide(value.value()).map_err(arithmetic_error)?;
+        used_special_angle |= value.used_special_angle();
+    }
+    let base = match evaluate_node(dag, reduction.base) {
+        Ok(value) => value,
+        Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    match finish_rational_log_base(
+        RationalEvaluation::with_origin(argument, used_special_angle),
+        base,
+    ) {
+        Ok(value) => Ok(Some(RecognizedExactSubexpression::Rational(
+            RationalEvaluation::with_origin(
+                value
+                    .value()
+                    .multiply(reduction.scale.value())
+                    .add(reduction.offset.value()),
+                value.used_special_angle()
+                    || reduction.scale.used_special_angle()
+                    || reduction.offset.used_special_angle(),
+            ),
+        ))),
+        Err(error) if is_unsupported_exact_expression(&error) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+fn recognize_logarithm_change_of_base(
+    dag: &ExactExpressionDag,
+    numerator: ExprId,
+    denominator: ExprId,
+) -> Result<Option<RecognizedExactSubexpression>, EvaluationError> {
+    let Some((argument, base, scale)) = logarithm_quotient_identity(dag, numerator, denominator)?
+    else {
+        return Ok(None);
+    };
+    match evaluate_log_base_function(dag, argument, base) {
+        Ok(value) => Ok(Some(RecognizedExactSubexpression::Rational(
+            RationalEvaluation::with_origin(
+                value.value().multiply(scale.value()),
+                value.used_special_angle() || scale.used_special_angle(),
+            ),
+        ))),
+        Err(error) if is_unsupported_exact_expression(&error) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+fn recognize_logarithm_chain_product(
+    dag: &ExactExpressionDag,
+    list: ExprListId,
+) -> Result<Option<RecognizedExactSubexpression>, EvaluationError> {
+    let factors = dag.list(list);
+    let Some(reduction) = logarithm_product_reduction(dag, factors)? else {
+        return Ok(None);
+    };
+    let value = if let Some((argument, base)) = reduction.logarithm {
+        match evaluate_log_base_function(dag, argument, base) {
+            Ok(value) => RationalEvaluation::with_origin(
+                value.value().multiply(reduction.scale.value()),
+                value.used_special_angle() || reduction.scale.used_special_angle(),
+            ),
+            Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+            Err(error) => return Err(error),
+        }
+    } else {
+        reduction.scale
+    };
+    Ok(Some(RecognizedExactSubexpression::Rational(value)))
 }
 
 fn validate_obvious_domain(dag: &ExactExpressionDag, id: ExprId) -> Result<(), EvaluationError> {
@@ -651,6 +768,138 @@ fn estimated_additional_work(
         _ => Ok(0),
     }?;
     Ok(integer_work.saturating_add(reserved_algebraic_work(dag, id, limits)))
+}
+
+fn reserved_logarithm_identity_work(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+    budget: &mut ReductionBudget,
+) -> Option<u64> {
+    match dag.semantic_node(id) {
+        ExpressionNode::Add(terms) | ExpressionNode::Multiply(terms) => {
+            let mut work = 0u64;
+            let mut logarithms = 0u64;
+            for term in dag.list(*terms) {
+                let (term_work, term_logarithms) = logarithm_factor_work(dag, *term, budget)?;
+                work = work.saturating_add(term_work);
+                logarithms = logarithms.saturating_add(term_logarithms);
+            }
+            if logarithms < 2 {
+                Some(0)
+            } else {
+                Some(
+                    work.saturating_add(logarithms.saturating_mul(logarithms))
+                        .saturating_mul(2),
+                )
+            }
+        }
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => {
+            let (numerator_work, numerator_logarithms) =
+                logarithm_factor_work(dag, *numerator, budget)?;
+            let (denominator_work, denominator_logarithms) =
+                logarithm_factor_work(dag, *denominator, budget)?;
+            if numerator_logarithms == 0 || denominator_logarithms == 0 {
+                Some(0)
+            } else {
+                Some(
+                    numerator_work
+                        .saturating_add(denominator_work)
+                        .saturating_mul(2),
+                )
+            }
+        }
+        _ => Some(0),
+    }
+}
+
+fn logarithm_factor_work(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+    budget: &mut ReductionBudget,
+) -> Option<(u64, u64)> {
+    if !budget.consume_work(1) {
+        return None;
+    }
+    match dag.semantic_node(id) {
+        ExpressionNode::Function {
+            function: Function::Log | Function::Ln,
+            ..
+        }
+        | ExpressionNode::LogBase { .. } => Some((expression_structural_work(dag, id, budget)?, 1)),
+        ExpressionNode::Add(factors) | ExpressionNode::Multiply(factors) => {
+            let mut work = 1u64;
+            let mut logarithms = 0u64;
+            for factor in dag.list(*factors) {
+                let (factor_work, factor_logarithms) = logarithm_factor_work(dag, *factor, budget)?;
+                work = work.saturating_add(factor_work);
+                logarithms = logarithms.saturating_add(factor_logarithms);
+            }
+            Some((work, logarithms))
+        }
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => {
+            let (numerator_work, numerator_logarithms) =
+                logarithm_factor_work(dag, *numerator, budget)?;
+            let (denominator_work, denominator_logarithms) =
+                logarithm_factor_work(dag, *denominator, budget)?;
+            Some((
+                1u64.saturating_add(numerator_work)
+                    .saturating_add(denominator_work),
+                numerator_logarithms.saturating_add(denominator_logarithms),
+            ))
+        }
+        _ => Some((expression_structural_work(dag, id, budget)?, 0)),
+    }
+}
+
+fn expression_structural_work(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+    budget: &mut ReductionBudget,
+) -> Option<u64> {
+    if !budget.consume_work(1) {
+        return None;
+    }
+    match dag.semantic_node(id) {
+        ExpressionNode::Rational(_) | ExpressionNode::Exact(_) | ExpressionNode::Constant(_) => {
+            Some(1)
+        }
+        ExpressionNode::Add(values) | ExpressionNode::Multiply(values) => {
+            let mut work = 1u64;
+            for value in dag.list(*values) {
+                work = work.saturating_add(expression_structural_work(dag, *value, budget)?);
+            }
+            Some(work)
+        }
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        }
+        | ExpressionNode::Power {
+            base: numerator,
+            exponent: denominator,
+        }
+        | ExpressionNode::LogBase {
+            argument: numerator,
+            base: denominator,
+        }
+        | ExpressionNode::BinaryFunction {
+            left: numerator,
+            right: denominator,
+            ..
+        } => Some(
+            1u64.saturating_add(expression_structural_work(dag, *numerator, budget)?)
+                .saturating_add(expression_structural_work(dag, *denominator, budget)?),
+        ),
+        ExpressionNode::Function { argument, .. } => {
+            Some(1u64.saturating_add(expression_structural_work(dag, *argument, budget)?))
+        }
+    }
 }
 
 // Algebraic algorithms have operation-local limits, but normalization needs one
@@ -1477,6 +1726,16 @@ fn evaluate_node(
             numerator,
             denominator,
         } => {
+            let denominator_evaluation = match evaluate_node(dag, *denominator) {
+                Ok(value) => {
+                    if value.value().is_zero() {
+                        return Err(domain_error(DomainErrorKind::DivisionByZero));
+                    }
+                    Ok(value)
+                }
+                Err(error) if is_unsupported_exact_expression(&error) => Err(error),
+                Err(error) => return Err(error),
+            };
             let numerator = match evaluate_node(dag, *numerator) {
                 Ok(value) => value,
                 Err(error)
@@ -1488,7 +1747,7 @@ fn evaluate_node(
                 }
                 Err(error) => return Err(error),
             };
-            let denominator = evaluate_node(dag, *denominator)?;
+            let denominator = denominator_evaluation?;
             let used_special_angle =
                 numerator.used_special_angle() || denominator.used_special_angle();
             let value = numerator
@@ -3921,6 +4180,466 @@ struct RationalPowerPattern {
     exponent: RationalEvaluation,
 }
 
+#[derive(Clone, Copy)]
+struct LogarithmRatio {
+    argument: ExprId,
+    base: Option<ExprId>,
+}
+
+#[derive(Clone)]
+struct ScaledLogarithmRatio {
+    logarithm: LogarithmRatio,
+    scale: RationalEvaluation,
+}
+
+fn logarithm_ratio(dag: &ExactExpressionDag, id: ExprId) -> Option<LogarithmRatio> {
+    match dag.semantic_node(id) {
+        ExpressionNode::Function {
+            function: Function::Log | Function::Ln,
+            argument,
+        } => Some(LogarithmRatio {
+            argument: *argument,
+            base: None,
+        }),
+        ExpressionNode::LogBase { argument, base } => Some(LogarithmRatio {
+            argument: *argument,
+            base: Some(*base),
+        }),
+        _ => None,
+    }
+}
+
+fn scaled_logarithm_ratio(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+) -> Result<Option<ScaledLogarithmRatio>, EvaluationError> {
+    if let Some(logarithm) = logarithm_ratio(dag, id) {
+        return Ok(Some(ScaledLogarithmRatio {
+            logarithm,
+            scale: RationalEvaluation::direct(Rational::one()),
+        }));
+    }
+    match dag.semantic_node(id) {
+        ExpressionNode::Multiply(list) => {
+            let mut logarithm = None;
+            let mut scale = Rational::one();
+            let mut used_special_angle = false;
+            for factor in dag.list(*list) {
+                if let Some(value) = scaled_logarithm_ratio(dag, *factor)? {
+                    if logarithm.replace(value.logarithm).is_some() {
+                        return Ok(None);
+                    }
+                    scale = scale.multiply(value.scale.value());
+                    used_special_angle |= value.scale.used_special_angle();
+                    continue;
+                }
+                match evaluate_node(dag, *factor) {
+                    Ok(value) => {
+                        scale = scale.multiply(value.value());
+                        used_special_angle |= value.used_special_angle();
+                    }
+                    Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+                    Err(error) => return Err(error),
+                }
+            }
+            Ok(logarithm.map(|logarithm| ScaledLogarithmRatio {
+                logarithm,
+                scale: RationalEvaluation::with_origin(scale, used_special_angle),
+            }))
+        }
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => {
+            let Some(mut numerator) = scaled_logarithm_ratio(dag, *numerator)? else {
+                return Ok(None);
+            };
+            let denominator = match evaluate_node(dag, *denominator) {
+                Ok(value) => value,
+                Err(error) if is_unsupported_exact_expression(&error) => return Ok(None),
+                Err(error) => return Err(error),
+            };
+            let scale = numerator
+                .scale
+                .value()
+                .divide(denominator.value())
+                .map_err(arithmetic_error)?;
+            numerator.scale = RationalEvaluation::with_origin(
+                scale,
+                numerator.scale.used_special_angle() || denominator.used_special_angle(),
+            );
+            Ok(Some(numerator))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn logarithm_ratio_domain_is_proven(
+    dag: &ExactExpressionDag,
+    logarithm: LogarithmRatio,
+) -> Result<bool, EvaluationError> {
+    if !prove_expression_positive(dag, logarithm.argument)? {
+        return Ok(false);
+    }
+    let Some(base) = logarithm.base else {
+        return Ok(true);
+    };
+    Ok(prove_expression_positive(dag, base)? && prove_expression_not_one(dag, base)?)
+}
+
+fn prove_expression_not_one(dag: &ExactExpressionDag, id: ExprId) -> Result<bool, EvaluationError> {
+    match evaluate_node(dag, id) {
+        Ok(value) => return Ok(value.value() != &Rational::one()),
+        Err(error) if is_unsupported_exact_expression(&error) => {}
+        Err(error) => return Err(error),
+    }
+    match dag.node(id) {
+        ExpressionNode::Exact(value) => {
+            Ok(!matches!(dag.exact_value(*value), ExactReduction::Symbolic))
+        }
+        ExpressionNode::Constant(Constant::Pi | Constant::Euler) => Ok(true),
+        _ => Ok(false),
+    }
+}
+
+fn logarithm_expression_equal(dag: &ExactExpressionDag, left: ExprId, right: ExprId) -> bool {
+    if left == right {
+        return true;
+    }
+    let is_non_symbolic_exact = |id| {
+        matches!(
+            dag.node(id),
+            ExpressionNode::Exact(value)
+                if !matches!(dag.exact_value(*value), ExactReduction::Symbolic)
+        )
+    };
+    if is_non_symbolic_exact(left) || is_non_symbolic_exact(right) {
+        return false;
+    }
+    structurally_equal_expressions(dag, left, right)
+}
+
+pub(crate) fn logarithm_quotient_identity(
+    dag: &ExactExpressionDag,
+    numerator: ExprId,
+    denominator: ExprId,
+) -> Result<Option<(ExprId, ExprId, RationalEvaluation)>, EvaluationError> {
+    let Some(numerator) = scaled_logarithm_ratio(dag, numerator)? else {
+        return Ok(None);
+    };
+    let Some(denominator) = scaled_logarithm_ratio(dag, denominator)? else {
+        return Ok(None);
+    };
+    if !logarithm_ratio_domain_is_proven(dag, numerator.logarithm)?
+        || !logarithm_ratio_domain_is_proven(dag, denominator.logarithm)?
+        || !prove_expression_not_one(dag, denominator.logarithm.argument)?
+    {
+        return Ok(None);
+    }
+
+    let scale = RationalEvaluation::with_origin(
+        numerator
+            .scale
+            .value()
+            .divide(denominator.scale.value())
+            .map_err(arithmetic_error)?,
+        numerator.scale.used_special_angle() || denominator.scale.used_special_angle(),
+    );
+
+    let common_base = match (numerator.logarithm.base, denominator.logarithm.base) {
+        (None, None) => true,
+        (Some(left), Some(right)) => logarithm_expression_equal(dag, left, right),
+        _ => false,
+    };
+    if common_base {
+        return Ok(Some((
+            numerator.logarithm.argument,
+            denominator.logarithm.argument,
+            scale,
+        )));
+    }
+    if logarithm_expression_equal(
+        dag,
+        numerator.logarithm.argument,
+        denominator.logarithm.argument,
+    ) {
+        if let (Some(numerator_base), Some(denominator_base)) =
+            (numerator.logarithm.base, denominator.logarithm.base)
+        {
+            return Ok(Some((denominator_base, numerator_base, scale)));
+        }
+    }
+    Ok(None)
+}
+
+pub(crate) struct LogarithmSumReduction {
+    pub(crate) numerator_arguments: Vec<ExprId>,
+    pub(crate) denominator_arguments: Vec<ExprId>,
+    pub(crate) base: ExprId,
+    pub(crate) scale: RationalEvaluation,
+    pub(crate) offset: RationalEvaluation,
+}
+
+pub(crate) fn logarithm_sum_reduction(
+    dag: &ExactExpressionDag,
+    terms: &[ExprId],
+) -> Result<Option<LogarithmSumReduction>, EvaluationError> {
+    let mut logarithms = Vec::new();
+    let mut offset = Rational::zero();
+    let mut offset_used_special_angle = false;
+    for term in terms {
+        if !collect_logarithm_sum_term(
+            dag,
+            *term,
+            &mut logarithms,
+            &mut offset,
+            &mut offset_used_special_angle,
+        )? {
+            return Ok(None);
+        }
+    }
+    if logarithms.len() < 2 {
+        return Ok(None);
+    }
+    let Some(base) = logarithms[0].logarithm.base else {
+        return Ok(None);
+    };
+    let scale_magnitude = rational_magnitude(logarithms[0].scale.value());
+    if scale_magnitude.is_zero() {
+        return Ok(None);
+    }
+    let mut used_special_angle = logarithms[0].scale.used_special_angle();
+    let mut numerator_arguments = Vec::new();
+    let mut denominator_arguments = Vec::new();
+    for logarithm in logarithms {
+        let Some(logarithm_base) = logarithm.logarithm.base else {
+            return Ok(None);
+        };
+        if !logarithm_expression_equal(dag, base, logarithm_base)
+            || !logarithm_ratio_domain_is_proven(dag, logarithm.logarithm)?
+            || rational_magnitude(logarithm.scale.value()) != scale_magnitude
+        {
+            return Ok(None);
+        }
+        used_special_angle |= logarithm.scale.used_special_angle();
+        if logarithm.scale.value().is_negative() {
+            denominator_arguments.push(logarithm.logarithm.argument);
+        } else {
+            numerator_arguments.push(logarithm.logarithm.argument);
+        }
+    }
+    let scale = if numerator_arguments.is_empty() {
+        core::mem::swap(&mut numerator_arguments, &mut denominator_arguments);
+        scale_magnitude.negate()
+    } else {
+        scale_magnitude
+    };
+    Ok(Some(LogarithmSumReduction {
+        numerator_arguments,
+        denominator_arguments,
+        base,
+        scale: RationalEvaluation::with_origin(scale, used_special_angle),
+        offset: RationalEvaluation::with_origin(offset, offset_used_special_angle),
+    }))
+}
+
+fn rational_magnitude(value: &Rational) -> Rational {
+    if value.is_negative() {
+        value.negate()
+    } else {
+        value.clone()
+    }
+}
+
+fn collect_logarithm_sum_term(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+    logarithms: &mut Vec<ScaledLogarithmRatio>,
+    offset: &mut Rational,
+    offset_used_special_angle: &mut bool,
+) -> Result<bool, EvaluationError> {
+    if let ExpressionNode::Add(terms) = dag.semantic_node(id) {
+        for term in dag.list(*terms) {
+            if !collect_logarithm_sum_term(
+                dag,
+                *term,
+                logarithms,
+                offset,
+                offset_used_special_angle,
+            )? {
+                return Ok(false);
+            }
+        }
+        return Ok(true);
+    }
+    if let ExpressionNode::Multiply(factors) = dag.semantic_node(id) {
+        let mut nested_sum = None;
+        for factor in dag.list(*factors) {
+            if let ExpressionNode::Add(terms) = dag.semantic_node(*factor) {
+                if nested_sum.replace(*terms).is_some() {
+                    return Ok(false);
+                }
+            }
+        }
+        let Some(nested_sum) = nested_sum else {
+            if let Some(logarithm) = scaled_logarithm_ratio(dag, id)? {
+                logarithms.push(logarithm);
+                return Ok(true);
+            }
+            return Ok(false);
+        };
+        let mut scale = Rational::one();
+        let mut scale_used_special_angle = false;
+        for factor in dag.list(*factors) {
+            if matches!(dag.semantic_node(*factor), ExpressionNode::Add(_)) {
+                continue;
+            }
+            match evaluate_node(dag, *factor) {
+                Ok(value) => {
+                    scale = scale.multiply(value.value());
+                    scale_used_special_angle |= value.used_special_angle();
+                }
+                Err(error) if is_unsupported_exact_expression(&error) => return Ok(false),
+                Err(error) => return Err(error),
+            }
+        }
+        let mut nested_logarithms = Vec::new();
+        let mut nested_offset = Rational::zero();
+        let mut nested_offset_used_special_angle = false;
+        for term in dag.list(nested_sum) {
+            if !collect_logarithm_sum_term(
+                dag,
+                *term,
+                &mut nested_logarithms,
+                &mut nested_offset,
+                &mut nested_offset_used_special_angle,
+            )? {
+                return Ok(false);
+            }
+        }
+        for logarithm in &mut nested_logarithms {
+            logarithm.scale = RationalEvaluation::with_origin(
+                logarithm.scale.value().multiply(&scale),
+                logarithm.scale.used_special_angle() || scale_used_special_angle,
+            );
+        }
+        logarithms.extend(nested_logarithms);
+        *offset = offset.add(&nested_offset.multiply(&scale));
+        *offset_used_special_angle |= nested_offset_used_special_angle || scale_used_special_angle;
+        return Ok(true);
+    }
+    if let Some(logarithm) = scaled_logarithm_ratio(dag, id)? {
+        logarithms.push(logarithm);
+        return Ok(true);
+    }
+    match evaluate_node(dag, id) {
+        Ok(value) => {
+            *offset = offset.add(value.value());
+            *offset_used_special_angle |= value.used_special_angle();
+            Ok(true)
+        }
+        Err(error) if is_unsupported_exact_expression(&error) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+pub(crate) struct LogarithmProductReduction {
+    pub(crate) logarithm: Option<(ExprId, ExprId)>,
+    pub(crate) scale: RationalEvaluation,
+}
+
+pub(crate) fn logarithm_product_reduction(
+    dag: &ExactExpressionDag,
+    factors: &[ExprId],
+) -> Result<Option<LogarithmProductReduction>, EvaluationError> {
+    let mut numerators = Vec::new();
+    let mut denominators = Vec::new();
+    let mut scale = Rational::one();
+    let mut used_special_angle = false;
+    for factor in factors {
+        if !collect_logarithm_product_factor(
+            dag,
+            *factor,
+            &mut numerators,
+            &mut denominators,
+            &mut scale,
+            &mut used_special_angle,
+        )? {
+            return Ok(None);
+        }
+    }
+    if numerators.is_empty() {
+        return Ok(None);
+    }
+
+    let mut numerator_index = 0;
+    while numerator_index < numerators.len() {
+        let Some(denominator_index) = denominators.iter().position(|denominator| {
+            logarithm_expression_equal(dag, numerators[numerator_index], *denominator)
+        }) else {
+            numerator_index += 1;
+            continue;
+        };
+        numerators.remove(numerator_index);
+        denominators.remove(denominator_index);
+    }
+
+    let logarithm = match (numerators.as_slice(), denominators.as_slice()) {
+        ([], []) => None,
+        ([argument], [base]) => Some((*argument, *base)),
+        _ => return Ok(None),
+    };
+    Ok(Some(LogarithmProductReduction {
+        logarithm,
+        scale: RationalEvaluation::with_origin(scale, used_special_angle),
+    }))
+}
+
+fn collect_logarithm_product_factor(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+    numerators: &mut Vec<ExprId>,
+    denominators: &mut Vec<ExprId>,
+    scale: &mut Rational,
+    used_special_angle: &mut bool,
+) -> Result<bool, EvaluationError> {
+    if let Some(logarithm) = logarithm_ratio(dag, id) {
+        let Some(base) = logarithm.base else {
+            return Ok(false);
+        };
+        if !logarithm_ratio_domain_is_proven(dag, logarithm)? {
+            return Ok(false);
+        }
+        numerators.push(logarithm.argument);
+        denominators.push(base);
+        return Ok(true);
+    }
+    if let ExpressionNode::Multiply(list) = dag.semantic_node(id) {
+        for factor in dag.list(*list) {
+            if !collect_logarithm_product_factor(
+                dag,
+                *factor,
+                numerators,
+                denominators,
+                scale,
+                used_special_angle,
+            )? {
+                return Ok(false);
+            }
+        }
+        return Ok(true);
+    }
+    match evaluate_node(dag, id) {
+        Ok(value) => {
+            *scale = scale.multiply(value.value());
+            *used_special_angle |= value.used_special_angle();
+            Ok(true)
+        }
+        Err(error) if is_unsupported_exact_expression(&error) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
 impl RationalPowerPattern {
     fn used_special_angle(&self) -> bool {
         self.basis.used_special_angle() || self.exponent.used_special_angle()
@@ -3937,9 +4656,15 @@ fn evaluate_log_base_function(
     }
 
     let base = evaluate_node(dag, base)?;
-    ensure_log_base_domain(base.value())?;
-
     let argument = evaluate_node(dag, argument)?;
+    finish_rational_log_base(argument, base)
+}
+
+fn finish_rational_log_base(
+    argument: RationalEvaluation,
+    base: RationalEvaluation,
+) -> Result<RationalEvaluation, EvaluationError> {
+    ensure_log_base_domain(base.value())?;
     if argument.value().is_negative() || argument.value().is_zero() {
         return Err(logarithm_of_non_positive_error());
     }

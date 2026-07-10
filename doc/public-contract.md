@@ -35,6 +35,8 @@ author は `bem130`、license は `MIT` とする。license 本文は repository
 
 `log(argument, base)` と `exp(exponent, base)` は2引数形式を受ける。`ln(argument)` は底 `e` の自然対数として受ける。`log(argument)` のように底を省略した対数は受け付けない。`root(argument, index)` は `argument^(1/index)` と同じ実数主値 semantics へ lower する。`abs(argument)`、`floor(argument)`、postfix `!` / `fact(argument)`、`perm(n,r)`、`comb(n,r)`、`mod(a,b)`、`gcd(a,b)`、`lcm(a,b)` を受ける。`lcd(a,b)` は `lcm(a,b)` の alias として parse し、正規表示名は `lcm` とする。`sinh`、`cosh`、`tanh`、`asinh`、`acosh`、`atanh` は source-level 関数として受け、内部 DAG では exp/log/sqrt の組み合わせへ lower して既存の exact simplification と certified interval の経路を使う。
 
+底変換、同一底・同一真数の対数比、対数連鎖積、同一底の和差は、実数領域の定義域と非零分母を証明できた場合だけexact simplificationへ使用する。証明できない場合は式を保持し、浮動小数点近似を根拠に恒等式を適用しない。
+
 ## Outputs
 
 Exact output は relation、presentation tree、plain text、MathML、LaTeX、representation kind、simplification status、method tags を持つ。`ExactFormatPreference::FiniteDecimal` は有限小数として正確に表せる rational だけを finite decimal 表示にし、表せない rational は rational 表示へ戻す。`ExactFormatPreference::MixedFraction` は improper rational を帯分数表示にし、proper rational と integer は canonical 表示へ戻す。`Auto` / `Rational` / `Symbolic` は現行実装では canonical exact 表示を返す。

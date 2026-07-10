@@ -257,6 +257,17 @@ async function assertArbitraryBaseLogExp(page) {
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 3");
 
+    for (const [source, expected] of [
+        ["ln(8)/ln(2)", "= 3"],
+        ["log(8,7)*log(7,3)*log(3,2)", "= 3"],
+        ["log(2,10)+log(5,10)", "= 1"],
+        ["ln(3)/ln(2)", "= log(3,2)"],
+    ]) {
+        await setExpression(page, source);
+        await page.click("#calculate");
+        await waitForText(page, "#exact-output", expected);
+    }
+
     await setExpression(page, "ln(e)");
     await page.waitForSelector("#input-preview math mi");
     assert(
