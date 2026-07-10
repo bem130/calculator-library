@@ -791,38 +791,183 @@ fn validate_obvious_domain(dag: &ExactExpressionDag, id: ExprId) -> Result<(), E
             ))?;
         }
         ExpressionNode::Function {
+            function: Function::Tan,
+            argument,
+        } => {
+            if let Some(coefficient) = semantic_rational_pi_coefficient(dag, *argument) {
+                let phase = coefficient.modulo_integer(1);
+                if phase_matches_any(&phase, TANGENT_POLE_PHASES) {
+                    return Err(domain_error(DomainErrorKind::TangentPole));
+                }
+            }
+            if let Err(EvaluationError::Domain(error)) = evaluate_node(dag, id) {
+                return Err(EvaluationError::Domain(error));
+            }
+            preserve_domain_error(evaluate_interval_expression_node(
+                dag,
+                dag.semantic_node(id),
+                Some(id),
+                64,
+            ))?;
+        }
+        ExpressionNode::Function {
+            function: Function::Asin | Function::Acos,
+            ..
+        } => {
+            if let Err(EvaluationError::Domain(error)) = evaluate_node(dag, id) {
+                return Err(EvaluationError::Domain(error));
+            }
+            preserve_domain_error(evaluate_interval_expression_node(
+                dag,
+                dag.semantic_node(id),
+                Some(id),
+                64,
+            ))?;
+        }
+        ExpressionNode::Function {
             function: Function::Factorial,
             argument,
-        } if exact_node_is_proven_noninteger(dag, *argument) => {
-            return Err(domain_error(
-                DomainErrorKind::IntegerFunctionRequiresInteger,
-            ));
+        } => {
+            if let Some(argument) = semantic_rational_for_domain(dag, *argument) {
+                if !argument.is_integer() {
+                    return Err(domain_error(
+                        DomainErrorKind::IntegerFunctionRequiresInteger,
+                    ));
+                }
+                if argument.is_negative() {
+                    return Err(domain_error(
+                        DomainErrorKind::IntegerFunctionRequiresNonNegative,
+                    ));
+                }
+            }
+            if let Err(EvaluationError::Domain(error)) = evaluate_node(dag, id) {
+                return Err(EvaluationError::Domain(error));
+            }
         }
         ExpressionNode::BinaryFunction {
-            function:
-                Function::Permutation
-                | Function::Combination
-                | Function::Modulo
-                | Function::Gcd
-                | Function::Lcm,
+            function,
             left,
             right,
-        } if exact_node_is_proven_noninteger(dag, *left)
-            || exact_node_is_proven_noninteger(dag, *right) =>
-        {
-            return Err(domain_error(
-                DomainErrorKind::IntegerFunctionRequiresInteger,
-            ));
+        } => {
+            let left_value = semantic_rational_for_domain(dag, *left);
+            let right_value = semantic_rational_for_domain(dag, *right);
+            if left_value.as_ref().is_some_and(|value| !value.is_integer())
+                || right_value
+                    .as_ref()
+                    .is_some_and(|value| !value.is_integer())
+            {
+                return Err(domain_error(
+                    DomainErrorKind::IntegerFunctionRequiresInteger,
+                ));
+            }
+            if matches!(function, Function::Permutation | Function::Combination)
+                && [left_value.as_ref(), right_value.as_ref()]
+                    .into_iter()
+                    .flatten()
+                    .any(Rational::is_negative)
+            {
+                return Err(domain_error(
+                    DomainErrorKind::IntegerFunctionRequiresNonNegative,
+                ));
+            }
+            if matches!(function, Function::Modulo)
+                && right_value.as_ref().is_some_and(Rational::is_zero)
+            {
+                return Err(domain_error(DomainErrorKind::DivisionByZero));
+            }
+            if let Err(EvaluationError::Domain(error)) = evaluate_node(dag, id) {
+                return Err(EvaluationError::Domain(error));
+            }
         }
         ExpressionNode::Rational(_)
         | ExpressionNode::Exact(_)
         | ExpressionNode::Constant(_)
         | ExpressionNode::Add(_)
         | ExpressionNode::Multiply(_)
-        | ExpressionNode::Function { .. }
-        | ExpressionNode::BinaryFunction { .. } => {}
+        | ExpressionNode::Function { .. } => {}
     }
     Ok(())
+}
+
+fn semantic_rational_pi_coefficient(dag: &ExactExpressionDag, id: ExprId) -> Option<Rational> {
+    match dag.semantic_node(id) {
+        ExpressionNode::Rational(value) => dag.rational(*value).is_zero().then(Rational::zero),
+        ExpressionNode::Constant(Constant::Pi) => Some(Rational::one()),
+        ExpressionNode::Add(values) => {
+            let mut total = Rational::zero();
+            for child in dag.list(*values) {
+                total = total.add(&semantic_rational_pi_coefficient(dag, *child)?);
+            }
+            Some(total)
+        }
+        ExpressionNode::Multiply(values) => {
+            let mut scalar = Rational::one();
+            let mut coefficient = None;
+            for child in dag.list(*values) {
+                if let ExpressionNode::Rational(value) = dag.semantic_node(*child) {
+                    scalar = scalar.multiply(dag.rational(*value));
+                    continue;
+                }
+                let child = semantic_rational_pi_coefficient(dag, *child)?;
+                if coefficient.replace(child).is_some() {
+                    return None;
+                }
+            }
+            coefficient.map(|coefficient| scalar.multiply(&coefficient))
+        }
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => {
+            let numerator = semantic_rational_pi_coefficient(dag, *numerator)?;
+            let ExpressionNode::Rational(denominator) = dag.semantic_node(*denominator) else {
+                return None;
+            };
+            numerator.divide(dag.rational(*denominator)).ok()
+        }
+        ExpressionNode::Exact(_)
+        | ExpressionNode::Constant(Constant::Euler)
+        | ExpressionNode::Power { .. }
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. } => None,
+    }
+}
+
+fn semantic_rational_for_domain(dag: &ExactExpressionDag, id: ExprId) -> Option<Rational> {
+    match dag.semantic_node(id) {
+        ExpressionNode::Rational(value) => Some(dag.rational(*value).clone()),
+        ExpressionNode::Add(values) => {
+            let mut total = Rational::zero();
+            for child in dag.list(*values) {
+                total = total.add(&semantic_rational_for_domain(dag, *child)?);
+            }
+            Some(total)
+        }
+        ExpressionNode::Multiply(values) => {
+            let mut product = Rational::one();
+            for child in dag.list(*values) {
+                product = product.multiply(&semantic_rational_for_domain(dag, *child)?);
+            }
+            Some(product)
+        }
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => semantic_rational_for_domain(dag, *numerator)?
+            .divide(&semantic_rational_for_domain(dag, *denominator)?)
+            .ok(),
+        ExpressionNode::Power { base, exponent } => {
+            let base = semantic_rational_for_domain(dag, *base)?;
+            let exponent = semantic_rational_for_domain(dag, *exponent)?;
+            base.pow_i64(exponent.as_i64_if_integer()?).ok()
+        }
+        ExpressionNode::Exact(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. } => None,
+    }
 }
 
 fn estimated_additional_work(

@@ -6573,6 +6573,26 @@ mod tests {
                 "sqrt(((-1)^(1/2))^2)-sqrt(((-1)^(1/2))^2)",
                 DomainErrorKind::NonRealPower,
             ),
+            (
+                "fact(-1)",
+                DomainErrorKind::IntegerFunctionRequiresNonNegative,
+            ),
+            ("asin(2)", DomainErrorKind::InverseTrigonometricOutOfRange),
+            ("acos(2)", DomainErrorKind::InverseTrigonometricOutOfRange),
+            ("tan(pi/2)", DomainErrorKind::TangentPole),
+            (
+                "perm(-1,1)",
+                DomainErrorKind::IntegerFunctionRequiresNonNegative,
+            ),
+            (
+                "comb(-1,1)",
+                DomainErrorKind::IntegerFunctionRequiresNonNegative,
+            ),
+            ("mod(1,0)", DomainErrorKind::DivisionByZero),
+            (
+                "gcd(1/2,1)",
+                DomainErrorKind::IntegerFunctionRequiresInteger,
+            ),
         ] {
             for request in [
                 CalculationRequest::default(),
