@@ -6593,6 +6593,16 @@ mod tests {
                 "gcd(1/2,1)",
                 DomainErrorKind::IntegerFunctionRequiresInteger,
             ),
+            (
+                "fact(sqrt(2))",
+                DomainErrorKind::IntegerFunctionRequiresInteger,
+            ),
+            (
+                "gcd(sqrt(2),2)",
+                DomainErrorKind::IntegerFunctionRequiresInteger,
+            ),
+            ("fact(pi)", DomainErrorKind::IntegerFunctionRequiresInteger),
+            ("gcd(pi,2)", DomainErrorKind::IntegerFunctionRequiresInteger),
         ] {
             for request in [
                 CalculationRequest::default(),

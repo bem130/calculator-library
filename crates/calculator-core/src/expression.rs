@@ -828,12 +828,12 @@ fn validate_obvious_domain(dag: &ExactExpressionDag, id: ExprId) -> Result<(), E
             function: Function::Factorial,
             argument,
         } => {
+            if prove_noninteger_for_domain(dag, *argument)? {
+                return Err(domain_error(
+                    DomainErrorKind::IntegerFunctionRequiresInteger,
+                ));
+            }
             if let Some(argument) = semantic_rational_for_domain(dag, *argument) {
-                if !argument.is_integer() {
-                    return Err(domain_error(
-                        DomainErrorKind::IntegerFunctionRequiresInteger,
-                    ));
-                }
                 if argument.is_negative() {
                     return Err(domain_error(
                         DomainErrorKind::IntegerFunctionRequiresNonNegative,
@@ -851,10 +851,7 @@ fn validate_obvious_domain(dag: &ExactExpressionDag, id: ExprId) -> Result<(), E
         } => {
             let left_value = semantic_rational_for_domain(dag, *left);
             let right_value = semantic_rational_for_domain(dag, *right);
-            if left_value.as_ref().is_some_and(|value| !value.is_integer())
-                || right_value
-                    .as_ref()
-                    .is_some_and(|value| !value.is_integer())
+            if prove_noninteger_for_domain(dag, *left)? || prove_noninteger_for_domain(dag, *right)?
             {
                 return Err(domain_error(
                     DomainErrorKind::IntegerFunctionRequiresInteger,
@@ -968,6 +965,33 @@ fn semantic_rational_for_domain(dag: &ExactExpressionDag, id: ExprId) -> Option<
         | ExpressionNode::Function { .. }
         | ExpressionNode::BinaryFunction { .. } => None,
     }
+}
+
+fn prove_noninteger_for_domain(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+) -> Result<bool, EvaluationError> {
+    if let Some(value) = semantic_rational_for_domain(dag, id) {
+        return Ok(!value.is_integer());
+    }
+    let interval = match evaluate_interval_node(dag, id, 64) {
+        Ok(interval) => interval,
+        Err(IntervalError::Domain(kind)) => return Err(domain_error(kind)),
+        Err(
+            IntervalError::InvalidBounds
+            | IntervalError::UnsupportedExpression
+            | IntervalError::DivisionByIntervalContainingZero
+            | IntervalError::ExponentTooLarge,
+        ) => return Ok(false),
+    };
+    let Some(integer) =
+        interval::unique_floor(&interval).map_err(evaluation_error_from_interval)?
+    else {
+        return Ok(false);
+    };
+    interval::contains_rational(&interval, &integer)
+        .map(|contains| !contains)
+        .map_err(evaluation_error_from_interval)
 }
 
 fn estimated_additional_work(
