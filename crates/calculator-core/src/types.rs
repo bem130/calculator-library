@@ -20,7 +20,7 @@ pub struct ExactExpression {
 pub enum CertifiedEnclosureState {
     NotRequested,
     Available(CertifiedInterval),
-    Unavailable,
+    Unavailable(IncompleteReason),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -87,9 +87,13 @@ pub struct ExprListId(pub u32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RationalId(pub u32);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExactValueId(pub u32);
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExpressionNode {
     Rational(RationalId),
+    Exact(ExactValueId),
     Constant(Constant),
     Add(ExprListId),
     Multiply(ExprListId),
@@ -355,7 +359,7 @@ pub enum CalculationOutcome {
     Partial {
         calculation: Calculation,
         reason: IncompleteReason,
-        certified_enclosure: CertifiedIntervalPresentation,
+        certified_enclosure: Option<CertifiedIntervalPresentation>,
     },
 }
 
@@ -367,6 +371,9 @@ pub enum IncompleteReason {
     },
     ComputationLimit {
         kind: ComputationLimitKind,
+    },
+    UnsupportedFeature {
+        feature: UnsupportedFeature,
     },
 }
 
@@ -448,6 +455,7 @@ pub struct EvaluationMetadata {
     pub methods: Vec<MethodTag>,
     pub internal_precision_bits: u32,
     pub refinement_rounds: u32,
+    pub incomplete_reason: Option<IncompleteReason>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -595,6 +603,12 @@ pub enum ScientificOutput {
 pub enum EnclosureOutput {
     Omitted,
     Included(CertifiedIntervalPresentation),
+    Unavailable(UnavailableEnclosureOutput),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnavailableEnclosureOutput {
+    pub reason: IncompleteReason,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1560,7 +1574,7 @@ impl Default for InputPolicy {
 }
 
 impl ProtocolVersion {
-    pub const CURRENT: Self = Self { major: 3, minor: 0 };
+    pub const CURRENT: Self = Self { major: 4, minor: 0 };
 }
 
 const fn nonzero_u32(value: u32) -> NonZeroU32 {
@@ -1608,7 +1622,7 @@ mod tests {
     fn protocol_version_is_current_public_contract() {
         assert_eq!(
             ProtocolVersion::CURRENT,
-            ProtocolVersion { major: 3, minor: 0 }
+            ProtocolVersion { major: 4, minor: 0 }
         );
     }
 

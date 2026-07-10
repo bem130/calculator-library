@@ -79,7 +79,7 @@ pub struct ExactExpression {
 pub enum CertifiedEnclosureState {
     NotRequested,
     Available(CertifiedInterval),
-    Unavailable,
+    Unavailable(IncompleteReason),
 }
 
 pub enum RecognizedExact {
@@ -297,6 +297,23 @@ Exact Expression DAG
     ↓
 Presentation Tree
 ```
+
+厳密簡約は式全体へ一度だけ適用する「mode」ではない。Exact Expression DAGを子から親へ走査し、各親を評価する前に、そのすべての子について利用可能な最も具体的な厳密表現を確定する。少なくとも次を区別して保持する。
+
+```text
+ExactReduction
+    Rational
+    RationalPiMultiple
+    Radical
+    RealAlgebraic
+    Symbolic
+```
+
+これらは精度順の全順序ではない。たとえばπの有理数倍と根号は別種の厳密表現であり、一方を他方の近似modeへ昇格・降格してはならない。部分式が有理数、πの有理数倍、根号、実代数的数として厳密化できた場合、その値を正規化DAGへ戻してから親を評価する。したがって外側が一般記号式または保証区間評価へfallbackしても、内側の厳密値を未簡約の式や近似値へ戻してはならない。
+
+非有理の実代数的部分式は、最小多項式と分離区間を `ExprId` に対応するexact-value side tableへ保持し、同じentryに元の厳密部分式のpresentation nodeも保持する。正規化はDAGのnode/list数とchildren-before-parent順序を変えず、同じ正規化DAGへ再適用しても結果が変わらないものとする。interval評価は保存済み分離区間と、presentation nodeを要求精度で評価した保証区間との共通部分を使用する。symbolic presentationは、πの有理数倍と根号ではexact valueからcanonical表示を生成し、一般実代数的数ではpresentation nodeを使用する。入力presentationだけはSource ASTから生成し、厳密簡約の影響を受けない。
+
+部分式のdomain errorは親のsymbolic/interval fallbackで隠してはならない。一方、resource limitにより厳密表現を確定できない場合は、その部分式を破壊的に近似せずSymbolicとして保持する。子で使用した特殊角、根号抽出、代数的最小多項式、根分離のmethod metadataは親の結果へ集約する。
 
 ### 3.1 Source ASTとExact Expression DAGを分ける
 
@@ -663,7 +680,7 @@ CertifiedEnclosure:
 ```text
 sqrt(8)
 = sqrt(4 × 2)
-= 2sqrt(2)
+= 2*sqrt(2)
 ```
 
 ただし、巨大整数の完全因数分解を常に要求してはならない。
@@ -1132,7 +1149,7 @@ pub enum CalculationOutcome {
     Partial {
         calculation: Calculation,
         reason: IncompleteReason,
-        certified_enclosure: CertifiedIntervalPresentation,
+        certified_enclosure: Option<CertifiedIntervalPresentation>,
     },
 }
 
@@ -1144,12 +1161,15 @@ pub enum IncompleteReason {
     ComputationLimit {
         kind: ComputationLimitKind,
     },
+    UnsupportedFeature {
+        feature: UnsupportedFeature,
+    },
 }
 ```
 
 `Complete` は、requestで要求されたすべての出力が確定したことを意味する。`Partial` は、少なくとも一つの要求出力または内部判定が計算量上限内に完了しなかったことを意味する。
 
-`Partial` でも、確定済みの厳密式と現在の保証区間を含める。これは `EnclosureOutputRequest::Omit` とは独立した安全性情報であり、表示用のenclosure欄を省略していても、`Partial.certified_enclosure` には機械可読な保証区間を入れる。指定桁を一意に確定できなかった場合、推測した `significand`、`exponent_ten`、表示木は返さない。
+`Partial` でも、確定済みの厳密式を必ず含め、保証区間を生成できた場合は `Partial.certified_enclosure` に機械可読な区間を入れる。resource limit 到達や未対応のinterval primitiveによって保証区間自体を生成できない場合は `None` とし、存在しない区間を捏造したり internal invariant error に変えたりしない。前者は `ComputationLimit`、後者は `UnsupportedFeature` として区別する。これは `EnclosureOutputRequest::Omit` とは独立した安全性情報である。指定桁を一意に確定できなかった場合、推測した `significand`、`exponent_ten`、表示木は返さない。
 
 ---
 
@@ -1576,6 +1596,7 @@ pub enum ScientificOutput {
 pub enum EnclosureOutput {
     Omitted,
     Included(CertifiedIntervalPresentation),
+    Unavailable(UnavailableEnclosureOutput),
 }
 ```
 
@@ -1604,6 +1625,10 @@ pub struct UnavailableScientificOutput {
     pub reason: IncompleteReason,
 }
 
+pub struct UnavailableEnclosureOutput {
+    pub reason: IncompleteReason,
+}
+
 pub struct CertifiedIntervalPresentation {
     pub relation: ResultRelation,
     pub bounds: CertifiedIntervalBounds,
@@ -1628,7 +1653,7 @@ pub struct DecimalScientificBound {
 }
 ```
 
-10進指数は極端に大きくなり得るため文字列で保持する。`ScientificOutput::Unavailable` は `CalculationOutcome::Partial` の内部でだけ使用する。`significand`、`exponent_ten`、表示用 `PresentationNode` を持たないため、推測した小数表示が外部へ漏れない。
+10進指数は極端に大きくなり得るため文字列で保持する。`ScientificOutput::Unavailable` と `EnclosureOutput::Unavailable` は `CalculationOutcome::Partial` の内部でだけ使用する。どちらも存在しない数値や表示木を持たず、`reason` で precision limit と computation limit を区別する。
 
 ---
 
@@ -1940,7 +1965,7 @@ pub struct ResourceLimits {
 
 Rust APIでは `max_logical_work_units` は `u64` とする。TypeScript DTOでは、この値だけは安全整数範囲を超え得るため、canonical unsigned decimal stringとして渡す。
 
-`logical_work_units` は実行時間ではなく、アルゴリズム上の操作へ決定的に課金する。
+`logical_work_units` は実行時間ではなく、アルゴリズム上の操作へ決定的に課金する。再帰的exact normalizationは式全体で一つの共有budgetを使う。factorial等は整数の大きさに応じて課金し、代数演算は入力次数、resultant行列、factorization、root isolationの個別上限から実作業の保守的上界を演算開始前に予約する。予約できない演算は開始せずsymbolic exact expressionとして保持する。未使用予約量を返却しないため、式全体の実作業が共有上限を超えることはない。
 
 `max_presentation_nodes` と `max_output_bytes` は、`present`、`present_input`、`calculate` の通常出力、および `Partial` に添付する certified enclosure に適用する。制限超過時は巨大な表示木や巨大な文字列を返さず、`computationLimit.presentationNodes` または `inputLimit.outputTooLarge` として返す。
 
@@ -2008,11 +2033,11 @@ export type CalculationOutcome =
         tag: "partial";
         calculation: Calculation;
         reason: IncompleteReason;
-        certifiedEnclosure: CertifiedIntervalPresentation;
+        certifiedEnclosure: CertifiedIntervalPresentation | null;
     };
 ```
 
-`Partial` DTOにも `certifiedEnclosure` を含める。これは `enclosureOutput` の表示要求とは独立した安全性情報である。
+`Partial` DTOにも `certifiedEnclosure` を含める。保証区間を生成できなかったpartial outcomeでは `null` とし、`calculation.enclosure` の `unavailable` と同じtyped reasonを返す。これは `enclosureOutput` の表示要求とは独立した安全性情報である。
 
 出力指定も `undefined` を用いない。
 
@@ -2761,7 +2786,8 @@ DTOは生成されたTypeScript型、serde round-trip、手書きfacadeの境界
 * `NaN` / `Infinity` / 小数 / 負数 / unsafe integerをresource limitで拒否する
 * decimal string grammar違反を拒否する
 * 未知の `tag` / `code` を `unsupportedProtocol` として扱う
-* `Partial` が `certifiedEnclosure` を常に含む
+* `Partial.certifiedEnclosure` が保証区間の有無を `CertifiedIntervalPresentation | null` で表す
+* scientific / enclosure が unavailable のとき、同じtyped incomplete reasonを返す
 * worker cancelが計算を中断し、破損した部分結果を成功値として返さない
 
 ### 15.9 nativeとWasmの一致
@@ -2908,7 +2934,7 @@ JavaScript numberへ値を変換しない
 sin(π/6) = 1/2
 asin(1/2) = π/6    radian mode
 asin(1/2) = 30     degree mode
-sqrt(72) = 6sqrt(2)
+sqrt(72) = 6*sqrt(2)
 sqrt(x²) を無条件に x へしない
 数値的近さから厳密値を推測しない
 ```

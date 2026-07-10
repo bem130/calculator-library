@@ -174,11 +174,14 @@ function renderCalculation(calculation: Calculation): void {
         const interval = calculation.enclosure.value;
         document.querySelector("#interval")!.textContent =
             `${renderResultRelationPlainText(interval.relation)} ${renderPlainText(interval.presentation)}`;
+    } else if (calculation.enclosure.tag === "unavailable") {
+        document.querySelector("#interval")!.textContent =
+            "Certified interval is unavailable within the computation limits.";
     }
 }
 ```
 
-`scientific` が `unavailable` でも、`enclosure` が `included` なら計算が壊れたわけではない。要求された有効数字が保証区間から一意に確定していないだけで、certified interval は別の保証付き出力として利用できる。
+`scientific` が `unavailable` でも、`enclosure` が `included` なら計算が壊れたわけではない。要求された有効数字が保証区間から一意に確定していないだけで、certified interval は別の保証付き出力として利用できる。`enclosure` も `unavailable` の場合は、その `reason` を表示し、区間があるものとして扱わない。
 
 ---
 
@@ -385,7 +388,9 @@ function renderError(error: { tag: string }): void {
 ```ts
 if (result.tag === "ok" && result.value.tag === "partial") {
     console.info(result.value.reason);
-    console.info(result.value.certifiedEnclosure);
+    if (result.value.certifiedEnclosure !== null) {
+        console.info(result.value.certifiedEnclosure);
+    }
     renderCalculation(result.value.calculation);
 }
 ```

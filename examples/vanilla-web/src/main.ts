@@ -693,6 +693,10 @@ function renderEnclosure(calculation: Calculation): void {
                     calculation.enclosure.value.presentation,
                 )}`;
             return;
+        case "unavailable":
+            enclosureState.textContent = formatLabel(calculation.enclosure.reason.tag);
+            enclosureOutput.textContent = "A certified interval is unavailable for this output.";
+            return;
     }
 }
 

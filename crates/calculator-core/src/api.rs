@@ -14,8 +14,9 @@ use num_traits::{Signed, Zero};
 use crate::expression::{
     evaluate_interval_dag, evaluate_radical_dag, evaluate_rational_evaluation_dag,
     evaluate_rational_pi_multiple_dag, evaluate_real_algebraic_dag, lower_source_expression,
-    structurally_equal_expressions, ExactExpressionDag, PiCoefficientEvaluation, RadicalEvaluation,
-    RadicalLinearCombinationEvaluation, RadicalReduction, RationalEvaluation,
+    node_is_exact_zero, normalize_exact_subexpressions, structurally_equal_expressions,
+    ExactExpressionDag, ExactNormalization, ExactReduction, PiCoefficientEvaluation,
+    RadicalEvaluation, RadicalLinearCombinationEvaluation, RadicalReduction, RationalEvaluation,
     RealAlgebraicEvaluation,
 };
 use crate::interval;
@@ -49,7 +50,7 @@ pub fn calculate(
         },
     )
     .map_err(CalculatorError::from)?;
-    apply_calculation_symbolic_presentation(&mut calculation, &parsed, request, &evaluation);
+    apply_calculation_symbolic_presentation(&mut calculation, &evaluation);
     validate_calculation_output(&calculation, &limits).map_err(CalculatorError::from)?;
     if let Some(reason) = partial_reason(&calculation) {
         let certified_enclosure =
@@ -65,8 +66,6 @@ pub fn calculate(
 
 fn apply_calculation_symbolic_presentation(
     calculation: &mut Calculation,
-    parsed: &ParsedExpression,
-    request: &CalculationRequest,
     evaluation: &EvaluationOutcome,
 ) {
     if !matches!(
@@ -78,10 +77,7 @@ fn apply_calculation_symbolic_presentation(
     let ExactOutput::Included(exact) = &mut calculation.exact else {
         return;
     };
-    let Ok(dag) = lower_source_expression(&parsed.root, request.semantics) else {
-        return;
-    };
-    *exact = symbolic_presentation_from_dag(&dag);
+    *exact = symbolic_presentation(&evaluation.value.exact_expression.source);
 }
 
 pub fn parse(source: &str, settings: &ParseSettings) -> Result<ParsedExpression, ParseError> {
@@ -125,16 +121,19 @@ pub fn evaluate(
     validate_parsed_expression_limits(expression, &limits).map_err(EvaluationError::InputLimit)?;
     let dag = lower_source_expression(&expression.root, request.semantics)?;
     validate_expression_dag_limits(&dag, &limits).map_err(EvaluationError::InputLimit)?;
+    let (dag, normalization) = normalize_exact_subexpressions(dag, &limits)?;
     let rational = match evaluate_rational_evaluation_dag(&dag) {
         Ok(rational) => rational,
         Err(error) if should_fallback_to_symbolic_interval(&error) => {
             if let Some(pi_multiple) = evaluate_rational_pi_multiple_dag(&dag)? {
                 if pi_multiple.coefficient().is_zero() {
-                    return Ok(rational_evaluation_outcome(
+                    let mut outcome = rational_evaluation_outcome(
                         expression,
                         RationalEvaluation::direct(pi_multiple.into_coefficient()),
                         request,
-                    ));
+                    );
+                    apply_exact_normalization_metadata(&mut outcome, normalization);
+                    return Ok(outcome);
                 }
                 let certified_enclosure =
                     rational_pi_enclosure(&dag, &pi_multiple).map_err(|interval_error| {
@@ -147,7 +146,7 @@ pub fn evaluate(
                 if pi_multiple.used_special_angle() {
                     methods.push(MethodTag::SpecialAngle);
                 }
-                return Ok(EvaluationOutcome {
+                let mut outcome = EvaluationOutcome {
                     value: EvaluatedValue {
                         exact_expression: ExactExpression {
                             source: expression.source.clone(),
@@ -164,18 +163,23 @@ pub fn evaluate(
                         methods,
                         internal_precision_bits: 128,
                         refinement_rounds: 0,
+                        incomplete_reason: None,
                     },
-                });
+                };
+                apply_exact_normalization_metadata(&mut outcome, normalization);
+                return Ok(outcome);
             }
             if let Some(radical) = evaluate_radical_dag(&dag)? {
                 match radical {
                     RadicalReduction::Rational(rational) => {
-                        return Ok(rational_evaluation_outcome_with_methods(
+                        let mut outcome = rational_evaluation_outcome_with_methods(
                             expression,
                             rational,
                             request,
                             &[MethodTag::RadicalExtraction],
-                        ));
+                        );
+                        apply_exact_normalization_metadata(&mut outcome, normalization);
+                        return Ok(outcome);
                     }
                     RadicalReduction::Radical(radical) => {
                         let certified_enclosure =
@@ -189,7 +193,7 @@ pub fn evaluate(
                         if radical.used_special_angle() {
                             methods.push(MethodTag::SpecialAngle);
                         }
-                        return Ok(EvaluationOutcome {
+                        let mut outcome = EvaluationOutcome {
                             value: EvaluatedValue {
                                 exact_expression: ExactExpression {
                                     source: expression.source.clone(),
@@ -204,8 +208,11 @@ pub fn evaluate(
                                 methods,
                                 internal_precision_bits: 128,
                                 refinement_rounds: 0,
+                                incomplete_reason: None,
                             },
-                        });
+                        };
+                        apply_exact_normalization_metadata(&mut outcome, normalization);
+                        return Ok(outcome);
                     }
                     RadicalReduction::LinearCombination(value) => {
                         let certified_enclosure = radical_linear_combination_enclosure(
@@ -221,7 +228,7 @@ pub fn evaluate(
                         if value.used_special_angle() {
                             methods.push(MethodTag::SpecialAngle);
                         }
-                        return Ok(EvaluationOutcome {
+                        let mut outcome = EvaluationOutcome {
                             value: EvaluatedValue {
                                 exact_expression: ExactExpression {
                                     source: expression.source.clone(),
@@ -238,15 +245,18 @@ pub fn evaluate(
                                 methods,
                                 internal_precision_bits: 128,
                                 refinement_rounds: 0,
+                                incomplete_reason: None,
                             },
-                        });
+                        };
+                        apply_exact_normalization_metadata(&mut outcome, normalization);
+                        return Ok(outcome);
                     }
                 }
             }
             if let Some(algebraic) = evaluate_real_algebraic_dag(&dag, &limits)? {
                 let algebraic = match algebraic {
                     RealAlgebraicEvaluation::Rational(rational) => {
-                        return Ok(rational_evaluation_outcome_with_methods(
+                        let mut outcome = rational_evaluation_outcome_with_methods(
                             expression,
                             rational,
                             request,
@@ -254,12 +264,14 @@ pub fn evaluate(
                                 MethodTag::AlgebraicMinimalPolynomial,
                                 MethodTag::AlgebraicRootIsolation,
                             ],
-                        ));
+                        );
+                        apply_exact_normalization_metadata(&mut outcome, normalization);
+                        return Ok(outcome);
                     }
                     RealAlgebraicEvaluation::Algebraic(algebraic) => algebraic,
                 };
                 let certified_enclosure =
-                    real_algebraic_enclosure(&dag, &algebraic).map_err(|interval_error| {
+                    evaluate_interval_dag(&dag).map_err(|interval_error| {
                         interval_error_to_evaluation_error(interval_error, error.clone())
                     })?;
                 let mut methods = vec![
@@ -270,10 +282,10 @@ pub fn evaluate(
                 if contains_trigonometric_function(&dag) {
                     methods.push(MethodTag::CyclotomicReduction);
                 }
-                return Ok(EvaluationOutcome {
+                let mut outcome = EvaluationOutcome {
                     value: EvaluatedValue {
                         exact_expression: ExactExpression {
-                            source: expression.source.clone(),
+                            source: symbolic_presentation_from_dag(&dag).plain_text,
                         },
                         recognized_exact: RecognizedExact::RealAlgebraic(algebraic),
                         certified_enclosure: CertifiedEnclosureState::Available(
@@ -285,34 +297,92 @@ pub fn evaluate(
                         methods,
                         internal_precision_bits: 128,
                         refinement_rounds: 0,
+                        incomplete_reason: None,
                     },
-                });
+                };
+                apply_exact_normalization_metadata(&mut outcome, normalization);
+                return Ok(outcome);
             }
-            let certified_enclosure = evaluate_interval_dag(&dag).map_err(|interval_error| {
-                interval_error_to_evaluation_error(interval_error, error.clone())
-            })?;
-            return Ok(EvaluationOutcome {
-                value: EvaluatedValue {
-                    exact_expression: ExactExpression {
-                        source: expression.source.clone(),
-                    },
-                    recognized_exact: RecognizedExact::GeneralSymbolic,
-                    certified_enclosure: CertifiedEnclosureState::Available(certified_enclosure),
-                },
-                metadata: EvaluationMetadata {
-                    semantic_settings: request.semantics,
-                    methods: vec![
+            let (certified_enclosure, methods) = match evaluate_interval_dag(&dag) {
+                Ok(enclosure) => (
+                    CertifiedEnclosureState::Available(enclosure),
+                    vec![
                         MethodTag::SymbolicRetention,
                         MethodTag::CertifiedIntervalEvaluation,
                     ],
+                ),
+                Err(interval::IntervalError::UnsupportedExpression) => (
+                    CertifiedEnclosureState::Unavailable(normalization.limit_reached().map_or(
+                        IncompleteReason::UnsupportedFeature {
+                            feature: UnsupportedFeature::FunctionEvaluation,
+                        },
+                        |kind| IncompleteReason::ComputationLimit { kind },
+                    )),
+                    vec![MethodTag::SymbolicRetention],
+                ),
+                Err(interval_error) => {
+                    return Err(interval_error_to_evaluation_error(
+                        interval_error,
+                        error.clone(),
+                    ));
+                }
+            };
+            let mut outcome = EvaluationOutcome {
+                value: EvaluatedValue {
+                    exact_expression: ExactExpression {
+                        source: symbolic_presentation_from_dag(&dag).plain_text,
+                    },
+                    recognized_exact: RecognizedExact::GeneralSymbolic,
+                    certified_enclosure,
+                },
+                metadata: EvaluationMetadata {
+                    semantic_settings: request.semantics,
+                    methods,
                     internal_precision_bits: 128,
                     refinement_rounds: 0,
+                    incomplete_reason: None,
                 },
-            });
+            };
+            apply_exact_normalization_metadata(&mut outcome, normalization);
+            return Ok(outcome);
         }
         Err(error) => return Err(error),
     };
-    Ok(rational_evaluation_outcome(expression, rational, request))
+    let mut outcome = rational_evaluation_outcome(expression, rational, request);
+    apply_exact_normalization_metadata(&mut outcome, normalization);
+    Ok(outcome)
+}
+
+fn apply_exact_normalization_metadata(
+    outcome: &mut EvaluationOutcome,
+    normalization: ExactNormalization,
+) {
+    if let Some(kind) = normalization.limit_reached() {
+        outcome.metadata.incomplete_reason = Some(IncompleteReason::ComputationLimit { kind });
+    }
+    for (used, method) in [
+        (normalization.used_special_angle(), MethodTag::SpecialAngle),
+        (
+            normalization.used_radical_reduction(),
+            MethodTag::RadicalExtraction,
+        ),
+        (
+            normalization.used_algebraic_reduction(),
+            MethodTag::AlgebraicMinimalPolynomial,
+        ),
+        (
+            normalization.used_algebraic_reduction(),
+            MethodTag::AlgebraicRootIsolation,
+        ),
+        (
+            normalization.used_cyclotomic_reduction(),
+            MethodTag::CyclotomicReduction,
+        ),
+    ] {
+        if used && !outcome.metadata.methods.contains(&method) {
+            outcome.metadata.methods.push(method);
+        }
+    }
 }
 
 fn rational_pi_enclosure(
@@ -322,17 +392,6 @@ fn rational_pi_enclosure(
     interval::multiply(
         &interval::from_rational(value.coefficient(), 128),
         &interval::constant(Constant::Pi, 128)?,
-    )
-}
-
-fn real_algebraic_enclosure(
-    _dag: &ExactExpressionDag,
-    value: &RealAlgebraic,
-) -> Result<CertifiedInterval, interval::IntervalError> {
-    interval::from_rational_bounds(
-        &value.isolating_interval().lower,
-        &value.isolating_interval().upper,
-        128,
     )
 }
 
@@ -412,6 +471,7 @@ fn rational_evaluation_outcome_with_methods(
             methods,
             internal_precision_bits: 128,
             refinement_rounds: 0,
+            incomplete_reason: None,
         },
     }
 }
@@ -480,7 +540,13 @@ fn present_unchecked(
             rounding_mode,
         )?
         .map_or_else(
-            || unavailable_scientific_output(significant_digits, rounding_mode),
+            || {
+                unavailable_scientific_output(
+                    &evaluation.value.certified_enclosure,
+                    significant_digits,
+                    rounding_mode,
+                )
+            },
             ScientificOutput::Included,
         ),
     };
@@ -494,9 +560,25 @@ fn present_unchecked(
                 dyadic_precision_bits,
             )?)
         }
-        (_, EnclosureOutputRequest::Include { format }) => EnclosureOutput::Included(
-            certified_interval_state_presentation(&evaluation.value.certified_enclosure, format)?,
-        ),
+        (_, EnclosureOutputRequest::Include { format }) => {
+            match &evaluation.value.certified_enclosure {
+                CertifiedEnclosureState::Available(interval) => {
+                    EnclosureOutput::Included(certified_interval_presentation(interval, format)?)
+                }
+                CertifiedEnclosureState::Unavailable(reason) => {
+                    EnclosureOutput::Unavailable(UnavailableEnclosureOutput {
+                        reason: reason.clone(),
+                    })
+                }
+                CertifiedEnclosureState::NotRequested => {
+                    return Err(PresentationError::InternalInvariant(
+                        InternalInvariantError {
+                            code: InternalInvariantCode::InvalidCertifiedInterval,
+                        },
+                    ));
+                }
+            }
+        }
     };
     let confirmed_significant_digits = match &scientific {
         ScientificOutput::Included(value) => value.confirmed_significant_digits,
@@ -506,7 +588,8 @@ fn present_unchecked(
         ExactOutput::Included(value) => value.representation,
         ExactOutput::Omitted => exact_representation_kind(&evaluation.value.recognized_exact),
     };
-    let simplification_status = simplification_status(&scientific);
+    let simplification_status =
+        simplification_status(&scientific, evaluation.metadata.incomplete_reason.as_ref());
     let mut methods = evaluation.metadata.methods.clone();
     if matches!(enclosure, EnclosureOutput::Included(_))
         && !methods.contains(&MethodTag::CertifiedIntervalEvaluation)
@@ -536,7 +619,10 @@ fn present_unchecked(
             },
             refinement_rounds: evaluation.metadata.refinement_rounds,
             confirmed_significant_digits,
-            assurance: assurance_level(&evaluation.value.recognized_exact),
+            assurance: assurance_level(
+                &evaluation.value.recognized_exact,
+                &evaluation.value.certified_enclosure,
+            ),
             protocol_version: ProtocolVersion::CURRENT,
         },
     })
@@ -705,7 +791,7 @@ fn collect_enclosure_output_stats(
     stats: &mut PresentationOutputStats,
 ) -> Result<(), PresentationError> {
     match output {
-        EnclosureOutput::Omitted => Ok(()),
+        EnclosureOutput::Omitted | EnclosureOutput::Unavailable(_) => Ok(()),
         EnclosureOutput::Included(value) => collect_certified_interval_stats(value, stats),
     }
 }
@@ -856,22 +942,31 @@ fn function_name_text(name: FunctionName) -> &'static str {
 }
 
 fn partial_reason(calculation: &Calculation) -> Option<IncompleteReason> {
+    if let SimplificationStatus::PartiallySimplified { reason } =
+        &calculation.metadata.simplification_status
+    {
+        return Some(reason.clone());
+    }
     match &calculation.scientific {
         ScientificOutput::Unavailable(value) => Some(value.reason.clone()),
-        ScientificOutput::Omitted | ScientificOutput::Included(_) => None,
+        ScientificOutput::Omitted | ScientificOutput::Included(_) => match &calculation.enclosure {
+            EnclosureOutput::Unavailable(value) => Some(value.reason.clone()),
+            EnclosureOutput::Omitted | EnclosureOutput::Included(_) => None,
+        },
     }
 }
 
 fn partial_certified_enclosure(
     evaluation: &EvaluationOutcome,
     limits: &ResourceLimits,
-) -> Result<CertifiedIntervalPresentation, PresentationError> {
-    let certified_enclosure = certified_interval_state_presentation(
-        &evaluation.value.certified_enclosure,
-        EnclosureFormat::ExactDyadic,
-    )?;
+) -> Result<Option<CertifiedIntervalPresentation>, PresentationError> {
+    let CertifiedEnclosureState::Available(interval) = &evaluation.value.certified_enclosure else {
+        return Ok(None);
+    };
+    let certified_enclosure =
+        certified_interval_presentation(interval, EnclosureFormat::ExactDyadic)?;
     validate_certified_interval_output(&certified_enclosure, limits)?;
-    Ok(certified_enclosure)
+    Ok(Some(certified_enclosure))
 }
 
 fn precision_bits_for_output_request(
@@ -1071,14 +1166,14 @@ fn radical_plain_text(value: &SimpleRadical) -> String {
         return match numerator.as_str() {
             "1" => radical,
             "-1" => format!("-{radical}"),
-            _ => format!("{numerator}{radical}"),
+            _ => format!("{numerator}*{radical}"),
         };
     }
 
     match numerator.as_str() {
         "1" => format!("{radical}/{denominator}"),
         "-1" => format!("-{radical}/{denominator}"),
-        _ => format!("{numerator}{radical}/{denominator}"),
+        _ => format!("{numerator}*{radical}/{denominator}"),
     }
 }
 
@@ -1624,7 +1719,14 @@ fn render_symbolic_node(dag: &ExactExpressionDag, id: ExprId) -> RenderedSymboli
 }
 
 fn render_signed_symbolic_node(dag: &ExactExpressionDag, id: ExprId) -> SignedRenderedSymbolic {
-    match dag.node(id) {
+    render_signed_symbolic_expression_node(dag, dag.node(id))
+}
+
+fn render_signed_symbolic_expression_node(
+    dag: &ExactExpressionDag,
+    node: &ExpressionNode,
+) -> SignedRenderedSymbolic {
+    match node {
         ExpressionNode::Rational(rational_id) => {
             let rational = dag.rational(*rational_id);
             if rational.is_negative() {
@@ -1645,6 +1747,7 @@ fn render_signed_symbolic_node(dag: &ExactExpressionDag, id: ExprId) -> SignedRe
                 }
             }
         }
+        ExpressionNode::Exact(value) => render_exact_reduction(dag, *value),
         ExpressionNode::Add(list_id) => render_signed_symbolic_sum(dag, *list_id),
         ExpressionNode::Multiply(list_id) => render_signed_symbolic_product(dag, *list_id),
         ExpressionNode::Divide {
@@ -1659,17 +1762,23 @@ fn render_signed_symbolic_node(dag: &ExactExpressionDag, id: ExprId) -> SignedRe
         | ExpressionNode::LogBase { .. }
         | ExpressionNode::BinaryFunction { .. } => SignedRenderedSymbolic {
             negative: false,
-            value: render_unsigned_symbolic_node(dag, id),
+            value: render_unsigned_symbolic_expression_node(dag, node),
         },
     }
 }
 
-fn render_unsigned_symbolic_node(dag: &ExactExpressionDag, id: ExprId) -> RenderedSymbolic {
-    match dag.node(id) {
+fn render_unsigned_symbolic_expression_node(
+    dag: &ExactExpressionDag,
+    node: &ExpressionNode,
+) -> RenderedSymbolic {
+    match node {
         ExpressionNode::Rational(rational_id) => RenderedSymbolic {
             text: dag.rational(*rational_id).to_string(),
             precedence: SYMBOLIC_PRECEDENCE_ATOM,
         },
+        ExpressionNode::Exact(value) => {
+            signed_symbolic_to_rendered(render_exact_reduction(dag, *value))
+        }
         ExpressionNode::Constant(Constant::Pi) => RenderedSymbolic {
             text: String::from("pi"),
             precedence: SYMBOLIC_PRECEDENCE_ATOM,
@@ -1679,7 +1788,9 @@ fn render_unsigned_symbolic_node(dag: &ExactExpressionDag, id: ExprId) -> Render
             precedence: SYMBOLIC_PRECEDENCE_ATOM,
         },
         ExpressionNode::Add(list_id) => render_symbolic_sum(dag, *list_id),
-        ExpressionNode::Multiply(_) => render_symbolic_node(dag, id),
+        ExpressionNode::Multiply(list_id) => {
+            signed_symbolic_to_rendered(render_signed_symbolic_product(dag, *list_id))
+        }
         ExpressionNode::Divide {
             numerator,
             denominator,
@@ -1689,8 +1800,9 @@ fn render_unsigned_symbolic_node(dag: &ExactExpressionDag, id: ExprId) -> Render
             *denominator,
         )),
         ExpressionNode::Power { base, exponent } => {
+            let exponent_id = *exponent;
             let base = render_symbolic_node(dag, *base);
-            let exponent = render_symbolic_node(dag, *exponent);
+            let exponent = render_symbolic_node(dag, exponent_id);
             let base_text =
                 if base.text.starts_with('-') || base.precedence <= SYMBOLIC_PRECEDENCE_POWER {
                     format!("({})", base.text)
@@ -1701,7 +1813,11 @@ fn render_unsigned_symbolic_node(dag: &ExactExpressionDag, id: ExprId) -> Render
                 text: format!(
                     "{}^{}",
                     base_text,
-                    parenthesize_symbolic(&exponent, SYMBOLIC_PRECEDENCE_POWER)
+                    if symbolic_power_exponent_needs_parentheses(dag, exponent_id) {
+                        format!("({})", exponent.text)
+                    } else {
+                        parenthesize_symbolic(&exponent, SYMBOLIC_PRECEDENCE_POWER)
+                    }
                 ),
                 precedence: SYMBOLIC_PRECEDENCE_POWER,
             }
@@ -1741,10 +1857,89 @@ fn render_unsigned_symbolic_node(dag: &ExactExpressionDag, id: ExprId) -> Render
     }
 }
 
+fn render_exact_reduction(dag: &ExactExpressionDag, id: ExactValueId) -> SignedRenderedSymbolic {
+    match dag.exact_value(id) {
+        ExactReduction::PiMultiple(value) => {
+            signed_rendered_atom(rational_pi_plain_text(value.coefficient()))
+        }
+        ExactReduction::Radical(RadicalReduction::Rational(value)) => {
+            signed_rendered_atom(value.value().to_string())
+        }
+        ExactReduction::Radical(RadicalReduction::Radical(value)) => {
+            signed_rendered_atom(symbolic_simple_radical_text(value.value()))
+        }
+        ExactReduction::Radical(RadicalReduction::LinearCombination(value)) => {
+            let text = radical_linear_combination_plain_text(value.value());
+            SignedRenderedSymbolic {
+                negative: false,
+                value: RenderedSymbolic {
+                    precedence: if text.contains(" + ") || text.contains(" - ") {
+                        SYMBOLIC_PRECEDENCE_ADD
+                    } else {
+                        SYMBOLIC_PRECEDENCE_MULTIPLY
+                    },
+                    text,
+                },
+            }
+        }
+        ExactReduction::RealAlgebraic(RealAlgebraicEvaluation::Rational(value)) => {
+            signed_rendered_atom(value.value().to_string())
+        }
+        ExactReduction::RealAlgebraic(RealAlgebraicEvaluation::Algebraic(_)) => {
+            render_signed_symbolic_expression_node(dag, dag.exact_presentation(id))
+        }
+        ExactReduction::Symbolic => {
+            render_signed_symbolic_expression_node(dag, dag.exact_presentation(id))
+        }
+    }
+}
+
+fn symbolic_simple_radical_text(value: &SimpleRadical) -> String {
+    let coefficient = &value.coefficient;
+    let radical = format!("sqrt({})", value.radicand.inner);
+    if coefficient == &Rational::one() {
+        radical
+    } else if coefficient == &Rational::from_integer(Integer::from(-1)) {
+        format!("-{radical}")
+    } else {
+        format!("{coefficient}*{radical}")
+    }
+}
+
+fn signed_rendered_atom(text: String) -> SignedRenderedSymbolic {
+    let precedence = if text.contains('*') || text.contains('/') {
+        SYMBOLIC_PRECEDENCE_MULTIPLY
+    } else {
+        SYMBOLIC_PRECEDENCE_ATOM
+    };
+    if let Some(magnitude) = text.strip_prefix('-') {
+        SignedRenderedSymbolic {
+            negative: true,
+            value: RenderedSymbolic {
+                text: String::from(magnitude),
+                precedence,
+            },
+        }
+    } else {
+        SignedRenderedSymbolic {
+            negative: false,
+            value: RenderedSymbolic { text, precedence },
+        }
+    }
+}
+
+fn symbolic_power_exponent_needs_parentheses(dag: &ExactExpressionDag, id: ExprId) -> bool {
+    matches!(
+        dag.node(id),
+        ExpressionNode::Rational(rational) if !dag.rational(*rational).is_integer()
+    )
+}
+
 fn render_symbolic_sum(dag: &ExactExpressionDag, list_id: ExprListId) -> RenderedSymbolic {
     let terms = dag
         .list(list_id)
         .iter()
+        .filter(|child| !node_is_exact_zero(dag, **child))
         .map(|child| render_signed_symbolic_node(dag, *child))
         .collect::<Vec<_>>();
     render_symbolic_sum_terms(&terms)
@@ -1757,6 +1952,7 @@ fn render_signed_symbolic_sum(
     let terms = dag
         .list(list_id)
         .iter()
+        .filter(|child| !node_is_exact_zero(dag, **child))
         .map(|child| render_signed_symbolic_node(dag, *child))
         .collect::<Vec<_>>();
     render_signed_symbolic_sum_terms(&terms)
@@ -1972,7 +2168,7 @@ fn render_symbolic_square_root_of_square(
 }
 
 fn symbolic_square_base(dag: &ExactExpressionDag, id: ExprId) -> Option<ExprId> {
-    match dag.node(id) {
+    match dag.semantic_node(id) {
         ExpressionNode::Power { base, exponent } => {
             (symbolic_rational_value(dag, *exponent)? == symbolic_rational(2, 1)).then_some(*base)
         }
@@ -1985,6 +2181,7 @@ fn symbolic_square_base(dag: &ExactExpressionDag, id: ExprId) -> Option<ExprId> 
             }
         }
         ExpressionNode::Rational(_)
+        | ExpressionNode::Exact(_)
         | ExpressionNode::Constant(_)
         | ExpressionNode::Add(_)
         | ExpressionNode::Divide { .. }
@@ -1998,6 +2195,63 @@ fn render_symbolic_log_expansion(
     dag: &ExactExpressionDag,
     argument: ExprId,
 ) -> Option<SignedRenderedSymbolic> {
+    if let ExpressionNode::Exact(value) = dag.node(argument) {
+        if let ExactReduction::Radical(RadicalReduction::Radical(value)) = dag.exact_value(*value) {
+            let value = value.value();
+            if value.coefficient.is_negative() || value.coefficient.is_zero() {
+                return None;
+            }
+            let mut terms = Vec::new();
+            if value.coefficient != Rational::one() {
+                terms.push(render_symbolic_log_term(
+                    Rational::one(),
+                    RenderedSymbolic {
+                        text: value.coefficient.to_string(),
+                        precedence: SYMBOLIC_PRECEDENCE_ATOM,
+                    },
+                ));
+            }
+            terms.push(render_symbolic_log_term(
+                symbolic_rational(1, 2),
+                RenderedSymbolic {
+                    text: value.radicand.inner.to_string(),
+                    precedence: SYMBOLIC_PRECEDENCE_ATOM,
+                },
+            ));
+            return Some(render_signed_symbolic_sum_terms(&terms));
+        }
+    }
+    if let ExpressionNode::Rational(rational) = dag.node(argument) {
+        let value = dag.rational(*rational);
+        if !value.is_integer() && !value.is_negative() && !value.is_zero() {
+            let numerator = value.numerator.to_string();
+            let denominator = value.denominator.inner.to_string();
+            let mut terms = Vec::new();
+            if numerator != "1" {
+                terms.push(SignedRenderedSymbolic {
+                    negative: false,
+                    value: render_symbolic_function_value(
+                        Function::Ln,
+                        &RenderedSymbolic {
+                            text: numerator,
+                            precedence: SYMBOLIC_PRECEDENCE_ATOM,
+                        },
+                    ),
+                });
+            }
+            terms.push(SignedRenderedSymbolic {
+                negative: true,
+                value: render_symbolic_function_value(
+                    Function::Ln,
+                    &RenderedSymbolic {
+                        text: denominator,
+                        precedence: SYMBOLIC_PRECEDENCE_ATOM,
+                    },
+                ),
+            });
+            return Some(render_signed_symbolic_sum_terms(&terms));
+        }
+    }
     let terms = symbolic_log_expansion_terms(dag, argument)?;
     Some(render_symbolic_log_terms(dag, terms))
 }
@@ -2006,7 +2260,7 @@ fn symbolic_log_expansion_terms(
     dag: &ExactExpressionDag,
     argument: ExprId,
 ) -> Option<Vec<SymbolicLogTerm>> {
-    match dag.node(argument) {
+    match dag.semantic_node(argument) {
         ExpressionNode::Multiply(list_id) => {
             let mut terms = Vec::new();
             for factor in dag.list(*list_id) {
@@ -2051,6 +2305,7 @@ fn symbolic_log_expansion_terms(
             Some(terms)
         }
         ExpressionNode::Rational(_)
+        | ExpressionNode::Exact(_)
         | ExpressionNode::Constant(_)
         | ExpressionNode::Add(_)
         | ExpressionNode::LogBase { .. }
@@ -2162,7 +2417,10 @@ fn symbolic_positive_proof(dag: &ExactExpressionDag, id: ExprId) -> bool {
         return !value.is_negative() && !value.is_zero();
     }
 
-    match dag.node(id) {
+    match dag.semantic_node(id) {
+        ExpressionNode::Exact(value) => {
+            symbolic_exact_reduction_sign(dag.exact_value(*value)) == Some(Ordering::Greater)
+        }
         ExpressionNode::Constant(Constant::Pi | Constant::Euler) => true,
         ExpressionNode::Add(list_id) => dag
             .list(*list_id)
@@ -2230,7 +2488,11 @@ fn symbolic_nonnegative_proof(dag: &ExactExpressionDag, id: ExprId) -> bool {
         return true;
     }
 
-    match dag.node(id) {
+    match dag.semantic_node(id) {
+        ExpressionNode::Exact(value) => matches!(
+            symbolic_exact_reduction_sign(dag.exact_value(*value)),
+            Some(Ordering::Equal | Ordering::Greater)
+        ),
         ExpressionNode::Add(list_id) | ExpressionNode::Multiply(list_id) => dag
             .list(*list_id)
             .iter()
@@ -2285,6 +2547,49 @@ fn symbolic_nonnegative_proof(dag: &ExactExpressionDag, id: ExprId) -> bool {
 fn symbolic_log_positive_proof(dag: &ExactExpressionDag, argument: ExprId) -> bool {
     symbolic_rational_value(dag, argument)
         .is_some_and(|value| value.compare(&Rational::one()) == Ordering::Greater)
+}
+
+fn symbolic_real_algebraic_sign(value: &RealAlgebraic) -> Option<Ordering> {
+    let zero = Rational::zero();
+    let interval = value.isolating_interval();
+    if interval.lower.compare(&zero) != Ordering::Less {
+        Some(Ordering::Greater)
+    } else if interval.upper.compare(&zero) != Ordering::Greater {
+        Some(Ordering::Less)
+    } else {
+        None
+    }
+}
+
+fn symbolic_exact_reduction_sign(value: &ExactReduction) -> Option<Ordering> {
+    match value {
+        ExactReduction::PiMultiple(value) => Some(rational_ordering(value.coefficient())),
+        ExactReduction::Radical(RadicalReduction::Rational(value)) => {
+            Some(rational_ordering(value.value()))
+        }
+        ExactReduction::Radical(RadicalReduction::Radical(value)) => {
+            let coefficient = &value.value().coefficient;
+            Some(rational_ordering(coefficient))
+        }
+        ExactReduction::Radical(RadicalReduction::LinearCombination(_)) => None,
+        ExactReduction::RealAlgebraic(RealAlgebraicEvaluation::Rational(value)) => {
+            Some(rational_ordering(value.value()))
+        }
+        ExactReduction::RealAlgebraic(RealAlgebraicEvaluation::Algebraic(value)) => {
+            symbolic_real_algebraic_sign(value)
+        }
+        ExactReduction::Symbolic => None,
+    }
+}
+
+fn rational_ordering(value: &Rational) -> Ordering {
+    if value.is_negative() {
+        Ordering::Less
+    } else if value.is_zero() {
+        Ordering::Equal
+    } else {
+        Ordering::Greater
+    }
 }
 
 fn symbolic_log_base_positive_proof(
@@ -2445,7 +2750,7 @@ fn render_symbolic_pi_shift_argument(
     dag: &ExactExpressionDag,
     argument: ExprId,
 ) -> Option<SymbolicPiShiftArgument> {
-    let ExpressionNode::Add(list_id) = dag.node(argument) else {
+    let ExpressionNode::Add(list_id) = dag.semantic_node(argument) else {
         return None;
     };
 
@@ -2481,7 +2786,7 @@ fn symbolic_pi_multiple_coefficient(
     dag: &ExactExpressionDag,
     id: ExprId,
 ) -> Option<SymbolicPiCoefficient> {
-    match dag.node(id) {
+    match dag.semantic_node(id) {
         ExpressionNode::Rational(rational_id) => {
             let rational = dag.rational(*rational_id);
             rational.is_zero().then(|| SymbolicPiCoefficient {
@@ -2493,6 +2798,14 @@ fn symbolic_pi_multiple_coefficient(
             coefficient: Rational::one(),
             contains_pi: true,
         }),
+        ExpressionNode::Exact(value) => match dag.exact_value(*value) {
+            ExactReduction::PiMultiple(value) => Some(SymbolicPiCoefficient {
+                coefficient: value.coefficient().clone(),
+                contains_pi: true,
+            }),
+            ExactReduction::Radical(_) | ExactReduction::RealAlgebraic(_) => None,
+            ExactReduction::Symbolic => None,
+        },
         ExpressionNode::Constant(Constant::Euler) => None,
         ExpressionNode::Add(list_id) => {
             let mut total = Rational::zero();
@@ -2550,7 +2863,7 @@ fn symbolic_pi_multiple_coefficient(
 }
 
 fn symbolic_rational_value(dag: &ExactExpressionDag, id: ExprId) -> Option<Rational> {
-    match dag.node(id) {
+    match dag.semantic_node(id) {
         ExpressionNode::Rational(rational_id) => Some(dag.rational(*rational_id).clone()),
         ExpressionNode::Add(list_id) => dag
             .list(*list_id)
@@ -2571,6 +2884,7 @@ fn symbolic_rational_value(dag: &ExactExpressionDag, id: ExprId) -> Option<Ratio
             .divide(&symbolic_rational_value(dag, *denominator)?)
             .ok(),
         ExpressionNode::Constant(_)
+        | ExpressionNode::Exact(_)
         | ExpressionNode::Function { .. }
         | ExpressionNode::Power { .. }
         | ExpressionNode::LogBase { .. }
@@ -2654,7 +2968,15 @@ fn rational_exact_representation_kind(rational: &Rational) -> ExactRepresentatio
     }
 }
 
-fn simplification_status(scientific: &ScientificOutput) -> SimplificationStatus {
+fn simplification_status(
+    scientific: &ScientificOutput,
+    evaluation_reason: Option<&IncompleteReason>,
+) -> SimplificationStatus {
+    if let Some(reason) = evaluation_reason {
+        return SimplificationStatus::PartiallySimplified {
+            reason: reason.clone(),
+        };
+    }
     match scientific {
         ScientificOutput::Unavailable(value) => SimplificationStatus::PartiallySimplified {
             reason: value.reason.clone(),
@@ -2665,14 +2987,20 @@ fn simplification_status(scientific: &ScientificOutput) -> SimplificationStatus 
     }
 }
 
-fn assurance_level(value: &RecognizedExact) -> AssuranceLevel {
+fn assurance_level(value: &RecognizedExact, enclosure: &CertifiedEnclosureState) -> AssuranceLevel {
     match value {
         RecognizedExact::Rational(_)
         | RecognizedExact::Radical(_)
         | RecognizedExact::RadicalLinearCombination(_) => AssuranceLevel::Exact,
-        RecognizedExact::RealAlgebraic(_)
-        | RecognizedExact::RationalPiMultiple(_)
-        | RecognizedExact::GeneralSymbolic => AssuranceLevel::CertifiedEnclosure,
+        RecognizedExact::RealAlgebraic(_) | RecognizedExact::RationalPiMultiple(_) => {
+            AssuranceLevel::CertifiedEnclosure
+        }
+        RecognizedExact::GeneralSymbolic => match enclosure {
+            CertifiedEnclosureState::Available(_) => AssuranceLevel::CertifiedEnclosure,
+            CertifiedEnclosureState::NotRequested | CertifiedEnclosureState::Unavailable(_) => {
+                AssuranceLevel::Exact
+            }
+        },
     }
 }
 
@@ -2776,17 +3104,24 @@ fn scientific_presentation_from_certified_interval(
 }
 
 fn unavailable_scientific_output(
+    enclosure: &CertifiedEnclosureState,
     significant_digits: core::num::NonZeroU32,
     rounding_mode: DecimalRoundingMode,
 ) -> ScientificOutput {
+    let reason = match enclosure {
+        CertifiedEnclosureState::Unavailable(reason) => reason.clone(),
+        CertifiedEnclosureState::NotRequested | CertifiedEnclosureState::Available(_) => {
+            IncompleteReason::PrecisionLimit {
+                requested_digits: significant_digits,
+                confirmed_digits: 0,
+            }
+        }
+    };
     ScientificOutput::Unavailable(UnavailableScientificOutput {
         requested_significant_digits: significant_digits,
         confirmed_significant_digits: 0,
         rounding_mode,
-        reason: IncompleteReason::PrecisionLimit {
-            requested_digits: significant_digits,
-            confirmed_digits: 0,
-        },
+        reason,
     })
 }
 
@@ -2804,22 +3139,6 @@ fn dyadic_interval_presentation(
         ));
     }
     certified_interval_presentation(&interval, format)
-}
-
-fn certified_interval_state_presentation(
-    state: &CertifiedEnclosureState,
-    format: EnclosureFormat,
-) -> Result<CertifiedIntervalPresentation, PresentationError> {
-    match state {
-        CertifiedEnclosureState::Available(interval) => {
-            certified_interval_presentation(interval, format)
-        }
-        CertifiedEnclosureState::NotRequested | CertifiedEnclosureState::Unavailable => Err(
-            PresentationError::InternalInvariant(InternalInvariantError {
-                code: InternalInvariantCode::InvalidCertifiedInterval,
-            }),
-        ),
-    }
 }
 
 fn certified_interval_presentation(
@@ -3276,6 +3595,16 @@ mod tests {
         exact.plain_text
     }
 
+    fn exact_plain_text_from_partial_outcome(outcome: CalculationOutcome) -> String {
+        let CalculationOutcome::Partial { calculation, .. } = outcome else {
+            panic!("expected partial calculation");
+        };
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("expected exact output");
+        };
+        exact.plain_text
+    }
+
     fn exact_presentation_for(source: &str) -> ExactPresentation {
         let mut context = EvaluationContext::default();
         let outcome = calculate(source, &exact_only_request(), &mut context).expect(source);
@@ -3573,6 +3902,14 @@ mod tests {
     }
 
     fn assert_source_symbolic_fallback_with_limits(source: &str, limits: ResourceLimits) {
+        assert_source_symbolic_fallback_with_limits_and_nested_algebraic(source, limits, false);
+    }
+
+    fn assert_source_symbolic_fallback_with_limits_and_nested_algebraic(
+        source: &str,
+        limits: ResourceLimits,
+        expects_nested_algebraic: bool,
+    ) {
         let mut request = high_precision_enclosure_request();
         request.limits = ResourceLimitRequest::Custom(limits);
         let mut context = EvaluationContext::default();
@@ -3597,10 +3934,13 @@ mod tests {
             .metadata
             .methods
             .contains(&MethodTag::SymbolicRetention));
-        assert!(!calculation
-            .metadata
-            .methods
-            .contains(&MethodTag::AlgebraicMinimalPolynomial));
+        assert_eq!(
+            calculation
+                .metadata
+                .methods
+                .contains(&MethodTag::AlgebraicMinimalPolynomial),
+            expects_nested_algebraic
+        );
     }
 
     fn assert_symbolic_fallback_with_limits(limits: ResourceLimits) {
@@ -4023,7 +4363,7 @@ mod tests {
         let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
             panic!("expected enclosure output");
         };
-        assert_eq!(certified_enclosure, enclosure);
+        assert_eq!(certified_enclosure.as_ref(), Some(&enclosure));
         assert!(calculation
             .metadata
             .methods
@@ -4040,12 +4380,12 @@ mod tests {
     fn simple_radicals_are_recognized_exactly() {
         for (source, expected) in [
             ("sqrt(2)", "sqrt(2)"),
-            ("sqrt(72)", "6sqrt(2)"),
-            ("sqrt(6962)", "59sqrt(2)"),
+            ("sqrt(72)", "6*sqrt(2)"),
+            ("sqrt(6962)", "59*sqrt(2)"),
             ("sqrt(1/2)", "sqrt(2)/2"),
             ("sqrt(1/6962)", "sqrt(2)/118"),
             ("2^(1/2)", "sqrt(2)"),
-            ("3*sqrt(8)", "6sqrt(2)"),
+            ("3*sqrt(8)", "6*sqrt(2)"),
             ("sqrt(2)/2", "sqrt(2)/2"),
             ("sin(pi/4)", "sqrt(2)/2"),
             ("cos(pi/6)", "sqrt(3)/2"),
@@ -4066,7 +4406,7 @@ mod tests {
             ("sin(pi/4) + cos(pi/4)", "sqrt(2)"),
             ("sin(pi/6) + sqrt(2)", "1/2 + sqrt(2)"),
             ("sqrt(3) + sqrt(2)", "sqrt(2) + sqrt(3)"),
-            ("2 * (sin(pi/6) + sqrt(2))", "1 + 2sqrt(2)"),
+            ("2 * (sin(pi/6) + sqrt(2))", "1 + 2*sqrt(2)"),
             ("(sin(pi/6) + sqrt(2)) / 2", "1/4 + sqrt(2)/2"),
             ("-(sin(pi/6) + sqrt(2))", "-1/2 - sqrt(2)"),
         ] {
@@ -4084,13 +4424,13 @@ mod tests {
             ("sqrt(2) / sqrt(8)", "1/2"),
             ("1 / sqrt(2)", "sqrt(2)/2"),
             ("(sqrt(2))^2", "2"),
-            ("(sqrt(2))^3", "2sqrt(2)"),
+            ("(sqrt(2))^3", "2*sqrt(2)"),
             ("(sqrt(2))^-1", "sqrt(2)/2"),
-            ("(1 + sqrt(2))^2", "3 + 2sqrt(2)"),
+            ("(1 + sqrt(2))^2", "3 + 2*sqrt(2)"),
             ("(sqrt(2) + 1) * (sqrt(2) - 1)", "1"),
             ("sqrt(2)/sqrt(2) + 1", "2"),
             ("(sqrt(2)/sqrt(2)) * 2", "2"),
-            ("sqrt(8) + sqrt(2)", "3sqrt(2)"),
+            ("sqrt(8) + sqrt(2)", "3*sqrt(2)"),
             ("sqrt(8) - 2 * sqrt(2)", "0"),
             ("sin(pi/4) * cos(pi/4)", "1/2"),
             ("tan(pi/3) / sqrt(3)", "1"),
@@ -4212,8 +4552,12 @@ mod tests {
         let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
             panic!("expected requested enclosure output");
         };
-        assert_eq!(certified_enclosure, enclosure);
-        let interval = exact_dyadic_interval(&certified_enclosure);
+        assert_eq!(certified_enclosure.as_ref(), Some(&enclosure));
+        let interval = exact_dyadic_interval(
+            certified_enclosure
+                .as_ref()
+                .expect("partial result has enclosure"),
+        );
         let squared = interval::multiply(&interval, &interval).unwrap();
         assert!(
             interval::contains_rational(&squared, &Rational::from_integer(Integer::from(2)),)
@@ -4281,8 +4625,12 @@ mod tests {
         let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
             panic!("expected requested enclosure output");
         };
-        assert_eq!(certified_enclosure, enclosure);
-        let interval = exact_dyadic_interval(&certified_enclosure);
+        assert_eq!(certified_enclosure.as_ref(), Some(&enclosure));
+        let interval = exact_dyadic_interval(
+            certified_enclosure
+                .as_ref()
+                .expect("partial result has enclosure"),
+        );
         let squared = interval::multiply(&interval, &interval).unwrap();
         assert!(
             interval::contains_rational(&squared, &Rational::from_integer(Integer::from(2)),)
@@ -4331,7 +4679,7 @@ mod tests {
             let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
                 panic!("{source}: expected requested enclosure output");
             };
-            assert_eq!(certified_enclosure, enclosure);
+            assert_eq!(certified_enclosure.as_ref(), Some(&enclosure));
             assert_eq!(
                 calculation.metadata.assurance,
                 AssuranceLevel::CertifiedEnclosure
@@ -4428,7 +4776,11 @@ mod tests {
             .metadata
             .methods
             .contains(&MethodTag::AlgebraicRootIsolation));
-        let interval = exact_dyadic_interval(&certified_enclosure);
+        let interval = exact_dyadic_interval(
+            certified_enclosure
+                .as_ref()
+                .expect("partial result has enclosure"),
+        );
         let cubed = interval::pow_i64(&interval, 3, 128).unwrap();
         assert!(
             interval::contains_rational(&cubed, &Rational::from_integer(Integer::from(2)),)
@@ -4531,7 +4883,11 @@ mod tests {
         };
         assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
         assert_eq!(exact.plain_text, source);
-        let interval = exact_dyadic_interval(&certified_enclosure);
+        let interval = exact_dyadic_interval(
+            certified_enclosure
+                .as_ref()
+                .expect("partial result has enclosure"),
+        );
         let shifted = interval::add(
             &interval,
             &interval::from_rational(&Rational::from_integer(Integer::from(-1)), 128),
@@ -5081,7 +5437,12 @@ mod tests {
                 panic!("{source}: expected exact algebraic output");
             };
             assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
-            assert_eq!(exact.plain_text, source);
+            let expected = if source == "(-1*2^(1/3))^(1/3)" {
+                "(-2^(1/3))^(1/3)"
+            } else {
+                source
+            };
+            assert_eq!(exact.plain_text, expected);
         }
     }
 
@@ -5303,37 +5664,41 @@ mod tests {
 
     #[test]
     fn algebraic_square_root_limits_fall_back_to_symbolic_without_error() {
-        assert_source_symbolic_fallback_with_limits(
+        assert_source_symbolic_fallback_with_limits_and_nested_algebraic(
             "sqrt(2^(1/3))",
             ResourceLimits {
                 max_algebraic_degree: 5,
                 ..ResourceLimits::default()
             },
+            true,
         );
-        assert_source_symbolic_fallback_with_limits(
+        assert_source_symbolic_fallback_with_limits_and_nested_algebraic(
             "sqrt(2^(1/3))",
             ResourceLimits {
                 max_factorization_work: 0,
                 ..ResourceLimits::default()
             },
+            false,
         );
     }
 
     #[test]
     fn algebraic_nth_root_limits_fall_back_to_symbolic_without_error() {
-        assert_source_symbolic_fallback_with_limits(
+        assert_source_symbolic_fallback_with_limits_and_nested_algebraic(
             "(2^(1/3))^(1/5)",
             ResourceLimits {
                 max_resultant_degree: 14,
                 ..ResourceLimits::default()
             },
+            true,
         );
-        assert_source_symbolic_fallback_with_limits(
+        assert_source_symbolic_fallback_with_limits_and_nested_algebraic(
             "(2^(1/3))^(1/5)",
             ResourceLimits {
                 max_factorization_work: 0,
                 ..ResourceLimits::default()
             },
+            false,
         );
         assert_source_symbolic_fallback_with_limits(
             "2^(1/4)",
@@ -5394,7 +5759,7 @@ mod tests {
         let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
             panic!("{source}: expected requested enclosure output");
         };
-        assert_eq!(certified_enclosure, enclosure);
+        assert_eq!(certified_enclosure.as_ref(), Some(&enclosure));
         assert_eq!(
             calculation.metadata.assurance,
             AssuranceLevel::CertifiedEnclosure
@@ -5436,7 +5801,7 @@ mod tests {
             let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
                 panic!("{source}: expected requested enclosure output");
             };
-            assert_eq!(certified_enclosure, enclosure);
+            assert_eq!(certified_enclosure.as_ref(), Some(&enclosure));
             assert_eq!(
                 calculation.metadata.assurance,
                 AssuranceLevel::CertifiedEnclosure
@@ -5567,8 +5932,8 @@ mod tests {
             ("sin(asin(1/3))", "1/3"),
             ("cos(acos(-1/3))", "-1/3"),
             ("tan(atan(1/3))", "1/3"),
-            ("cos(asin(1/3))", "2sqrt(2)/3"),
-            ("sin(acos(1/3))", "2sqrt(2)/3"),
+            ("cos(asin(1/3))", "2*sqrt(2)/3"),
+            ("sin(acos(1/3))", "2*sqrt(2)/3"),
             ("sin(asin(sqrt(2)/3))", "sqrt(2)/3"),
             ("cos(acos(sqrt(3)/3))", "sqrt(3)/3"),
             ("tan(atan(sqrt(2)))", "sqrt(2)"),
@@ -5734,7 +6099,7 @@ mod tests {
         let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
             panic!("expected requested enclosure output");
         };
-        assert_eq!(certified_enclosure, enclosure);
+        assert_eq!(certified_enclosure.as_ref(), Some(&enclosure));
         assert_eq!(
             calculation.metadata.assurance,
             AssuranceLevel::CertifiedEnclosure
@@ -5789,7 +6154,7 @@ mod tests {
             let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
                 panic!("{source}: expected requested enclosure output");
             };
-            assert_eq!(certified_enclosure, enclosure);
+            assert_eq!(certified_enclosure.as_ref(), Some(&enclosure));
             assert_eq!(
                 calculation.metadata.exact_representation,
                 ExactRepresentationKind::GeneralSymbolic
@@ -5807,6 +6172,291 @@ mod tests {
                 .methods
                 .contains(&MethodTag::CertifiedIntervalEvaluation));
         }
+    }
+
+    #[test]
+    fn nested_exact_reduction_precedes_outer_evaluation_mode() {
+        for (source, expected) in [
+            ("floor(sqrt(2)*sqrt(2))", "2"),
+            ("abs(sqrt(2)*sqrt(2))", "2"),
+            ("fact(sqrt(2)*sqrt(2))", "2"),
+            ("gcd(sqrt(2)*sqrt(2),4)", "2"),
+            ("sin(sqrt(2)*sqrt(2))", "sin(2)"),
+            ("exp(sqrt(2)*sqrt(2))", "exp(2)"),
+            ("sin((sqrt(2)*sqrt(2))*pi/6)", "sqrt(3)/2"),
+            ("sin((2^(1/3)-2^(1/3))+pi/6)", "1/2"),
+            ("(2^(1/3)-2^(1/3))+2^(1/3)", "2^(1/3)"),
+        ] {
+            assert_eq!(exact_plain_text(source), expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn exact_reduction_values_feed_sign_floor_and_integer_function_consumers() {
+        for (source, expected) in [
+            ("abs(sqrt(2))", "sqrt(2)"),
+            ("floor(sqrt(2))", "1"),
+            ("abs(pi)", "pi"),
+            ("floor(pi)", "3"),
+            ("abs(2^(1/3))", "2^(1/3)"),
+            ("abs(-(2^(1/3)))", "abs(2^(1/3))"),
+            ("abs(-sin(pi/5))", "abs(sin(pi/5))"),
+            ("floor(sin(pi/5))", "0"),
+            ("floor(sin(1))", "0"),
+            ("fact(sin(1)-sin(1))", "1"),
+            ("gcd(sin(1)-sin(1),2)", "2"),
+        ] {
+            assert_eq!(exact_plain_text(source), expected, "{source}");
+        }
+
+        for source in ["fact(sqrt(2))", "gcd(sqrt(2),2)"] {
+            let mut context = EvaluationContext::default();
+            let error = calculate(source, &exact_only_request(), &mut context).expect_err(source);
+            assert_eq!(
+                error,
+                CalculatorError::Domain(DomainError {
+                    kind: DomainErrorKind::IntegerFunctionRequiresInteger,
+                    span: None,
+                }),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn hyperbolic_lowering_uses_nested_scaled_exp_log_identities() {
+        for (source, expected) in [
+            ("exp(-ln(2))", "1/2"),
+            ("exp(2*ln(3))", "9"),
+            ("sinh(ln(2))", "3/4"),
+        ] {
+            assert_eq!(exact_plain_text(source), expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn nested_non_rational_exact_values_are_canonicalized_before_symbolic_retention() {
+        for (source, expected) in [
+            ("sin(sqrt(8))", "sin(2*sqrt(2))"),
+            ("exp(sin(pi/4))", "exp(1/2*sqrt(2))"),
+            ("cos(sqrt(18))", "cos(3*sqrt(2))"),
+            ("ln(exp(sqrt(8)))", "2*sqrt(2)"),
+        ] {
+            assert_eq!(exact_plain_text(source), expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn nested_exact_reduction_is_shared_by_symbolic_and_interval_outputs() {
+        fn enclosure(source: &str) -> CertifiedIntervalPresentation {
+            let mut context = EvaluationContext::default();
+            let outcome = calculate(source, &high_precision_enclosure_request(), &mut context)
+                .unwrap_or_else(|error| panic!("{source}: {error:?}"));
+            let calculation = match outcome {
+                CalculationOutcome::Complete(calculation)
+                | CalculationOutcome::Partial { calculation, .. } => calculation,
+            };
+            let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
+                panic!("{source}: expected certified enclosure");
+            };
+            enclosure
+        }
+
+        assert_eq!(enclosure("sin(sqrt(2)*sqrt(2))"), enclosure("sin(2)"));
+        assert_eq!(
+            enclosure("sin((sqrt(2)*sqrt(2))*pi/6)"),
+            enclosure("sqrt(3)/2")
+        );
+        assert_eq!(
+            enclosure("sin((2^(1/3)+2^(1/3))/2)"),
+            enclosure("sin(2^(1/3))")
+        );
+    }
+
+    #[test]
+    fn nested_reduction_preserves_input_presentation_and_method_provenance() {
+        let source = "exp(sin(pi/4))";
+        let request = exact_only_request();
+        let input = present_input(source, &request).unwrap();
+        assert_eq!(render_plain_text_for_test(&input), "e^Sin(π/4)");
+
+        let mut context = EvaluationContext::default();
+        let outcome = calculate(source, &request, &mut context).unwrap();
+        let calculation = match outcome {
+            CalculationOutcome::Complete(calculation)
+            | CalculationOutcome::Partial { calculation, .. } => calculation,
+        };
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("expected exact symbolic output");
+        };
+        assert_eq!(exact.plain_text, "exp(1/2*sqrt(2))");
+        assert_eq!(present_input(source, &request).unwrap(), input);
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::SpecialAngle));
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::RadicalExtraction));
+    }
+
+    #[test]
+    fn nested_domain_errors_are_not_hidden_by_symbolic_or_interval_fallback() {
+        let mut context = EvaluationContext::default();
+        let error = calculate(
+            "sin(sqrt(-1)+sqrt(2)*sqrt(2))",
+            &high_precision_enclosure_request(),
+            &mut context,
+        )
+        .expect_err("the inner square root must remain a domain error");
+        assert_eq!(
+            error,
+            CalculatorError::Domain(DomainError {
+                kind: DomainErrorKind::EvenRootOfNegative,
+                span: None,
+            })
+        );
+    }
+
+    #[test]
+    fn nested_reduction_budget_falls_back_to_symbolic_without_hiding_domain_errors() {
+        let mut request = exact_only_request();
+        request.limits = ResourceLimitRequest::Custom(ResourceLimits {
+            max_rewrite_steps: 0,
+            max_logical_work_units: 0,
+            ..ResourceLimits::default()
+        });
+        let mut context = EvaluationContext::default();
+        let outcome = calculate("sin(sqrt(2)*sqrt(2))", &request, &mut context).unwrap();
+        assert_eq!(
+            exact_plain_text_from_partial_outcome(outcome),
+            "sin(sqrt(2)*sqrt(2))"
+        );
+
+        let error = calculate("sin(sqrt(-1))", &request, &mut context)
+            .expect_err("domain errors must precede reduction-budget fallback");
+        assert_eq!(
+            error,
+            CalculatorError::Domain(DomainError {
+                kind: DomainErrorKind::EvenRootOfNegative,
+                span: None,
+            })
+        );
+
+        let mut factorial_request = exact_only_request();
+        factorial_request.limits = ResourceLimitRequest::Custom(ResourceLimits {
+            max_rewrite_steps: 1,
+            max_logical_work_units: 1,
+            ..ResourceLimits::default()
+        });
+        let outcome = calculate("fact(10000)", &factorial_request, &mut context).unwrap();
+        assert_eq!(
+            exact_plain_text_from_partial_outcome(outcome),
+            "fact(10000)"
+        );
+    }
+
+    #[test]
+    fn symbolic_budget_fallback_is_partial_without_a_fabricated_enclosure() {
+        let mut request = CalculationRequest::default();
+        request.limits = ResourceLimitRequest::Custom(ResourceLimits {
+            max_rewrite_steps: 1,
+            max_logical_work_units: 1,
+            ..ResourceLimits::default()
+        });
+        let mut context = EvaluationContext::default();
+        let CalculationOutcome::Partial {
+            calculation,
+            reason,
+            certified_enclosure,
+        } = calculate("fact(10000)", &request, &mut context)
+            .expect("budget fallback remains a typed partial result")
+        else {
+            panic!("budget fallback must be partial");
+        };
+        assert_eq!(
+            reason,
+            IncompleteReason::ComputationLimit {
+                kind: ComputationLimitKind::LogicalWorkUnits,
+            }
+        );
+        assert!(certified_enclosure.is_none());
+        assert!(matches!(
+            calculation.scientific,
+            ScientificOutput::Unavailable(UnavailableScientificOutput {
+                reason: IncompleteReason::ComputationLimit {
+                    kind: ComputationLimitKind::LogicalWorkUnits,
+                },
+                ..
+            })
+        ));
+        assert!(matches!(
+            calculation.enclosure,
+            EnclosureOutput::Unavailable(UnavailableEnclosureOutput {
+                reason: IncompleteReason::ComputationLimit {
+                    kind: ComputationLimitKind::LogicalWorkUnits,
+                },
+            })
+        ));
+    }
+
+    #[test]
+    fn algebraic_construction_reserves_shared_logical_work() {
+        let mut request = exact_only_request();
+        request.limits = ResourceLimitRequest::Custom(ResourceLimits {
+            max_rewrite_steps: 8,
+            max_logical_work_units: 2,
+            ..ResourceLimits::default()
+        });
+        let mut context = EvaluationContext::default();
+        let outcome = calculate("2^(1/3)", &request, &mut context)
+            .expect("insufficient shared work retains the algebraic expression symbolically");
+        let CalculationOutcome::Partial {
+            calculation,
+            reason,
+            ..
+        } = outcome
+        else {
+            panic!("shared algebraic budget exhaustion must remain visible");
+        };
+        assert_eq!(
+            reason,
+            IncompleteReason::ComputationLimit {
+                kind: ComputationLimitKind::LogicalWorkUnits,
+            }
+        );
+        assert_eq!(
+            calculation.metadata.exact_representation,
+            ExactRepresentationKind::GeneralSymbolic
+        );
+        assert_eq!(
+            calculation.metadata.simplification_status,
+            SimplificationStatus::PartiallySimplified {
+                reason: IncompleteReason::ComputationLimit {
+                    kind: ComputationLimitKind::LogicalWorkUnits,
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn symbolic_absolute_value_keeps_a_certified_interval() {
+        let mut context = EvaluationContext::default();
+        let outcome = calculate("abs(sin(1))", &CalculationRequest::default(), &mut context)
+            .expect("absolute value composes over a symbolic certified interval");
+        let calculation = match outcome {
+            CalculationOutcome::Complete(calculation)
+            | CalculationOutcome::Partial { calculation, .. } => calculation,
+        };
+        assert!(matches!(
+            calculation.enclosure,
+            EnclosureOutput::Included(_)
+        ));
+        assert_eq!(
+            calculation.metadata.assurance,
+            AssuranceLevel::CertifiedEnclosure
+        );
     }
 
     #[test]

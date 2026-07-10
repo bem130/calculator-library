@@ -364,7 +364,7 @@ async function assertRationalPowers(page) {
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= 2^(1/3)+1");
     await waitForText(page, "#exact-kind", "REAL ALGEBRAIC");
-    await waitForText(page, "#scientific-state", "PRECISION LIMIT");
+    await waitForText(page, "#scientific-state", "5 digits");
     await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
 
     await setExpression(page, "1-2^(1/3)");
@@ -414,12 +414,12 @@ async function assertRationalPowers(page) {
 
     await setExpression(page, "(2^(1/3)-2^(1/3))+2^(1/3)");
     await page.click("#calculate");
-    await waitForText(page, "#exact-output", "= (2^(1/3)-2^(1/3))+2^(1/3)");
+    await waitForText(page, "#exact-output", "= 2^(1/3)");
     await waitForText(page, "#exact-kind", "REAL ALGEBRAIC");
 
     await setExpression(page, "((2^(1/3)-2^(1/3))+2)^(1/3)");
     await page.click("#calculate");
-    await waitForText(page, "#exact-output", "= ((2^(1/3)-2^(1/3))+2)^(1/3)");
+    await waitForText(page, "#exact-output", "= 2^(1/3)");
     await waitForText(page, "#exact-kind", "REAL ALGEBRAIC");
 }
 
@@ -632,7 +632,7 @@ async function assertSimpleRadicalAlgebra(page) {
 
     await setExpression(page, "sqrt(6962)");
     await page.click("#calculate");
-    await waitForText(page, "#exact-output", "= 59sqrt(2)");
+    await waitForText(page, "#exact-output", "= 59*sqrt(2)");
     await waitForText(page, "#exact-kind", "RADICAL");
 
     await setExpression(page, "sin(pi/6)+sqrt(2)");
