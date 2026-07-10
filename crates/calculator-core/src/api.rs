@@ -126,6 +126,28 @@ pub fn evaluate(
     let rational = match evaluate_rational_evaluation_dag(&dag) {
         Ok(rational) => rational,
         Err(error) if should_fallback_to_symbolic_interval(&error) => {
+            if let Some(kind) = normalization.limit_reached() {
+                let mut outcome = EvaluationOutcome {
+                    value: EvaluatedValue {
+                        exact_expression: ExactExpression {
+                            source: symbolic_presentation_from_dag(&dag).plain_text,
+                        },
+                        recognized_exact: RecognizedExact::GeneralSymbolic,
+                        certified_enclosure: CertifiedEnclosureState::Unavailable(
+                            IncompleteReason::ComputationLimit { kind },
+                        ),
+                    },
+                    metadata: EvaluationMetadata {
+                        semantic_settings: request.semantics,
+                        methods: vec![MethodTag::SymbolicRetention],
+                        internal_precision_bits: 0,
+                        refinement_rounds: 0,
+                        incomplete_reason: None,
+                    },
+                };
+                apply_exact_normalization_metadata(&mut outcome, normalization);
+                return Ok(outcome);
+            }
             if let Some(pi_multiple) = evaluate_rational_pi_multiple_dag(&dag)? {
                 if pi_multiple.coefficient().is_zero() {
                     let mut outcome = rational_evaluation_outcome(
@@ -6466,6 +6488,7 @@ mod tests {
             ("exp(sin(1),e)-exp(sin(1))", "0"),
             ("sin(1)*cos(1)-cos(1)*sin(1)", "0"),
             ("2*(sin(1)*cos(1))-2*(cos(1)*sin(1))", "0"),
+            ("(2*sin(1))*cos(1)-2*(sin(1)*cos(1))", "0"),
             ("(sin(1)*cos(1))*exp(1)-sin(1)*(cos(1)*exp(1))", "0"),
             ("exp(cosh(100)-sinh(100)-e^(-100))", "1"),
         ] {
@@ -6540,17 +6563,39 @@ mod tests {
                 DomainErrorKind::EvenRootOfNegative,
             ),
             ("0*ln(sin(-1))", DomainErrorKind::LogarithmOfNonPositive),
+            ("log(2,2/2)-log(2,2/2)", DomainErrorKind::LogarithmBaseOne),
+            (
+                "log(2,exp(0))-log(2,exp(0))",
+                DomainErrorKind::LogarithmBaseOne,
+            ),
+            ("0*log(2,2/2)", DomainErrorKind::LogarithmBaseOne),
+            (
+                "sqrt(((-1)^(1/2))^2)-sqrt(((-1)^(1/2))^2)",
+                DomainErrorKind::NonRealPower,
+            ),
         ] {
-            let mut context = EvaluationContext::default();
-            let error = match calculate(source, &CalculationRequest::default(), &mut context) {
-                Err(error) => error,
-                Ok(outcome) => panic!("{source}: undefined terms were cancelled: {outcome:?}"),
-            };
-            assert_eq!(
-                error,
-                CalculatorError::Domain(DomainError { kind, span: None }),
-                "{source}"
-            );
+            for request in [
+                CalculationRequest::default(),
+                CalculationRequest {
+                    limits: ResourceLimitRequest::Custom(ResourceLimits {
+                        max_rewrite_steps: 0,
+                        max_logical_work_units: 0,
+                        ..ResourceLimits::default()
+                    }),
+                    ..CalculationRequest::default()
+                },
+            ] {
+                let mut context = EvaluationContext::default();
+                let error = match calculate(source, &request, &mut context) {
+                    Err(error) => error,
+                    Ok(outcome) => panic!("{source}: undefined terms were cancelled: {outcome:?}"),
+                };
+                assert_eq!(
+                    error,
+                    CalculatorError::Domain(DomainError { kind, span: None }),
+                    "{source}"
+                );
+            }
         }
     }
 
@@ -6679,12 +6724,14 @@ mod tests {
 
     #[test]
     fn symbolic_budget_fallback_is_partial_without_a_fabricated_enclosure() {
-        let mut request = CalculationRequest::default();
-        request.limits = ResourceLimitRequest::Custom(ResourceLimits {
-            max_rewrite_steps: 1,
-            max_logical_work_units: 1,
-            ..ResourceLimits::default()
-        });
+        let request = CalculationRequest {
+            limits: ResourceLimitRequest::Custom(ResourceLimits {
+                max_rewrite_steps: 1,
+                max_logical_work_units: 1,
+                ..ResourceLimits::default()
+            }),
+            ..CalculationRequest::default()
+        };
         let mut context = EvaluationContext::default();
         let CalculationOutcome::Partial {
             calculation,
@@ -6719,6 +6766,26 @@ mod tests {
                 },
             })
         ));
+    }
+
+    #[test]
+    fn canonical_lowering_handles_wide_sums_before_zero_rewrite_budget_fallback() {
+        let source = (1..=400)
+            .map(|value| format!("sin({value})"))
+            .collect::<Vec<_>>()
+            .join("+");
+        let request = CalculationRequest {
+            limits: ResourceLimitRequest::Custom(ResourceLimits {
+                max_rewrite_steps: 0,
+                max_logical_work_units: 0,
+                ..ResourceLimits::default()
+            }),
+            ..CalculationRequest::default()
+        };
+        let mut context = EvaluationContext::default();
+        let outcome = calculate(&source, &request, &mut context)
+            .expect("bounded wide input must return a typed outcome");
+        assert!(matches!(outcome, CalculationOutcome::Partial { .. }));
     }
 
     #[test]

@@ -69,6 +69,8 @@ Release で公開 surface を変える場合は、生成 DTO、protocol snapshot
 
 Resource limits は公開契約であり、入力 byte 数、source AST nodes/depth、expression nodes、integer bits、cyclotomic order、algebraic degree、polynomial coefficient bits、resultant degree、factorization work、root isolation steps、rewrite steps、precision bits、refinement rounds、logical work units、presentation nodes、output bytes を制限する。制限超過時に近似値へ破壊的に落としてはならない。
 
+rewriteまたはlogical-work limitへ到達した後は、typed domain errorを保持するための検証を除き、新しいexact simplificationやcertified interval探索を開始しない。確定済みexact expressionを含むtyped `Partial` を返し、limit外の数値評価を行わない。
+
 `maxPresentationNodes` と `maxOutputBytes` は `calculate` の exact/scientific/enclosure output、`partial` outcome に添付できた certified enclosure、Rust `present()` の出力、npm facade の `presentInput()` preview に適用する。resource limit内で保証区間を生成できない場合、partial DTOの `certifiedEnclosure` は `null`、enclosure outputはtyped `unavailable` となる。表示 tree が大きすぎる場合は `computationLimit.presentationNodes`、表示 payload の可変文字列が大きすぎる場合は `inputLimit.outputTooLarge` として返す。
 
 ## Session And Worker

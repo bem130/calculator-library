@@ -317,7 +317,20 @@ impl Parser<'_> {
             let op = match self.peek_kind() {
                 Some(TokenKind::Plus) => BinaryOperator::Add,
                 Some(TokenKind::Minus) => BinaryOperator::Subtract,
-                _ => return Ok(expr),
+                Some(
+                    TokenKind::Number(_)
+                    | TokenKind::Constant(_)
+                    | TokenKind::Function(_)
+                    | TokenKind::Star
+                    | TokenKind::Slash
+                    | TokenKind::Caret
+                    | TokenKind::Percent
+                    | TokenKind::Bang
+                    | TokenKind::OpenParen
+                    | TokenKind::CloseParen
+                    | TokenKind::Comma,
+                )
+                | None => return Ok(expr),
             };
             self.advance();
             let right = self.parse_product()?;
@@ -438,7 +451,17 @@ impl Parser<'_> {
                         span,
                     };
                 }
-                _ => return Ok(expr),
+                TokenKind::Number(_)
+                | TokenKind::Constant(_)
+                | TokenKind::Function(_)
+                | TokenKind::Plus
+                | TokenKind::Minus
+                | TokenKind::Star
+                | TokenKind::Slash
+                | TokenKind::Caret
+                | TokenKind::OpenParen
+                | TokenKind::CloseParen
+                | TokenKind::Comma => return Ok(expr),
             }
         }
         Ok(expr)

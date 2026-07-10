@@ -1,4 +1,4 @@
-use alloc::{vec, vec::Vec};
+use alloc::{collections::BTreeMap, vec, vec::Vec};
 use core::cmp::Ordering;
 
 use num_bigint::BigInt;
@@ -64,7 +64,16 @@ impl ExactExpressionDag {
             {
                 self.exact_presentation(*value)
             }
-            node => node,
+            node @ (ExpressionNode::Rational(_)
+            | ExpressionNode::Exact(_)
+            | ExpressionNode::Constant(_)
+            | ExpressionNode::Add(_)
+            | ExpressionNode::Multiply(_)
+            | ExpressionNode::Divide { .. }
+            | ExpressionNode::Power { .. }
+            | ExpressionNode::LogBase { .. }
+            | ExpressionNode::Function { .. }
+            | ExpressionNode::BinaryFunction { .. }) => node,
         }
     }
 
@@ -325,6 +334,9 @@ struct DagBuilder {
     nodes: Vec<ExpressionNode>,
     lists: Vec<Vec<ExprId>>,
     rationals: Vec<Rational>,
+    node_index: BTreeMap<u64, Vec<ExprId>>,
+    list_index: BTreeMap<u64, Vec<ExprListId>>,
+    rational_index: BTreeMap<u64, Vec<RationalId>>,
     semantics: SemanticSettings,
 }
 
@@ -613,7 +625,13 @@ fn recognize_exact_operation(
                 DomainErrorKind::IntegerFunctionRequiresInteger,
             ))
         }
-        _ => Ok(None),
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Exact(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::Power { .. }
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. } => Ok(None),
     }
 }
 
@@ -714,6 +732,16 @@ fn recognize_logarithm_chain_product(
 }
 
 fn validate_obvious_domain(dag: &ExactExpressionDag, id: ExprId) -> Result<(), EvaluationError> {
+    let preserve_domain_error = |result: Result<CertifiedInterval, IntervalError>| match result {
+        Err(IntervalError::Domain(kind)) => Err(domain_error(kind)),
+        Ok(_)
+        | Err(
+            IntervalError::InvalidBounds
+            | IntervalError::UnsupportedExpression
+            | IntervalError::DivisionByIntervalContainingZero
+            | IntervalError::ExponentTooLarge,
+        ) => Ok(()),
+    };
     match dag.semantic_node(id) {
         ExpressionNode::Function {
             function: Function::Sqrt,
@@ -722,11 +750,28 @@ fn validate_obvious_domain(dag: &ExactExpressionDag, id: ExprId) -> Result<(), E
             if matches!(evaluate_node(dag, *argument), Ok(value) if value.value().is_negative()) {
                 return Err(domain_error(DomainErrorKind::EvenRootOfNegative));
             }
+            preserve_domain_error(evaluate_interval_expression_node(
+                dag,
+                dag.semantic_node(id),
+                Some(id),
+                64,
+            ))?;
         }
         ExpressionNode::Divide { denominator, .. } => {
             if matches!(evaluate_node(dag, *denominator), Ok(value) if value.value().is_zero()) {
                 return Err(domain_error(DomainErrorKind::DivisionByZero));
             }
+        }
+        ExpressionNode::Power { .. } | ExpressionNode::LogBase { .. } => {
+            if let Err(EvaluationError::Domain(error)) = evaluate_node(dag, id) {
+                return Err(EvaluationError::Domain(error));
+            }
+            preserve_domain_error(evaluate_interval_expression_node(
+                dag,
+                dag.semantic_node(id),
+                Some(id),
+                64,
+            ))?;
         }
         ExpressionNode::Function {
             function: Function::Log | Function::Ln,
@@ -738,6 +783,12 @@ fn validate_obvious_domain(dag: &ExactExpressionDag, id: ExprId) -> Result<(), E
             ) {
                 return Err(logarithm_of_non_positive_error());
             }
+            preserve_domain_error(evaluate_interval_expression_node(
+                dag,
+                dag.semantic_node(id),
+                Some(id),
+                64,
+            ))?;
         }
         ExpressionNode::Function {
             function: Function::Factorial,
@@ -763,7 +814,13 @@ fn validate_obvious_domain(dag: &ExactExpressionDag, id: ExprId) -> Result<(), E
                 DomainErrorKind::IntegerFunctionRequiresInteger,
             ));
         }
-        _ => {}
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Exact(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::Add(_)
+        | ExpressionNode::Multiply(_)
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. } => {}
     }
     Ok(())
 }
@@ -795,7 +852,16 @@ fn estimated_additional_work(
             left,
             ..
         } => integer_work(*left),
-        _ => Ok(0),
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Exact(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::Add(_)
+        | ExpressionNode::Multiply(_)
+        | ExpressionNode::Divide { .. }
+        | ExpressionNode::Power { .. }
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. } => Ok(0),
     }?;
     Ok(integer_work.saturating_add(reserved_algebraic_work(dag, id, limits)))
 }
@@ -841,7 +907,13 @@ fn reserved_logarithm_identity_work(
                 )
             }
         }
-        _ => Some(0),
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Exact(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::Power { .. }
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. } => Some(0),
     }
 }
 
@@ -883,7 +955,14 @@ fn logarithm_factor_work(
                 numerator_logarithms.saturating_add(denominator_logarithms),
             ))
         }
-        _ => Some((expression_structural_work(dag, id, budget)?, 0)),
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Exact(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::Power { .. }
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. } => {
+            Some((expression_structural_work(dag, id, budget)?, 0))
+        }
     }
 }
 
@@ -1075,7 +1154,12 @@ fn reserved_algebraic_work(dag: &ExactExpressionDag, id: ExprId, limits: &Resour
             function: Function::Sin | Function::Cos | Function::Tan,
             ..
         } => pipeline(u64::from(limits.max_cyclotomic_order)),
-        _ => 0,
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Exact(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. } => 0,
     }
 }
 
@@ -1089,7 +1173,9 @@ fn exact_algebraic_degree(dag: &ExactExpressionDag, id: ExprId) -> Option<u64> {
             .degree()
             .and_then(|degree| u64::try_from(degree).ok()),
         ExactReduction::RealAlgebraic(RealAlgebraicEvaluation::Rational(_)) => Some(1),
-        _ => None,
+        ExactReduction::PiMultiple(_) | ExactReduction::Radical(_) | ExactReduction::Symbolic => {
+            None
+        }
     }
 }
 
@@ -1209,7 +1295,9 @@ fn store_exact_subexpression(
                 RadicalReduction::Rational(value) => {
                     return store_rational_node(dag, value.into_value());
                 }
-                value => ExactReduction::Radical(value),
+                value @ (RadicalReduction::Radical(_) | RadicalReduction::LinearCombination(_)) => {
+                    ExactReduction::Radical(value)
+                }
             }
         }
         RecognizedExactSubexpression::RealAlgebraic(value) => {
@@ -1508,8 +1596,11 @@ fn expression_domain_known_well_defined(
         ExpressionNode::Power { base, exponent } => Ok(prove_expression_positive(dag, *base)?
             && expression_domain_known_well_defined(dag, *exponent)?),
         ExpressionNode::LogBase { argument, base } => {
-            prove_log_base_domain(dag, *argument, *base)?;
-            Ok(true)
+            match prove_log_base_domain(dag, *argument, *base) {
+                Ok(()) => Ok(true),
+                Err(error) if is_unsupported_exact_expression(&error) => Ok(false),
+                Err(error) => Err(error),
+            }
         }
         ExpressionNode::Function { function, argument } => match function {
             Function::Sqrt => prove_expression_nonnegative(dag, *argument),
@@ -2284,7 +2375,17 @@ fn evaluate_real_algebraic_node(
             ExactReduction::PiMultiple(_) => Ok(None),
             ExactReduction::Symbolic => Ok(None),
         },
-        node => evaluate_real_algebraic_expression_node(dag, node, limits),
+        node @ (ExpressionNode::Rational(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::Add(_)
+        | ExpressionNode::Multiply(_)
+        | ExpressionNode::Divide { .. }
+        | ExpressionNode::Power { .. }
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. }) => {
+            evaluate_real_algebraic_expression_node(dag, node, limits)
+        }
     }
 }
 
@@ -3841,7 +3942,14 @@ pub(crate) fn node_is_exact_zero(dag: &ExactExpressionDag, id: ExprId) -> bool {
         ExpressionNode::Exact(value) => {
             exact_reduction_sign(dag.exact_value(*value)) == Some(Ordering::Equal)
         }
-        _ => false,
+        ExpressionNode::Constant(_)
+        | ExpressionNode::Add(_)
+        | ExpressionNode::Multiply(_)
+        | ExpressionNode::Divide { .. }
+        | ExpressionNode::Power { .. }
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. } => false,
     }
 }
 
@@ -4238,7 +4346,15 @@ fn logarithm_ratio(dag: &ExactExpressionDag, id: ExprId) -> Option<LogarithmRati
             argument: *argument,
             base: Some(*base),
         }),
-        _ => None,
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Exact(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::Add(_)
+        | ExpressionNode::Multiply(_)
+        | ExpressionNode::Divide { .. }
+        | ExpressionNode::Power { .. }
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. } => None,
     }
 }
 
@@ -4303,7 +4419,14 @@ fn scaled_logarithm_ratio(
             );
             Ok(Some(numerator))
         }
-        _ => Ok(None),
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Exact(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::Add(_)
+        | ExpressionNode::Power { .. }
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. } => Ok(None),
     }
 }
 
@@ -4331,7 +4454,14 @@ fn prove_expression_not_one(dag: &ExactExpressionDag, id: ExprId) -> Result<bool
             Ok(!matches!(dag.exact_value(*value), ExactReduction::Symbolic))
         }
         ExpressionNode::Constant(Constant::Pi | Constant::Euler) => Ok(true),
-        _ => Ok(false),
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Add(_)
+        | ExpressionNode::Multiply(_)
+        | ExpressionNode::Divide { .. }
+        | ExpressionNode::Power { .. }
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. } => Ok(false),
     }
 }
 
@@ -4812,7 +4942,17 @@ fn evaluate_positive_rational_power_pattern(
         ExpressionNode::Exact(value) => {
             evaluate_positive_rational_power_pattern_node(dag, dag.exact_presentation(*value), None)
         }
-        node => evaluate_positive_rational_power_pattern_node(dag, node, Some(id)),
+        node @ (ExpressionNode::Rational(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::Add(_)
+        | ExpressionNode::Multiply(_)
+        | ExpressionNode::Divide { .. }
+        | ExpressionNode::Power { .. }
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. }) => {
+            evaluate_positive_rational_power_pattern_node(dag, node, Some(id))
+        }
     }
 }
 
@@ -5021,7 +5161,15 @@ fn evaluate_exp_log_identity(
                 argument,
             )
         }
-        _ => return Ok(None),
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Exact(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::Add(_)
+        | ExpressionNode::Divide { .. }
+        | ExpressionNode::Power { .. }
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. } => return Ok(None),
     };
     let value = evaluate_node(dag, argument)?;
     if value.value().is_negative() || value.value().is_zero() {
@@ -6139,15 +6287,16 @@ fn evaluate_interval_log_base(
             | EvaluationError::InternalInvariant(_) => IntervalError::UnsupportedExpression,
         })?;
     }
+    let base = evaluate_interval_node(dag, base, precision_bits)?;
+    if base == interval::from_rational(&Rational::one(), precision_bits) {
+        return Err(IntervalError::Domain(DomainErrorKind::LogarithmBaseOne));
+    }
     interval::divide(
         &interval::log(
             &evaluate_interval_node(dag, argument, precision_bits)?,
             precision_bits,
         )?,
-        &interval::log(
-            &evaluate_interval_node(dag, base, precision_bits)?,
-            precision_bits,
-        )?,
+        &interval::log(&base, precision_bits)?,
         precision_bits,
     )
 }
@@ -6332,14 +6481,29 @@ impl DagBuilder {
             SourceExpr::Binary {
                 op, left, right, ..
             } => {
+                if matches!(op, BinaryOperator::Add | BinaryOperator::Subtract) {
+                    let mut terms = Vec::new();
+                    self.lower_additive_terms(expression, false, &mut terms)?;
+                    if terms.iter().all(|term| {
+                        matches!(self.nodes[term.0 as usize], ExpressionNode::Rational(_))
+                    }) {
+                        return Ok(match terms.as_slice() {
+                            [term] => *term,
+                            _ => {
+                                let list = self.push_list(terms);
+                                self.push_node(ExpressionNode::Add(list))
+                            }
+                        });
+                    }
+                    return Ok(self.add_many(terms));
+                }
                 let left = self.lower(left)?;
                 let right = self.lower(right)?;
                 Ok(match op {
-                    BinaryOperator::Add => self.add_source(left, right),
-                    BinaryOperator::Subtract => self.subtract_source(left, right),
                     BinaryOperator::Multiply => self.multiply_source(left, right),
                     BinaryOperator::Divide => self.divide(left, right),
                     BinaryOperator::Power => self.lower_power(left, right),
+                    BinaryOperator::Add | BinaryOperator::Subtract => unreachable!(),
                 })
             }
             SourceExpr::Percent { expr, .. } => {
@@ -6389,6 +6553,44 @@ impl DagBuilder {
                     | Function::Lcm => *function,
                 };
                 Ok(self.push_node(ExpressionNode::Function { function, argument }))
+            }
+        }
+    }
+
+    fn lower_additive_terms(
+        &mut self,
+        expression: &SourceExpr,
+        negative: bool,
+        terms: &mut Vec<ExprId>,
+    ) -> Result<(), EvaluationError> {
+        match expression {
+            SourceExpr::Binary {
+                op: BinaryOperator::Add,
+                left,
+                right,
+                ..
+            } => {
+                self.lower_additive_terms(left, negative, terms)?;
+                self.lower_additive_terms(right, negative, terms)
+            }
+            SourceExpr::Binary {
+                op: BinaryOperator::Subtract,
+                left,
+                right,
+                ..
+            } => {
+                self.lower_additive_terms(left, negative, terms)?;
+                self.lower_additive_terms(right, !negative, terms)
+            }
+            SourceExpr::Number { .. }
+            | SourceExpr::Constant { .. }
+            | SourceExpr::Unary { .. }
+            | SourceExpr::Binary { .. }
+            | SourceExpr::Percent { .. }
+            | SourceExpr::Function { .. } => {
+                let term = self.lower(expression)?;
+                terms.push(if negative { self.negate(term) } else { term });
+                Ok(())
             }
         }
     }
@@ -6600,25 +6802,9 @@ impl DagBuilder {
         self.add_many(vec![left, right])
     }
 
-    fn add_source(&mut self, left: ExprId, right: ExprId) -> ExprId {
-        if matches!(self.nodes[left.0 as usize], ExpressionNode::Rational(_))
-            && matches!(self.nodes[right.0 as usize], ExpressionNode::Rational(_))
-        {
-            let list = self.push_list(vec![left, right]);
-            self.push_node(ExpressionNode::Add(list))
-        } else {
-            self.add(left, right)
-        }
-    }
-
     fn subtract(&mut self, left: ExprId, right: ExprId) -> ExprId {
         let negative_right = self.negate(right);
         self.add(left, negative_right)
-    }
-
-    fn subtract_source(&mut self, left: ExprId, right: ExprId) -> ExprId {
-        let negative_right = self.negate(right);
-        self.add_source(left, negative_right)
     }
 
     fn multiply(&mut self, left: ExprId, right: ExprId) -> ExprId {
@@ -6672,6 +6858,16 @@ impl DagBuilder {
     fn add_many(&mut self, values: Vec<ExprId>) -> ExprId {
         let mut terms = Vec::<BuilderLinearTerm>::new();
         let mut constant = Rational::zero();
+        let mut values = values.into_iter();
+        if let Some(first) = values.next() {
+            if let ExpressionNode::Add(list) = self.nodes[first.0 as usize] {
+                for term in self.lists[list.0 as usize].clone() {
+                    self.seed_canonical_linear_term(term, &mut terms, &mut constant);
+                }
+            } else {
+                self.collect_linear_terms(first, &Rational::one(), &mut terms, &mut constant);
+            }
+        }
         for value in values {
             self.collect_linear_terms(value, &Rational::one(), &mut terms, &mut constant);
         }
@@ -6701,6 +6897,41 @@ impl DagBuilder {
         }
     }
 
+    fn seed_canonical_linear_term(
+        &mut self,
+        id: ExprId,
+        terms: &mut Vec<BuilderLinearTerm>,
+        constant: &mut Rational,
+    ) {
+        match self.nodes[id.0 as usize] {
+            ExpressionNode::Rational(value) => {
+                *constant = constant.add(&self.rationals[value.0 as usize]);
+            }
+            ExpressionNode::Multiply(_) => {
+                let (coefficient, expression) = self.split_product_coefficient(id);
+                if let Some(expression) = expression {
+                    terms.push(BuilderLinearTerm {
+                        expression,
+                        coefficient,
+                    });
+                } else {
+                    *constant = constant.add(&coefficient);
+                }
+            }
+            ExpressionNode::Exact(_)
+            | ExpressionNode::Constant(_)
+            | ExpressionNode::Add(_)
+            | ExpressionNode::Divide { .. }
+            | ExpressionNode::Power { .. }
+            | ExpressionNode::LogBase { .. }
+            | ExpressionNode::Function { .. }
+            | ExpressionNode::BinaryFunction { .. } => terms.push(BuilderLinearTerm {
+                expression: id,
+                coefficient: Rational::one(),
+            }),
+        }
+    }
+
     fn collect_linear_terms(
         &mut self,
         id: ExprId,
@@ -6717,21 +6948,22 @@ impl DagBuilder {
                     self.collect_linear_terms(child, scale, terms, constant);
                 }
             }
-            ExpressionNode::Multiply(values) => {
-                let mut coefficient = scale.clone();
-                let mut symbolic = Vec::new();
-                for factor in self.lists[values.0 as usize].clone() {
-                    if let ExpressionNode::Rational(value) = self.nodes[factor.0 as usize] {
-                        coefficient = coefficient.multiply(&self.rationals[value.0 as usize]);
-                    } else {
-                        symbolic.push(factor);
-                    }
-                }
-                if symbolic.len() == 1 {
-                    self.collect_linear_terms(symbolic[0], &coefficient, terms, constant);
-                } else {
-                    let expression = self.multiply_many(symbolic);
+            ExpressionNode::Multiply(_) => {
+                let (coefficient, expression) = self.split_product_coefficient(id);
+                let coefficient = scale.multiply(&coefficient);
+                let Some(expression) = expression else {
+                    *constant = constant.add(&coefficient);
+                    return;
+                };
+                if expression == id
+                    || matches!(
+                        self.nodes[expression.0 as usize],
+                        ExpressionNode::Multiply(_)
+                    )
+                {
                     self.add_builder_linear_term(expression, coefficient, terms);
+                } else {
+                    self.collect_linear_terms(expression, &coefficient, terms, constant);
                 }
             }
             ExpressionNode::Divide {
@@ -6742,7 +6974,15 @@ impl DagBuilder {
                     ExpressionNode::Rational(value) => {
                         Some(self.rationals[value.0 as usize].clone())
                     }
-                    _ => None,
+                    ExpressionNode::Exact(_)
+                    | ExpressionNode::Constant(_)
+                    | ExpressionNode::Add(_)
+                    | ExpressionNode::Multiply(_)
+                    | ExpressionNode::Divide { .. }
+                    | ExpressionNode::Power { .. }
+                    | ExpressionNode::LogBase { .. }
+                    | ExpressionNode::Function { .. }
+                    | ExpressionNode::BinaryFunction { .. } => None,
                 };
                 if let Some(denominator_value) = denominator_value {
                     if let Ok(quotient) = scale.divide(&denominator_value) {
@@ -6752,7 +6992,51 @@ impl DagBuilder {
                 }
                 self.add_builder_linear_term(id, scale.clone(), terms);
             }
-            _ => self.add_builder_linear_term(id, scale.clone(), terms),
+            ExpressionNode::Exact(_)
+            | ExpressionNode::Constant(_)
+            | ExpressionNode::Power { .. }
+            | ExpressionNode::LogBase { .. }
+            | ExpressionNode::Function { .. }
+            | ExpressionNode::BinaryFunction { .. } => {
+                self.add_builder_linear_term(id, scale.clone(), terms);
+            }
+        }
+    }
+
+    fn split_product_coefficient(&mut self, id: ExprId) -> (Rational, Option<ExprId>) {
+        match self.nodes[id.0 as usize].clone() {
+            ExpressionNode::Rational(value) => (self.rationals[value.0 as usize].clone(), None),
+            ExpressionNode::Multiply(values) => {
+                let original = self.lists[values.0 as usize].clone();
+                let mut coefficient = Rational::one();
+                let mut factors = Vec::new();
+                for factor in &original {
+                    let (factor_coefficient, factor) = self.split_product_coefficient(*factor);
+                    coefficient = coefficient.multiply(&factor_coefficient);
+                    if let Some(factor) = factor {
+                        factors.push(factor);
+                    }
+                }
+                let expression = match factors.as_slice() {
+                    [] => None,
+                    [factor] => Some(*factor),
+                    _ if factors == original => Some(id),
+                    _ => {
+                        factors.sort_by(|left, right| self.compare_expressions(*left, *right));
+                        let values = self.push_list(factors);
+                        Some(self.push_node(ExpressionNode::Multiply(values)))
+                    }
+                };
+                (coefficient, expression)
+            }
+            ExpressionNode::Exact(_)
+            | ExpressionNode::Constant(_)
+            | ExpressionNode::Add(_)
+            | ExpressionNode::Divide { .. }
+            | ExpressionNode::Power { .. }
+            | ExpressionNode::LogBase { .. }
+            | ExpressionNode::Function { .. }
+            | ExpressionNode::BinaryFunction { .. } => (Rational::one(), Some(id)),
         }
     }
 
@@ -6837,7 +7121,15 @@ impl DagBuilder {
             ExpressionNode::Rational(value) => {
                 *coefficient = coefficient.multiply(&self.rationals[value.0 as usize]);
             }
-            _ => factors.push(id),
+            ExpressionNode::Exact(_)
+            | ExpressionNode::Constant(_)
+            | ExpressionNode::Add(_)
+            | ExpressionNode::Multiply(_)
+            | ExpressionNode::Divide { .. }
+            | ExpressionNode::Power { .. }
+            | ExpressionNode::LogBase { .. }
+            | ExpressionNode::Function { .. }
+            | ExpressionNode::BinaryFunction { .. } => factors.push(id),
         }
     }
 
@@ -6886,7 +7178,7 @@ impl DagBuilder {
             ExpressionNode::LogBase { argument, base } => {
                 self.is_proven_positive(argument)
                     && self.is_proven_positive(base)
-                    && !self.is_proven_one(base)
+                    && self.is_proven_not_one(base)
             }
             ExpressionNode::Function { function, argument } => match function {
                 Function::Exp | Function::Sin | Function::Cos | Function::Abs | Function::Floor => {
@@ -6950,7 +7242,11 @@ impl DagBuilder {
             ExpressionNode::Power { base, exponent } => {
                 self.is_proven_positive(base) && self.is_proven_defined(exponent)
             }
-            _ => false,
+            ExpressionNode::Exact(_)
+            | ExpressionNode::Add(_)
+            | ExpressionNode::LogBase { .. }
+            | ExpressionNode::Function { .. }
+            | ExpressionNode::BinaryFunction { .. } => false,
         }
     }
 
@@ -6966,11 +7262,18 @@ impl DagBuilder {
                 let ExpressionNode::Rational(value) = self.nodes[exponent.0 as usize] else {
                     return false;
                 };
-                self.rationals[value.0 as usize]
-                    .as_i64_if_integer()
-                    .is_some_and(|value| value >= 0 && value % 2 == 0)
+                self.is_proven_defined(id)
+                    && self.rationals[value.0 as usize]
+                        .as_i64_if_integer()
+                        .is_some_and(|value| value >= 0 && value % 2 == 0)
             }
-            _ => false,
+            ExpressionNode::Exact(_)
+            | ExpressionNode::Add(_)
+            | ExpressionNode::Multiply(_)
+            | ExpressionNode::Divide { .. }
+            | ExpressionNode::LogBase { .. }
+            | ExpressionNode::Function { .. }
+            | ExpressionNode::BinaryFunction { .. } => false,
         }
     }
 
@@ -6990,14 +7293,35 @@ impl DagBuilder {
                 denominator,
             } => self.is_proven_nonzero(numerator) && self.is_proven_nonzero(denominator),
             ExpressionNode::Power { base, exponent } => {
-                self.is_proven_nonzero(base) && self.is_proven_defined(exponent)
+                self.is_proven_nonzero(base)
+                    && self.is_proven_defined(exponent)
+                    && self.power_domain_is_proven(base, exponent)
             }
-            _ => false,
+            ExpressionNode::Exact(_)
+            | ExpressionNode::Add(_)
+            | ExpressionNode::LogBase { .. }
+            | ExpressionNode::Function { .. }
+            | ExpressionNode::BinaryFunction { .. } => false,
         }
     }
 
-    fn is_proven_one(&self, id: ExprId) -> bool {
-        matches!(self.nodes[id.0 as usize], ExpressionNode::Rational(value) if self.rationals[value.0 as usize] == Rational::one())
+    fn is_proven_not_one(&self, id: ExprId) -> bool {
+        match self.nodes[id.0 as usize] {
+            ExpressionNode::Rational(value) => self.rationals[value.0 as usize] != Rational::one(),
+            ExpressionNode::Constant(Constant::Pi | Constant::Euler) => true,
+            ExpressionNode::Function {
+                function: Function::Exp,
+                argument,
+            } => self.is_proven_nonzero(argument),
+            ExpressionNode::Exact(_)
+            | ExpressionNode::Add(_)
+            | ExpressionNode::Multiply(_)
+            | ExpressionNode::Divide { .. }
+            | ExpressionNode::Power { .. }
+            | ExpressionNode::LogBase { .. }
+            | ExpressionNode::Function { .. }
+            | ExpressionNode::BinaryFunction { .. } => false,
+        }
     }
 
     fn compare_expressions(&self, left: ExprId, right: ExprId) -> Ordering {
@@ -7022,6 +7346,7 @@ impl DagBuilder {
         if rank_order != Ordering::Equal {
             return rank_order;
         }
+        #[allow(clippy::wildcard_enum_match_arm)]
         match (left_node, right_node) {
             (ExpressionNode::Rational(left), ExpressionNode::Rational(right)) => {
                 self.rationals[left.0 as usize].compare(&self.rationals[right.0 as usize])
@@ -7111,12 +7436,20 @@ impl DagBuilder {
             {
                 2
             }
-            _ => 0,
-        }
+                ExpressionNode::Exact(_)
+                | ExpressionNode::Constant(_)
+                | ExpressionNode::Add(_)
+                | ExpressionNode::Multiply(_)
+                | ExpressionNode::Divide { .. }
+                | ExpressionNode::Power { .. }
+                | ExpressionNode::LogBase { .. }
+                | ExpressionNode::Function { .. }
+                | ExpressionNode::BinaryFunction { .. } => 0,
+            }
         };
         match category(left).cmp(&category(right)) {
             Ordering::Equal => self.compare_expressions(left, right),
-            order => order,
+            order @ (Ordering::Less | Ordering::Greater) => order,
         }
     }
 
@@ -7133,37 +7466,105 @@ impl DagBuilder {
     }
 
     fn push_rational(&mut self, rational: Rational) -> ExprId {
-        let id = self
-            .rationals
-            .iter()
-            .position(|value| value == &rational)
-            .map_or_else(
-                || {
-                    let id = RationalId(self.rationals.len() as u32);
-                    self.rationals.push(rational);
-                    id
-                },
-                |index| RationalId(index as u32),
-            );
+        let hash = rational_hash(&rational);
+        if let Some(id) = self.rational_index.get(&hash).and_then(|candidates| {
+            candidates
+                .iter()
+                .copied()
+                .find(|id| self.rationals[id.0 as usize] == rational)
+        }) {
+            return self.push_node(ExpressionNode::Rational(id));
+        }
+        let id = RationalId(self.rationals.len() as u32);
+        self.rationals.push(rational);
+        self.rational_index.entry(hash).or_default().push(id);
         self.push_node(ExpressionNode::Rational(id))
     }
 
     fn push_list(&mut self, values: Vec<ExprId>) -> ExprListId {
-        if let Some(index) = self.lists.iter().position(|list| list == &values) {
-            return ExprListId(index as u32);
+        let hash = expression_list_hash(&values);
+        if let Some(id) = self.list_index.get(&hash).and_then(|candidates| {
+            candidates
+                .iter()
+                .copied()
+                .find(|id| self.lists[id.0 as usize] == values)
+        }) {
+            return id;
         }
         let id = ExprListId(self.lists.len() as u32);
         self.lists.push(values);
+        self.list_index.entry(hash).or_default().push(id);
         id
     }
 
     fn push_node(&mut self, node: ExpressionNode) -> ExprId {
-        if let Some(index) = self.nodes.iter().position(|existing| existing == &node) {
-            return ExprId(index as u32);
+        let hash = expression_node_hash(&node);
+        if let Some(id) = self.node_index.get(&hash).and_then(|candidates| {
+            candidates
+                .iter()
+                .copied()
+                .find(|id| self.nodes[id.0 as usize] == node)
+        }) {
+            return id;
         }
         let id = ExprId(self.nodes.len() as u32);
         self.nodes.push(node);
+        self.node_index.entry(hash).or_default().push(id);
         id
+    }
+}
+
+fn hash_word(hash: u64, word: u64) -> u64 {
+    hash.wrapping_mul(1_099_511_628_211).wrapping_add(word)
+}
+
+fn hash_bytes(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(14_695_981_039_346_656_037, |hash, byte| {
+        hash_word(hash, u64::from(*byte))
+    })
+}
+
+fn rational_hash(value: &Rational) -> u64 {
+    let numerator = value.numerator.inner.to_signed_bytes_le();
+    let denominator = value.denominator.inner.inner.to_signed_bytes_le();
+    hash_word(hash_bytes(&numerator), hash_bytes(&denominator))
+}
+
+fn expression_list_hash(values: &[ExprId]) -> u64 {
+    values.iter().fold(0x4c49_5354, |hash, value| {
+        hash_word(hash, u64::from(value.0))
+    })
+}
+
+fn expression_node_hash(node: &ExpressionNode) -> u64 {
+    let pair = |tag, left: ExprId, right: ExprId| {
+        hash_word(hash_word(tag, u64::from(left.0)), u64::from(right.0))
+    };
+    match node {
+        ExpressionNode::Rational(value) => hash_word(0, u64::from(value.0)),
+        ExpressionNode::Exact(value) => hash_word(1, u64::from(value.0)),
+        ExpressionNode::Constant(value) => hash_word(2, u64::from(constant_rank(*value))),
+        ExpressionNode::Add(values) => hash_word(3, u64::from(values.0)),
+        ExpressionNode::Multiply(values) => hash_word(4, u64::from(values.0)),
+        ExpressionNode::Divide {
+            numerator,
+            denominator,
+        } => pair(5, *numerator, *denominator),
+        ExpressionNode::Power { base, exponent } => pair(6, *base, *exponent),
+        ExpressionNode::LogBase { argument, base } => pair(7, *argument, *base),
+        ExpressionNode::Function { function, argument } => hash_word(
+            hash_word(8, u64::from(function_rank(*function))),
+            u64::from(argument.0),
+        ),
+        ExpressionNode::BinaryFunction {
+            function,
+            left,
+            right,
+        } => pair(
+            hash_word(9, u64::from(function_rank(*function))),
+            *left,
+            *right,
+        ),
     }
 }
 
