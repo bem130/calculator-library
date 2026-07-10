@@ -4108,11 +4108,25 @@ mod tests {
     }
 
     fn assert_source_symbolic_fallback_with_limits(source: &str, limits: ResourceLimits) {
-        assert_source_symbolic_fallback_with_limits_and_nested_algebraic(source, limits, false);
+        assert_symbolic_fallback_exact_with_limits(source, source, limits, false);
     }
 
     fn assert_source_symbolic_fallback_with_limits_and_nested_algebraic(
         source: &str,
+        limits: ResourceLimits,
+        expects_nested_algebraic: bool,
+    ) {
+        assert_symbolic_fallback_exact_with_limits(
+            source,
+            source,
+            limits,
+            expects_nested_algebraic,
+        );
+    }
+
+    fn assert_symbolic_fallback_exact_with_limits(
+        source: &str,
+        expected_exact: &str,
         limits: ResourceLimits,
         expects_nested_algebraic: bool,
     ) {
@@ -4131,7 +4145,7 @@ mod tests {
             exact.representation,
             ExactRepresentationKind::GeneralSymbolic
         );
-        assert_eq!(exact.plain_text, source);
+        assert_eq!(exact.plain_text, expected_exact);
         assert_eq!(
             calculation.metadata.exact_representation,
             ExactRepresentationKind::GeneralSymbolic
@@ -5112,6 +5126,7 @@ mod tests {
         let cases = [
             (
                 "1-2^(1/3)",
+                "1-2^(1/3)",
                 vec![
                     Integer::one(),
                     Integer::from(3),
@@ -5120,6 +5135,7 @@ mod tests {
                 ],
             ),
             (
+                "2*2^(1/3)+1",
                 "2*2^(1/3)+1",
                 vec![
                     Integer::from(-17),
@@ -5130,6 +5146,7 @@ mod tests {
             ),
             (
                 "2^(1/3)/2+1",
+                "1/2*2^(1/3)+1",
                 vec![
                     Integer::from(-5),
                     Integer::from(12),
@@ -5138,6 +5155,7 @@ mod tests {
                 ],
             ),
             (
+                "1/2^(1/3)+1",
                 "1/2^(1/3)+1",
                 vec![
                     Integer::from(-3),
@@ -5148,7 +5166,7 @@ mod tests {
             ),
         ];
 
-        for (source, coefficients) in cases {
+        for (source, expected_exact, coefficients) in cases {
             let parsed = parse(source, &ParseSettings::default()).unwrap();
             let evaluation = evaluate(
                 &parsed,
@@ -5184,7 +5202,7 @@ mod tests {
                 panic!("{source}: expected exact algebraic output");
             };
             assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
-            assert_eq!(exact.plain_text, source);
+            assert_eq!(exact.plain_text, expected_exact);
         }
     }
 
@@ -5231,7 +5249,7 @@ mod tests {
             panic!("expected exact algebraic output");
         };
         assert_eq!(exact.representation, ExactRepresentationKind::RealAlgebraic);
-        assert_eq!(exact.plain_text, source);
+        assert_eq!(exact.plain_text, "2*2^(1/3)");
     }
 
     #[test]
@@ -5795,19 +5813,23 @@ mod tests {
     #[test]
     fn algebraic_sum_limits_fall_back_to_symbolic_without_error() {
         let source = "2^(1/3)+2^(1/3)";
-        assert_source_symbolic_fallback_with_limits(
+        assert_symbolic_fallback_exact_with_limits(
             source,
+            "2*2^(1/3)",
             ResourceLimits {
                 max_resultant_degree: 2,
                 ..ResourceLimits::default()
             },
+            false,
         );
-        assert_source_symbolic_fallback_with_limits(
+        assert_symbolic_fallback_exact_with_limits(
             source,
+            "2*2^(1/3)",
             ResourceLimits {
                 max_factorization_work: 0,
                 ..ResourceLimits::default()
             },
+            false,
         );
     }
 
@@ -6435,8 +6457,95 @@ mod tests {
             ("exp(-ln(2))", "1/2"),
             ("exp(2*ln(3))", "9"),
             ("sinh(ln(2))", "3/4"),
+            ("cosh(100)-sinh(100)", "exp(-100)"),
+            ("cosh(1000)-sinh(1000)-e^(-1000)", "0"),
+            ("e^sin(1)-exp(sin(1))", "0"),
+            ("sin(1)*cos(1)-cos(1)*sin(1)", "0"),
+            ("2*(sin(1)*cos(1))-2*(cos(1)*sin(1))", "0"),
+            ("exp(cosh(100)-sinh(100)-e^(-100))", "1"),
         ] {
             assert_eq!(exact_plain_text(source), expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn hyperbolic_cancellation_numeric_outputs_match_the_reduced_exponential() {
+        fn numeric_outputs(source: &str) -> (ScientificOutput, EnclosureOutput) {
+            let mut context = EvaluationContext::default();
+            let outcome = calculate(source, &CalculationRequest::default(), &mut context)
+                .unwrap_or_else(|error| panic!("{source}: {error:?}"));
+            let calculation = match outcome {
+                CalculationOutcome::Complete(calculation)
+                | CalculationOutcome::Partial { calculation, .. } => calculation,
+            };
+            (calculation.scientific, calculation.enclosure)
+        }
+
+        assert_eq!(
+            numeric_outputs("cosh(100)-sinh(100)"),
+            numeric_outputs("exp(-100)")
+        );
+    }
+
+    #[test]
+    fn hyperbolic_cancellation_is_normalized_before_numeric_evaluation() {
+        let mut context = EvaluationContext::default();
+        let outcome = calculate(
+            "cosh(1000)-sinh(1000)-e^(-1000)",
+            &CalculationRequest::default(),
+            &mut context,
+        )
+        .unwrap();
+        let CalculationOutcome::Complete(calculation) = outcome else {
+            panic!("exact zero must confirm every requested output");
+        };
+
+        let ExactOutput::Included(exact) = calculation.exact else {
+            panic!("default request includes exact output");
+        };
+        assert_eq!(exact.plain_text, "0");
+
+        let ScientificOutput::Included(scientific) = calculation.scientific else {
+            panic!("exact zero must have scientific output");
+        };
+        assert_eq!(scientific.significand, "0.0000");
+        assert_eq!(scientific.exponent_ten, "0");
+
+        let EnclosureOutput::Included(enclosure) = calculation.enclosure else {
+            panic!("exact zero must have a certified enclosure");
+        };
+        let CertifiedIntervalBounds::DecimalScientific { lower, upper, .. } = enclosure.bounds
+        else {
+            panic!("default request uses decimal scientific enclosure bounds");
+        };
+        assert_eq!(lower.significand, "0.0000");
+        assert_eq!(upper.significand, "0.0000");
+    }
+
+    #[test]
+    fn symbolic_cancellation_does_not_hide_domain_errors() {
+        for (source, kind) in [
+            ("ln(-1)-ln(-1)", DomainErrorKind::LogarithmOfNonPositive),
+            (
+                "ln(sin(-1))-ln(sin(-1))",
+                DomainErrorKind::LogarithmOfNonPositive,
+            ),
+            (
+                "sqrt(-exp(1))-sqrt(-exp(1))",
+                DomainErrorKind::EvenRootOfNegative,
+            ),
+            ("0*ln(sin(-1))", DomainErrorKind::LogarithmOfNonPositive),
+        ] {
+            let mut context = EvaluationContext::default();
+            let error = match calculate(source, &CalculationRequest::default(), &mut context) {
+                Err(error) => error,
+                Ok(outcome) => panic!("{source}: undefined terms were cancelled: {outcome:?}"),
+            };
+            assert_eq!(
+                error,
+                CalculatorError::Domain(DomainError { kind, span: None }),
+                "{source}"
+            );
         }
     }
 

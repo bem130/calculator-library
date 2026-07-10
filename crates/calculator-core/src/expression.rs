@@ -328,6 +328,11 @@ struct DagBuilder {
     semantics: SemanticSettings,
 }
 
+struct BuilderLinearTerm {
+    expression: ExprId,
+    coefficient: Rational,
+}
+
 pub(crate) fn lower_source_expression(
     expression: &SourceExpr,
     semantics: SemanticSettings,
@@ -514,6 +519,9 @@ fn recognize_exact_subexpression(
         validate_obvious_domain(dag, id)?;
         return Ok(None);
     }
+    if zero_product_has_unproven_factor_domain(dag, id)? {
+        return Ok(None);
+    }
     if let Some(value) = recognize_exact_operation(dag, id, limits)? {
         return Ok(Some(value));
     }
@@ -533,6 +541,28 @@ fn recognize_exact_subexpression(
         return Ok(Some(RecognizedExactSubexpression::RealAlgebraic(value)));
     }
     Ok(None)
+}
+
+fn zero_product_has_unproven_factor_domain(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+) -> Result<bool, EvaluationError> {
+    let ExpressionNode::Multiply(values) = dag.semantic_node(id) else {
+        return Ok(false);
+    };
+    let factors = dag.list(*values);
+    let has_zero = factors
+        .iter()
+        .any(|factor| matches!(evaluate_node(dag, *factor), Ok(value) if value.value().is_zero()));
+    if !has_zero {
+        return Ok(false);
+    }
+    for factor in factors {
+        if !expression_domain_known_well_defined(dag, *factor)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn recognize_exact_operation(
@@ -1099,7 +1129,9 @@ fn recognize_structural_zero_sum(
         } else {
             continue;
         };
-        if structurally_equal_expressions(dag, positive, value) {
+        if structurally_equal_expressions(dag, positive, value)
+            && expression_domain_known_well_defined(dag, positive)?
+        {
             return Ok(Some(RecognizedExactSubexpression::Rational(
                 RationalEvaluation::direct(Rational::zero()),
             )));
@@ -1484,10 +1516,11 @@ fn expression_domain_known_well_defined(
             Function::Exp | Function::Sin | Function::Cos | Function::Atan => {
                 expression_domain_known_well_defined(dag, *argument)
             }
-            Function::Log | Function::Ln => {
-                prove_log_argument_positive(dag, *argument)?;
-                Ok(true)
-            }
+            Function::Log | Function::Ln => match prove_log_argument_positive(dag, *argument) {
+                Ok(()) => Ok(true),
+                Err(error) if is_unsupported_exact_expression(&error) => Ok(false),
+                Err(error) => Err(error),
+            },
             Function::Tan | Function::Asin | Function::Acos => Ok(false),
             Function::Root
             | Function::Abs
@@ -6292,10 +6325,8 @@ impl DagBuilder {
             SourceExpr::Unary { op, expr, .. } => match op {
                 UnaryOperator::Plus => self.lower(expr),
                 UnaryOperator::Negate => {
-                    let minus_one = self.push_rational(Rational::from_integer(Integer::from(-1)));
                     let value = self.lower(expr)?;
-                    let list = self.push_list(vec![minus_one, value]);
-                    Ok(self.push_node(ExpressionNode::Multiply(list)))
+                    Ok(self.negate(value))
                 }
             },
             SourceExpr::Binary {
@@ -6304,36 +6335,17 @@ impl DagBuilder {
                 let left = self.lower(left)?;
                 let right = self.lower(right)?;
                 Ok(match op {
-                    BinaryOperator::Add => {
-                        let list = self.push_list(vec![left, right]);
-                        self.push_node(ExpressionNode::Add(list))
-                    }
-                    BinaryOperator::Subtract => {
-                        let minus_right = self.negate(right);
-                        let list = self.push_list(vec![left, minus_right]);
-                        self.push_node(ExpressionNode::Add(list))
-                    }
-                    BinaryOperator::Multiply => {
-                        let list = self.push_list(vec![left, right]);
-                        self.push_node(ExpressionNode::Multiply(list))
-                    }
-                    BinaryOperator::Divide => self.push_node(ExpressionNode::Divide {
-                        numerator: left,
-                        denominator: right,
-                    }),
-                    BinaryOperator::Power => self.push_node(ExpressionNode::Power {
-                        base: left,
-                        exponent: right,
-                    }),
+                    BinaryOperator::Add => self.add(left, right),
+                    BinaryOperator::Subtract => self.subtract(left, right),
+                    BinaryOperator::Multiply => self.multiply(left, right),
+                    BinaryOperator::Divide => self.divide(left, right),
+                    BinaryOperator::Power => self.lower_power(left, right),
                 })
             }
             SourceExpr::Percent { expr, .. } => {
                 let numerator = self.lower(expr)?;
                 let denominator = self.push_rational(Rational::from_integer(Integer::from(100)));
-                Ok(self.push_node(ExpressionNode::Divide {
-                    numerator,
-                    denominator,
-                }))
+                Ok(self.divide(numerator, denominator))
             }
             SourceExpr::Function {
                 function,
@@ -6394,10 +6406,7 @@ impl DagBuilder {
                     argument,
                 }))
             }
-            Function::Exp => Ok(self.push_node(ExpressionNode::Power {
-                base,
-                exponent: argument,
-            })),
+            Function::Exp => Ok(self.power(base, argument)),
             Function::Log if self.is_euler_constant(base) => {
                 Ok(self.push_node(ExpressionNode::Function {
                     function: Function::Log,
@@ -6407,14 +6416,8 @@ impl DagBuilder {
             Function::Log => Ok(self.push_node(ExpressionNode::LogBase { argument, base })),
             Function::Root => {
                 let one = self.push_rational(Rational::one());
-                let exponent = self.push_node(ExpressionNode::Divide {
-                    numerator: one,
-                    denominator: base,
-                });
-                Ok(self.push_node(ExpressionNode::Power {
-                    base: argument,
-                    exponent,
-                }))
+                let exponent = self.divide(one, base);
+                Ok(self.power(argument, exponent))
             }
             Function::Permutation
             | Function::Combination
@@ -6444,6 +6447,14 @@ impl DagBuilder {
             | Function::Atanh => {
                 Ok(self.push_node(ExpressionNode::Function { function, argument }))
             }
+        }
+    }
+
+    fn lower_power(&mut self, base: ExprId, exponent: ExprId) -> ExprId {
+        if self.is_euler_constant(base) {
+            self.exp(exponent)
+        } else {
+            self.power(base, exponent)
         }
     }
 
@@ -6569,18 +6580,13 @@ impl DagBuilder {
     fn multiply_by_pi_over_integer(&mut self, argument: ExprId, denominator: i64) -> ExprId {
         let pi = self.push_node(ExpressionNode::Constant(Constant::Pi));
         let denominator = self.push_rational(Rational::from_integer(Integer::from(denominator)));
-        let scale = self.push_node(ExpressionNode::Divide {
-            numerator: pi,
-            denominator,
-        });
-        let list = self.push_list(vec![argument, scale]);
-        self.push_node(ExpressionNode::Multiply(list))
+        let scale = self.divide(pi, denominator);
+        self.multiply(argument, scale)
     }
 
     fn negate(&mut self, value: ExprId) -> ExprId {
         let minus_one = self.push_rational(Rational::from_integer(Integer::from(-1)));
-        let list = self.push_list(vec![minus_one, value]);
-        self.push_node(ExpressionNode::Multiply(list))
+        self.multiply(minus_one, value)
     }
 
     fn integer(&mut self, value: i64) -> ExprId {
@@ -6588,13 +6594,16 @@ impl DagBuilder {
     }
 
     fn add(&mut self, left: ExprId, right: ExprId) -> ExprId {
-        let list = self.push_list(vec![left, right]);
-        self.push_node(ExpressionNode::Add(list))
+        self.add_many(vec![left, right])
     }
 
     fn subtract(&mut self, left: ExprId, right: ExprId) -> ExprId {
         let negative_right = self.negate(right);
         self.add(left, negative_right)
+    }
+
+    fn multiply(&mut self, left: ExprId, right: ExprId) -> ExprId {
+        self.multiply_many(vec![left, right])
     }
 
     fn divide(&mut self, numerator: ExprId, denominator: ExprId) -> ExprId {
@@ -6606,6 +6615,152 @@ impl DagBuilder {
 
     fn power(&mut self, base: ExprId, exponent: ExprId) -> ExprId {
         self.push_node(ExpressionNode::Power { base, exponent })
+    }
+
+    fn add_many(&mut self, values: Vec<ExprId>) -> ExprId {
+        let mut terms = Vec::<BuilderLinearTerm>::new();
+        let mut constant = Rational::zero();
+        for value in values {
+            self.collect_linear_terms(value, &Rational::one(), &mut terms, &mut constant);
+        }
+        terms
+            .retain(|term| !term.coefficient.is_zero() || !self.is_proven_defined(term.expression));
+
+        let mut expressions = Vec::with_capacity(terms.len() + usize::from(!constant.is_zero()));
+        for term in terms {
+            if term.coefficient == Rational::one() {
+                expressions.push(term.expression);
+            } else {
+                let coefficient = self.push_rational(term.coefficient);
+                expressions.push(self.multiply_many(vec![coefficient, term.expression]));
+            }
+        }
+        if !constant.is_zero() {
+            expressions.push(self.push_rational(constant));
+        }
+        expressions.sort_by(|left, right| self.compare_add_terms(*left, *right));
+        match expressions.as_slice() {
+            [] => self.push_rational(Rational::zero()),
+            [expression] => *expression,
+            _ => {
+                let list = self.push_list(expressions);
+                self.push_node(ExpressionNode::Add(list))
+            }
+        }
+    }
+
+    fn collect_linear_terms(
+        &mut self,
+        id: ExprId,
+        scale: &Rational,
+        terms: &mut Vec<BuilderLinearTerm>,
+        constant: &mut Rational,
+    ) {
+        match self.nodes[id.0 as usize].clone() {
+            ExpressionNode::Rational(value) => {
+                *constant = constant.add(&scale.multiply(&self.rationals[value.0 as usize]));
+            }
+            ExpressionNode::Add(values) => {
+                for child in self.lists[values.0 as usize].clone() {
+                    self.collect_linear_terms(child, scale, terms, constant);
+                }
+            }
+            ExpressionNode::Multiply(values) => {
+                let mut coefficient = scale.clone();
+                let mut symbolic = Vec::new();
+                for factor in self.lists[values.0 as usize].clone() {
+                    if let ExpressionNode::Rational(value) = self.nodes[factor.0 as usize] {
+                        coefficient = coefficient.multiply(&self.rationals[value.0 as usize]);
+                    } else {
+                        symbolic.push(factor);
+                    }
+                }
+                if symbolic.len() == 1 {
+                    self.collect_linear_terms(symbolic[0], &coefficient, terms, constant);
+                } else {
+                    let expression = self.multiply_many(symbolic);
+                    self.add_builder_linear_term(expression, coefficient, terms);
+                }
+            }
+            ExpressionNode::Divide {
+                numerator,
+                denominator,
+            } => {
+                let denominator_value = match self.nodes[denominator.0 as usize] {
+                    ExpressionNode::Rational(value) => {
+                        Some(self.rationals[value.0 as usize].clone())
+                    }
+                    _ => None,
+                };
+                if let Some(denominator_value) = denominator_value {
+                    if let Ok(quotient) = scale.divide(&denominator_value) {
+                        self.collect_linear_terms(numerator, &quotient, terms, constant);
+                        return;
+                    }
+                }
+                self.add_builder_linear_term(id, scale.clone(), terms);
+            }
+            _ => self.add_builder_linear_term(id, scale.clone(), terms),
+        }
+    }
+
+    fn add_builder_linear_term(
+        &self,
+        expression: ExprId,
+        coefficient: Rational,
+        terms: &mut Vec<BuilderLinearTerm>,
+    ) {
+        if self.is_proven_defined(expression) {
+            if let Some(term) = terms.iter_mut().find(|term| term.expression == expression) {
+                term.coefficient = term.coefficient.add(&coefficient);
+                return;
+            }
+        }
+        terms.push(BuilderLinearTerm {
+            expression,
+            coefficient,
+        });
+    }
+
+    fn multiply_many(&mut self, values: Vec<ExprId>) -> ExprId {
+        let mut coefficient = Rational::one();
+        let mut factors = Vec::new();
+        for value in values {
+            self.collect_product_factors(value, &mut coefficient, &mut factors);
+        }
+        factors.sort_by(|left, right| self.compare_expressions(*left, *right));
+        if coefficient.is_zero() && factors.iter().all(|factor| self.is_proven_defined(*factor)) {
+            return self.push_rational(coefficient);
+        }
+        if coefficient != Rational::one() || factors.is_empty() {
+            factors.insert(0, self.push_rational(coefficient));
+        }
+        match factors.as_slice() {
+            [factor] => *factor,
+            _ => {
+                let list = self.push_list(factors);
+                self.push_node(ExpressionNode::Multiply(list))
+            }
+        }
+    }
+
+    fn collect_product_factors(
+        &self,
+        id: ExprId,
+        coefficient: &mut Rational,
+        factors: &mut Vec<ExprId>,
+    ) {
+        match self.nodes[id.0 as usize] {
+            ExpressionNode::Rational(value) => {
+                *coefficient = coefficient.multiply(&self.rationals[value.0 as usize]);
+            }
+            ExpressionNode::Multiply(values) => {
+                for factor in &self.lists[values.0 as usize] {
+                    self.collect_product_factors(*factor, coefficient, factors);
+                }
+            }
+            _ => factors.push(id),
+        }
     }
 
     fn exp(&mut self, argument: ExprId) -> ExprId {
@@ -6629,22 +6784,306 @@ impl DagBuilder {
         })
     }
 
+    fn is_proven_defined(&self, id: ExprId) -> bool {
+        match self.nodes[id.0 as usize] {
+            ExpressionNode::Rational(_) | ExpressionNode::Constant(_) => true,
+            ExpressionNode::Exact(_) => false,
+            ExpressionNode::Add(values) | ExpressionNode::Multiply(values) => self.lists
+                [values.0 as usize]
+                .iter()
+                .all(|child| self.is_proven_defined(*child)),
+            ExpressionNode::Divide {
+                numerator,
+                denominator,
+            } => {
+                self.is_proven_defined(numerator)
+                    && self.is_proven_defined(denominator)
+                    && self.is_proven_nonzero(denominator)
+            }
+            ExpressionNode::Power { base, exponent } => {
+                self.is_proven_defined(base)
+                    && self.is_proven_defined(exponent)
+                    && self.power_domain_is_proven(base, exponent)
+            }
+            ExpressionNode::LogBase { argument, base } => {
+                self.is_proven_positive(argument)
+                    && self.is_proven_positive(base)
+                    && !self.is_proven_one(base)
+            }
+            ExpressionNode::Function { function, argument } => match function {
+                Function::Exp | Function::Sin | Function::Cos | Function::Abs | Function::Floor => {
+                    self.is_proven_defined(argument)
+                }
+                Function::Log | Function::Ln => self.is_proven_positive(argument),
+                Function::Sqrt => self.is_proven_nonnegative(argument),
+                Function::Sinh | Function::Cosh => self.is_proven_defined(argument),
+                Function::Tan
+                | Function::Asin
+                | Function::Acos
+                | Function::Atan
+                | Function::Root
+                | Function::Factorial
+                | Function::Permutation
+                | Function::Combination
+                | Function::Modulo
+                | Function::Gcd
+                | Function::Lcm
+                | Function::Tanh
+                | Function::Asinh
+                | Function::Acosh
+                | Function::Atanh => false,
+            },
+            ExpressionNode::BinaryFunction { .. } => false,
+        }
+    }
+
+    fn power_domain_is_proven(&self, base: ExprId, exponent: ExprId) -> bool {
+        if self.is_proven_positive(base) {
+            return true;
+        }
+        let ExpressionNode::Rational(value) = self.nodes[exponent.0 as usize] else {
+            return false;
+        };
+        let exponent = &self.rationals[value.0 as usize];
+        exponent.is_integer() && (!exponent.is_negative() || self.is_proven_nonzero(base))
+    }
+
+    fn is_proven_positive(&self, id: ExprId) -> bool {
+        match self.nodes[id.0 as usize] {
+            ExpressionNode::Rational(value) => {
+                let value = &self.rationals[value.0 as usize];
+                !value.is_zero() && !value.is_negative()
+            }
+            ExpressionNode::Constant(Constant::Pi | Constant::Euler) => true,
+            ExpressionNode::Function {
+                function: Function::Exp,
+                argument,
+            } => self.is_proven_defined(argument),
+            ExpressionNode::Multiply(values) => {
+                let factors = &self.lists[values.0 as usize];
+                factors
+                    .iter()
+                    .all(|factor| self.is_proven_positive(*factor))
+            }
+            ExpressionNode::Divide {
+                numerator,
+                denominator,
+            } => self.is_proven_positive(numerator) && self.is_proven_positive(denominator),
+            ExpressionNode::Power { base, exponent } => {
+                self.is_proven_positive(base) && self.is_proven_defined(exponent)
+            }
+            _ => false,
+        }
+    }
+
+    fn is_proven_nonnegative(&self, id: ExprId) -> bool {
+        match self.nodes[id.0 as usize] {
+            ExpressionNode::Rational(value) => !self.rationals[value.0 as usize].is_negative(),
+            ExpressionNode::Constant(Constant::Pi | Constant::Euler) => true,
+            ExpressionNode::Function {
+                function: Function::Exp | Function::Abs | Function::Sqrt,
+                argument,
+            } => self.is_proven_defined(argument),
+            ExpressionNode::Power { exponent, .. } => {
+                let ExpressionNode::Rational(value) = self.nodes[exponent.0 as usize] else {
+                    return false;
+                };
+                self.rationals[value.0 as usize]
+                    .as_i64_if_integer()
+                    .is_some_and(|value| value >= 0 && value % 2 == 0)
+            }
+            _ => false,
+        }
+    }
+
+    fn is_proven_nonzero(&self, id: ExprId) -> bool {
+        match self.nodes[id.0 as usize] {
+            ExpressionNode::Rational(value) => !self.rationals[value.0 as usize].is_zero(),
+            ExpressionNode::Constant(Constant::Pi | Constant::Euler) => true,
+            ExpressionNode::Function {
+                function: Function::Exp,
+                argument,
+            } => self.is_proven_defined(argument),
+            ExpressionNode::Multiply(values) => self.lists[values.0 as usize]
+                .iter()
+                .all(|factor| self.is_proven_nonzero(*factor)),
+            ExpressionNode::Divide {
+                numerator,
+                denominator,
+            } => self.is_proven_nonzero(numerator) && self.is_proven_nonzero(denominator),
+            ExpressionNode::Power { base, exponent } => {
+                self.is_proven_nonzero(base) && self.is_proven_defined(exponent)
+            }
+            _ => false,
+        }
+    }
+
+    fn is_proven_one(&self, id: ExprId) -> bool {
+        matches!(self.nodes[id.0 as usize], ExpressionNode::Rational(value) if self.rationals[value.0 as usize] == Rational::one())
+    }
+
+    fn compare_expressions(&self, left: ExprId, right: ExprId) -> Ordering {
+        if left == right {
+            return Ordering::Equal;
+        }
+        let left_node = &self.nodes[left.0 as usize];
+        let right_node = &self.nodes[right.0 as usize];
+        let rank = |node: &ExpressionNode| match node {
+            ExpressionNode::Rational(_) => 0,
+            ExpressionNode::Constant(_) => 1,
+            ExpressionNode::Power { .. } => 2,
+            ExpressionNode::Function { .. } => 3,
+            ExpressionNode::LogBase { .. } => 4,
+            ExpressionNode::Multiply(_) => 5,
+            ExpressionNode::Divide { .. } => 6,
+            ExpressionNode::Add(_) => 7,
+            ExpressionNode::BinaryFunction { .. } => 8,
+            ExpressionNode::Exact(_) => 9,
+        };
+        let rank_order = rank(left_node).cmp(&rank(right_node));
+        if rank_order != Ordering::Equal {
+            return rank_order;
+        }
+        match (left_node, right_node) {
+            (ExpressionNode::Rational(left), ExpressionNode::Rational(right)) => {
+                self.rationals[left.0 as usize].compare(&self.rationals[right.0 as usize])
+            }
+            (ExpressionNode::Constant(left), ExpressionNode::Constant(right)) => {
+                constant_rank(*left).cmp(&constant_rank(*right))
+            }
+            (
+                ExpressionNode::Power {
+                    base: left_base,
+                    exponent: left_exponent,
+                },
+                ExpressionNode::Power {
+                    base: right_base,
+                    exponent: right_exponent,
+                },
+            ) => self
+                .compare_expressions(*left_base, *right_base)
+                .then_with(|| self.compare_expressions(*left_exponent, *right_exponent)),
+            (
+                ExpressionNode::Function {
+                    function: left_function,
+                    argument: left_argument,
+                },
+                ExpressionNode::Function {
+                    function: right_function,
+                    argument: right_argument,
+                },
+            ) => function_rank(*left_function)
+                .cmp(&function_rank(*right_function))
+                .then_with(|| self.compare_expressions(*left_argument, *right_argument)),
+            (ExpressionNode::Add(left), ExpressionNode::Add(right))
+            | (ExpressionNode::Multiply(left), ExpressionNode::Multiply(right)) => {
+                self.compare_expression_lists(*left, *right)
+            }
+            _ => left.0.cmp(&right.0),
+        }
+    }
+
+    fn compare_add_terms(&self, left: ExprId, right: ExprId) -> Ordering {
+        let category = |id: ExprId| {
+            match self.nodes[id.0 as usize] {
+            ExpressionNode::Rational(_) => 1,
+            ExpressionNode::Multiply(values)
+                if self.lists[values.0 as usize].first().is_some_and(|factor| {
+                    matches!(self.nodes[factor.0 as usize], ExpressionNode::Rational(value) if self.rationals[value.0 as usize].is_negative())
+                }) =>
+            {
+                2
+            }
+            _ => 0,
+        }
+        };
+        match category(left).cmp(&category(right)) {
+            Ordering::Equal => self.compare_expressions(left, right),
+            order => order,
+        }
+    }
+
+    fn compare_expression_lists(&self, left: ExprListId, right: ExprListId) -> Ordering {
+        let left = &self.lists[left.0 as usize];
+        let right = &self.lists[right.0 as usize];
+        for (left, right) in left.iter().zip(right) {
+            let order = self.compare_expressions(*left, *right);
+            if order != Ordering::Equal {
+                return order;
+            }
+        }
+        left.len().cmp(&right.len())
+    }
+
     fn push_rational(&mut self, rational: Rational) -> ExprId {
-        let id = RationalId(self.rationals.len() as u32);
-        self.rationals.push(rational);
+        let id = self
+            .rationals
+            .iter()
+            .position(|value| value == &rational)
+            .map_or_else(
+                || {
+                    let id = RationalId(self.rationals.len() as u32);
+                    self.rationals.push(rational);
+                    id
+                },
+                |index| RationalId(index as u32),
+            );
         self.push_node(ExpressionNode::Rational(id))
     }
 
     fn push_list(&mut self, values: Vec<ExprId>) -> ExprListId {
+        if let Some(index) = self.lists.iter().position(|list| list == &values) {
+            return ExprListId(index as u32);
+        }
         let id = ExprListId(self.lists.len() as u32);
         self.lists.push(values);
         id
     }
 
     fn push_node(&mut self, node: ExpressionNode) -> ExprId {
+        if let Some(index) = self.nodes.iter().position(|existing| existing == &node) {
+            return ExprId(index as u32);
+        }
         let id = ExprId(self.nodes.len() as u32);
         self.nodes.push(node);
         id
+    }
+}
+
+fn constant_rank(constant: Constant) -> u8 {
+    match constant {
+        Constant::Pi => 0,
+        Constant::Euler => 1,
+    }
+}
+
+fn function_rank(function: Function) -> u8 {
+    match function {
+        Function::Sin => 0,
+        Function::Cos => 1,
+        Function::Tan => 2,
+        Function::Asin => 3,
+        Function::Acos => 4,
+        Function::Atan => 5,
+        Function::Sqrt => 6,
+        Function::Root => 7,
+        Function::Exp => 8,
+        Function::Log => 9,
+        Function::Ln => 10,
+        Function::Abs => 11,
+        Function::Floor => 12,
+        Function::Factorial => 13,
+        Function::Permutation => 14,
+        Function::Combination => 15,
+        Function::Modulo => 16,
+        Function::Gcd => 17,
+        Function::Lcm => 18,
+        Function::Sinh => 19,
+        Function::Cosh => 20,
+        Function::Tanh => 21,
+        Function::Asinh => 22,
+        Function::Acosh => 23,
+        Function::Atanh => 24,
     }
 }
 
