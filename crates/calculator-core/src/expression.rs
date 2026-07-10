@@ -1075,25 +1075,14 @@ fn exact_normalize_polynomial_terms(
     if !budget.consume_work(u64::try_from(merge_work).unwrap_or(u64::MAX)) {
         return None;
     }
-    for term in &mut polynomial.terms {
-        term.factors
-            .sort_by(|(left_base, left_exponent), (right_base, right_exponent)| {
-                compare_exact_expressions(dag, *left_base, *right_base)
-                    .then_with(|| left_exponent.cmp(right_exponent))
-            });
-        let mut factors = Vec::<(ExprId, i64)>::with_capacity(term.factors.len());
-        for (base, exponent) in term.factors.drain(..) {
-            if let Some((last_base, last_exponent)) = factors.last_mut() {
-                if compare_exact_expressions(dag, *last_base, base) == Ordering::Equal {
-                    *last_exponent = last_exponent.checked_add(exponent)?;
-                    continue;
-                }
-            }
-            factors.push((base, exponent));
-        }
-        factors.retain(|(_, exponent)| *exponent != 0);
-        term.factors = factors;
-    }
+    // Every monomial constructor preserves the strict factor order: atoms contain one
+    // factor, powers preserve order, and products use a two-pointer canonical merge.
+    debug_assert!(polynomial.terms.iter().all(|term| {
+        term.factors.iter().all(|(_, exponent)| *exponent != 0)
+            && term.factors.windows(2).all(|factors| {
+                compare_exact_expressions(dag, factors[0].0, factors[1].0) == Ordering::Less
+            })
+    }));
     polynomial
         .terms
         .sort_by(|left, right| compare_exact_monomials(dag, left, right));
@@ -8922,6 +8911,12 @@ impl DagBuilder {
             polynomial_term_merge_work(&polynomial, |id| self.structural_sizes[id.0 as usize]),
         )?;
         polynomial.terms.retain(|term| !term.coefficient.is_zero());
+        debug_assert!(polynomial.terms.iter().all(|term| {
+            term.factors.iter().all(|(_, exponent)| *exponent != 0)
+                && term.factors.windows(2).all(|factors| {
+                    self.compare_expressions(factors[0].0, factors[1].0) == Ordering::Less
+                })
+        }));
         polynomial
             .terms
             .sort_by(|left, right| self.compare_monomial_factors(&left.factors, &right.factors));
