@@ -45,6 +45,28 @@ pub(crate) fn from_rational_bounds(
     })
 }
 
+pub(crate) fn intersect(
+    left: &CertifiedInterval,
+    right: &CertifiedInterval,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    let left_lower = dyadic_to_rational(&left.lower)?;
+    let left_upper = dyadic_to_rational(&left.upper)?;
+    let right_lower = dyadic_to_rational(&right.lower)?;
+    let right_upper = dyadic_to_rational(&right.upper)?;
+    let lower = if compare_rationals(&left_lower, &right_lower) == Ordering::Less {
+        right_lower
+    } else {
+        left_lower
+    };
+    let upper = if compare_rationals(&left_upper, &right_upper) == Ordering::Greater {
+        right_upper
+    } else {
+        left_upper
+    };
+    from_rational_bounds(&lower, &upper, precision_bits)
+}
+
 pub(crate) fn constant(
     value: Constant,
     precision_bits: u32,

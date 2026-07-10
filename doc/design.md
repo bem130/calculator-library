@@ -298,6 +298,23 @@ Exact Expression DAG
 Presentation Tree
 ```
 
+厳密簡約は式全体へ一度だけ適用する「mode」ではない。Exact Expression DAGを子から親へ走査し、各親を評価する前に、そのすべての子について利用可能な最も具体的な厳密表現を確定する。少なくとも次を区別して保持する。
+
+```text
+ExactReduction
+    Rational
+    RationalPiMultiple
+    Radical
+    RealAlgebraic
+    Symbolic
+```
+
+これらは精度順の全順序ではない。たとえばπの有理数倍と根号は別種の厳密表現であり、一方を他方の近似modeへ昇格・降格してはならない。部分式が有理数、πの有理数倍、根号、実代数的数として厳密化できた場合、その値を正規化DAGへ戻してから親を評価する。したがって外側が一般記号式または保証区間評価へfallbackしても、内側の厳密値を未簡約の式や近似値へ戻してはならない。
+
+非有理の実代数的部分式は、最小多項式と分離区間を持つ値ノードとして保持し、元の厳密部分式へのpresentation参照も保持する。interval評価は値ノードの分離区間を直接使用し、symbolic presentationはpresentation参照を使用する。入力presentationだけはSource ASTから生成し、厳密簡約の影響を受けない。
+
+部分式のdomain errorは親のsymbolic/interval fallbackで隠してはならない。一方、resource limitにより厳密表現を確定できない場合は、その部分式を破壊的に近似せずSymbolicとして保持する。子で使用した特殊角、根号抽出、代数的最小多項式、根分離のmethod metadataは親の結果へ集約する。
+
 ### 3.1 Source ASTとExact Expression DAGを分ける
 
 Source ASTは、利用者が入力した構造とエラー位置を保持する。

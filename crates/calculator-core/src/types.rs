@@ -87,9 +87,13 @@ pub struct ExprListId(pub u32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RationalId(pub u32);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExactValueId(pub u32);
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExpressionNode {
     Rational(RationalId),
+    Exact(ExactValueId),
     Constant(Constant),
     Add(ExprListId),
     Multiply(ExprListId),
