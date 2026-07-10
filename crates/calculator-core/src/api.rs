@@ -6579,6 +6579,7 @@ mod tests {
             ("exp(sin(1))*exp(cos(1))", "exp(sin(1)+cos(1))"),
             ("exp(sin(1))*exp(-sin(1))", "1"),
             ("exp(1)/exp(2)", "exp(-1)"),
+            ("sqrt(exp(sin(1)))", "exp(1/2*sin(1))"),
         ] {
             assert_eq!(exact_plain_text(source), expected, "{source}");
         }
@@ -6678,6 +6679,30 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn exhausted_budget_uses_structural_domain_validation_only() {
+        let request = CalculationRequest {
+            scientific_output: ScientificOutputRequest::Omit,
+            enclosure_output: EnclosureOutputRequest::Omit,
+            limits: ResourceLimitRequest::Custom(ResourceLimits {
+                max_rewrite_steps: 0,
+                max_logical_work_units: 0,
+                ..ResourceLimits::default()
+            }),
+            ..CalculationRequest::default()
+        };
+        let mut context = EvaluationContext::default();
+        let error = calculate("sqrt(-exp(1000000))", &request, &mut context)
+            .expect_err("a structurally negative radicand is a domain error");
+        assert_eq!(
+            error,
+            CalculatorError::Domain(DomainError {
+                kind: DomainErrorKind::EvenRootOfNegative,
+                span: None,
+            })
+        );
     }
 
     #[test]

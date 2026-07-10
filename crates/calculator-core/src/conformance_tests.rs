@@ -534,6 +534,9 @@ fn calculator_error_code(value: &CalculatorError) -> &'static str {
             InternalInvariantCode::InvalidParsedNumberLiteral => {
                 "internalInvariant.invalidParsedNumberLiteral"
             }
+            InternalInvariantCode::UnprovenDomainObligation => {
+                "internalInvariant.unprovenDomainObligation"
+            }
         },
     }
 }

@@ -870,6 +870,7 @@ pub enum InternalInvariantCode {
     NonDeterministicCacheAccounting,
     PresentationWithoutEvaluation,
     InvalidParsedNumberLiteral,
+    UnprovenDomainObligation,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1574,7 +1575,7 @@ impl Default for InputPolicy {
 }
 
 impl ProtocolVersion {
-    pub const CURRENT: Self = Self { major: 4, minor: 0 };
+    pub const CURRENT: Self = Self { major: 4, minor: 1 };
 }
 
 const fn nonzero_u32(value: u32) -> NonZeroU32 {
@@ -1622,7 +1623,7 @@ mod tests {
     fn protocol_version_is_current_public_contract() {
         assert_eq!(
             ProtocolVersion::CURRENT,
-            ProtocolVersion { major: 4, minor: 0 }
+            ProtocolVersion { major: 4, minor: 1 }
         );
     }
 

@@ -2100,7 +2100,7 @@ mod tests {
                             refinement_rounds: 0,
                             confirmed_significant_digits: 50,
                             assurance: AssuranceLevelDto::Exact,
-                            protocol_version: ProtocolVersionDto { major: 4, minor: 0 },
+                            protocol_version: ProtocolVersionDto { major: 4, minor: 1 },
                         },
                     },
                 },

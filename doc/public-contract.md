@@ -11,7 +11,7 @@
 * Rust core: `calculator-core` の公開型と `calculate` / `evaluate` / `parse` / `present` / `present_input` / `reduce_input` / `apply_calculation_result`。
 * Wasm DTO: `crates/calculator-wasm/src/dto.rs` と生成 TypeScript `packages/calculator/src/generated/dto.ts`。
 * npm facade: package root `packages/calculator/src/index.ts` と worker subpath `packages/calculator/src/worker.ts` から export される型・関数。
-* protocol snapshot: `crates/xtask/snapshots/protocol-4.0.dto.ts`。
+* protocol snapshot: `crates/xtask/snapshots/protocol-4.1.dto.ts`。
 
 `doc/design.md` は最終設計の目標であり、現行リリースの完全実装リストではない。
 
@@ -37,6 +37,8 @@ author は `bem130`、license は `MIT` とする。license 本文は repository
 
 `e^x`、`exp(x)`、`exp(x,e)` は同じ自然指数関数の内部表現へ正規化する。四則演算と非負整数冪は、有理係数と整数multiplicity付きfactorからなるbounded sparse polynomial formへ正規化する。Add / Multiplyの結合順、入力順、分配前後、同じfactorの積と整数冪に依存せず、証明可能な同類項をexactに統合する。自然指数因子は`exp(a)*exp(b)=exp(a+b)`へ統合する。`cosh(100)-sinh(100)`のような式は数値評価より前に`exp(-100)`へ簡約し、その簡約済みexact DAGをcertified intervalとscientific outputにも使用する。
 
+自然指数factorを統合した後の平方根は`sqrt(exp(a))=exp(a/2)`で正規化する。したがって`sqrt(exp(a)^2)`は、構文を温存する特例ではなく`exp(2*a)`を経て`exp(a)`になる。
+
 商のfactor相殺、零係数項の除去、分配後の相殺は、消える部分式の定義済み性と必要な非零性を証明できる場合だけ行う。消去条件は`Defined` / `NonZero` domain obligationとしてDAGに保持し、値の簡約より先に検証する。exact reductionによって子の値が確定した後も親のcanonical factor viewを再構築し、stored exact valueの構造的等値をfactor比較に使用する。canonical expansionがresource limitへ達した場合、部分的な展開結果を完全簡約として返さずtyped partialにする。
 
 相殺、零倍、因子消去によって部分式を消す変形は、その部分式が実数領域で定義済みと証明できる場合だけ適用する。定義済みか不明なら式を保持し、未定義と判明した場合はtyped domain errorを返す。構造が同じという理由だけで、`ln(sin(-1))-ln(sin(-1))`や`0*ln(sin(-1))`を0にしてはならない。
@@ -55,7 +57,7 @@ Enclosure output は `exactDyadic` または `decimalScientific` を明示して
 
 ## Protocol And Release Policy
 
-`ProtocolVersion` は現行 DTO surface を識別するための version であり、Cargo crate や npm package の semver とは別に扱う。現行 protocol snapshot は `4.0` である。
+`ProtocolVersion` は現行 DTO surface を識別するための version であり、Cargo crate や npm package の semver とは別に扱う。現行 protocol snapshot は `4.1` である。
 
 Protocol major/minor の運用は、後方互換保証ではなく、DTO surface の変更を見落とさないための識別子として扱う。
 

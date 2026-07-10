@@ -597,7 +597,8 @@ export type InternalInvariantCode =
     | "invalidCertifiedInterval"
     | "nonDeterministicCacheAccounting"
     | "presentationWithoutEvaluation"
-    | "invalidParsedNumberLiteral";
+    | "invalidParsedNumberLiteral"
+    | "unprovenDomainObligation";
 
 export type UnsupportedProtocolCode =
     | "unknownTag"
