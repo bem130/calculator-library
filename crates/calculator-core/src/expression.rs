@@ -22,6 +22,8 @@ pub(crate) struct ExactExpressionDag {
     exact_values: Vec<StoredExactValue>,
     normalization: ExactNormalization,
     semantics: SemanticSettings,
+    canonical_rewrite_steps_used: u32,
+    canonical_logical_work_used: u64,
 }
 
 impl ExactExpressionDag {
@@ -338,6 +340,9 @@ struct DagBuilder {
     list_index: BTreeMap<u64, Vec<ExprListId>>,
     rational_index: BTreeMap<u64, Vec<RationalId>>,
     semantics: SemanticSettings,
+    canonical_budget: CanonicalBudget,
+    canonical_term_limit: usize,
+    canonical_limit_reached: Option<ComputationLimitKind>,
 }
 
 struct BuilderLinearTerm {
@@ -345,23 +350,90 @@ struct BuilderLinearTerm {
     coefficient: Rational,
 }
 
+#[derive(Clone)]
+struct BuilderMonomial {
+    coefficient: Rational,
+    factors: Vec<(ExprId, i64)>,
+}
+
+#[derive(Clone)]
+struct BuilderPolynomial {
+    terms: Vec<BuilderMonomial>,
+}
+
+impl BuilderPolynomial {
+    fn one() -> Self {
+        Self {
+            terms: vec![BuilderMonomial {
+                coefficient: Rational::one(),
+                factors: Vec::new(),
+            }],
+        }
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct CanonicalBudget {
+    rewrite_steps_remaining: u32,
+    logical_work_remaining: u64,
+}
+
+impl CanonicalBudget {
+    fn reserve(
+        &mut self,
+        rewrite_steps: usize,
+        logical_work: usize,
+    ) -> Result<(), ComputationLimitKind> {
+        let rewrite_steps =
+            u32::try_from(rewrite_steps).map_err(|_| ComputationLimitKind::RewriteSteps)?;
+        let logical_work =
+            u64::try_from(logical_work).map_err(|_| ComputationLimitKind::LogicalWorkUnits)?;
+        if rewrite_steps > self.rewrite_steps_remaining {
+            return Err(ComputationLimitKind::RewriteSteps);
+        }
+        if logical_work > self.logical_work_remaining {
+            return Err(ComputationLimitKind::LogicalWorkUnits);
+        }
+        self.rewrite_steps_remaining -= rewrite_steps;
+        self.logical_work_remaining -= logical_work;
+        Ok(())
+    }
+}
+
 pub(crate) fn lower_source_expression(
     expression: &SourceExpr,
     semantics: SemanticSettings,
+    limits: &ResourceLimits,
 ) -> Result<ExactExpressionDag, EvaluationError> {
     let mut builder = DagBuilder {
         semantics,
+        canonical_budget: CanonicalBudget {
+            rewrite_steps_remaining: limits.max_rewrite_steps,
+            logical_work_remaining: limits.max_logical_work_units,
+        },
+        canonical_term_limit: usize::try_from(limits.max_expression_nodes).unwrap_or(usize::MAX),
         ..DagBuilder::default()
     };
     let root = builder.lower(expression)?;
+    let canonical_rewrite_steps_used = limits
+        .max_rewrite_steps
+        .saturating_sub(builder.canonical_budget.rewrite_steps_remaining);
+    let canonical_logical_work_used = limits
+        .max_logical_work_units
+        .saturating_sub(builder.canonical_budget.logical_work_remaining);
     Ok(ExactExpressionDag {
         root,
         nodes: builder.nodes,
         lists: builder.lists,
         rationals: builder.rationals,
         exact_values: Vec::new(),
-        normalization: ExactNormalization::default(),
+        normalization: ExactNormalization {
+            limit_reached: builder.canonical_limit_reached,
+            ..ExactNormalization::default()
+        },
         semantics,
+        canonical_rewrite_steps_used,
+        canonical_logical_work_used,
     })
 }
 
@@ -369,7 +441,7 @@ pub(crate) fn normalize_exact_subexpressions(
     dag: ExactExpressionDag,
     limits: &ResourceLimits,
 ) -> Result<(ExactExpressionDag, ExactNormalization), EvaluationError> {
-    if !dag.exact_values.is_empty() || dag.normalization != ExactNormalization::default() {
+    if !dag.exact_values.is_empty() {
         let normalization = dag.normalization;
         return Ok((dag, normalization));
     }
@@ -381,9 +453,16 @@ pub(crate) fn normalize_exact_subexpressions(
         exact_values: Vec::new(),
         normalization: ExactNormalization::default(),
         semantics: dag.semantics,
+        canonical_rewrite_steps_used: dag.canonical_rewrite_steps_used,
+        canonical_logical_work_used: dag.canonical_logical_work_used,
     };
-    let mut normalization = ExactNormalization::default();
-    let mut budget = ReductionBudget::new(limits);
+    let mut normalization = dag.normalization;
+    let mut budget = ReductionBudget::new(
+        limits,
+        dag.canonical_rewrite_steps_used,
+        dag.canonical_logical_work_used,
+        normalization.limit_reached,
+    );
 
     // Lowering assigns children before parents. Each source node is rebuilt and reduced
     // exactly once, so parents always observe memoized exact children.
@@ -416,11 +495,25 @@ struct ReductionBudget {
 }
 
 impl ReductionBudget {
-    fn new(limits: &ResourceLimits) -> Self {
+    fn new(
+        limits: &ResourceLimits,
+        rewrite_steps_used: u32,
+        logical_work_used: u64,
+        limit_reached: Option<ComputationLimitKind>,
+    ) -> Self {
+        if limit_reached.is_some() {
+            return Self {
+                rewrite_steps_remaining: 0,
+                logical_work_remaining: 0,
+                limit_reached,
+            };
+        }
         Self {
-            rewrite_steps_remaining: limits.max_rewrite_steps,
-            logical_work_remaining: limits.max_logical_work_units,
-            limit_reached: None,
+            rewrite_steps_remaining: limits.max_rewrite_steps.saturating_sub(rewrite_steps_used),
+            logical_work_remaining: limits
+                .max_logical_work_units
+                .saturating_sub(logical_work_used),
+            limit_reached,
         }
     }
 
@@ -6653,23 +6746,12 @@ impl DagBuilder {
                 if matches!(op, BinaryOperator::Add | BinaryOperator::Subtract) {
                     let mut terms = Vec::new();
                     self.lower_additive_terms(expression, false, &mut terms)?;
-                    if terms.iter().all(|term| {
-                        matches!(self.nodes[term.0 as usize], ExpressionNode::Rational(_))
-                    }) {
-                        return Ok(match terms.as_slice() {
-                            [term] => *term,
-                            _ => {
-                                let list = self.push_list(terms);
-                                self.push_node(ExpressionNode::Add(list))
-                            }
-                        });
-                    }
                     return Ok(self.add_many(terms));
                 }
                 let left = self.lower(left)?;
                 let right = self.lower(right)?;
                 Ok(match op {
-                    BinaryOperator::Multiply => self.multiply_source(left, right),
+                    BinaryOperator::Multiply => self.multiply(left, right),
                     BinaryOperator::Divide => self.divide(left, right),
                     BinaryOperator::Power => self.lower_power(left, right),
                     BinaryOperator::Add | BinaryOperator::Subtract => unreachable!(),
@@ -6980,40 +7062,12 @@ impl DagBuilder {
         self.multiply_many(vec![left, right])
     }
 
-    fn multiply_source(&mut self, left: ExprId, right: ExprId) -> ExprId {
-        if matches!(self.nodes[left.0 as usize], ExpressionNode::Rational(_))
-            && matches!(self.nodes[right.0 as usize], ExpressionNode::Rational(_))
-        {
-            let mut factors = vec![left, right];
-            factors.sort_by(|left, right| {
-                let ExpressionNode::Rational(left) = self.nodes[left.0 as usize] else {
-                    unreachable!()
-                };
-                let ExpressionNode::Rational(right) = self.nodes[right.0 as usize] else {
-                    unreachable!()
-                };
-                let left = &self.rationals[left.0 as usize];
-                let right = &self.rationals[right.0 as usize];
-                let left_magnitude = if left.is_negative() {
-                    left.negate()
-                } else {
-                    left.clone()
-                };
-                let right_magnitude = if right.is_negative() {
-                    right.negate()
-                } else {
-                    right.clone()
-                };
-                left_magnitude.compare(&right_magnitude)
-            });
-            let list = self.push_list(factors);
-            self.push_node(ExpressionNode::Multiply(list))
-        } else {
-            self.multiply(left, right)
-        }
+    fn divide(&mut self, numerator: ExprId, denominator: ExprId) -> ExprId {
+        let expression = self.divide_raw(numerator, denominator);
+        self.normalize_arithmetic_expression(expression)
     }
 
-    fn divide(&mut self, numerator: ExprId, denominator: ExprId) -> ExprId {
+    fn divide_raw(&mut self, numerator: ExprId, denominator: ExprId) -> ExprId {
         self.push_node(ExpressionNode::Divide {
             numerator,
             denominator,
@@ -7021,10 +7075,20 @@ impl DagBuilder {
     }
 
     fn power(&mut self, base: ExprId, exponent: ExprId) -> ExprId {
+        let expression = self.power_raw(base, exponent);
+        self.normalize_arithmetic_expression(expression)
+    }
+
+    fn power_raw(&mut self, base: ExprId, exponent: ExprId) -> ExprId {
         self.push_node(ExpressionNode::Power { base, exponent })
     }
 
     fn add_many(&mut self, values: Vec<ExprId>) -> ExprId {
+        let expression = self.add_many_linear(values);
+        self.normalize_arithmetic_expression(expression)
+    }
+
+    fn add_many_linear(&mut self, values: Vec<ExprId>) -> ExprId {
         let mut terms = Vec::<BuilderLinearTerm>::new();
         let mut constant = Rational::zero();
         let mut values = values.into_iter();
@@ -7049,7 +7113,7 @@ impl DagBuilder {
                 expressions.push(term.expression);
             } else {
                 let coefficient = self.push_rational(term.coefficient);
-                expressions.push(self.multiply_many(vec![coefficient, term.expression]));
+                expressions.push(self.multiply_many_factors(vec![coefficient, term.expression]));
             }
         }
         if !constant.is_zero() {
@@ -7259,6 +7323,11 @@ impl DagBuilder {
     }
 
     fn multiply_many(&mut self, values: Vec<ExprId>) -> ExprId {
+        let expression = self.multiply_many_factors(values);
+        self.normalize_arithmetic_expression(expression)
+    }
+
+    fn multiply_many_factors(&mut self, values: Vec<ExprId>) -> ExprId {
         let mut coefficient = Rational::one();
         let mut factors = Vec::new();
         for value in values {
@@ -7299,6 +7368,340 @@ impl DagBuilder {
             | ExpressionNode::LogBase { .. }
             | ExpressionNode::Function { .. }
             | ExpressionNode::BinaryFunction { .. } => factors.push(id),
+        }
+    }
+
+    fn normalize_arithmetic_expression(&mut self, id: ExprId) -> ExprId {
+        if self.canonical_limit_reached.is_some() || !self.is_proven_defined(id) {
+            return id;
+        }
+
+        let mut budget = self.canonical_budget;
+        let polynomial = match self.polynomial_from_expression(id, &mut budget) {
+            Ok(polynomial) => polynomial,
+            Err(kind) => {
+                self.canonical_limit_reached.get_or_insert(kind);
+                return id;
+            }
+        };
+        let estimated_nodes = polynomial
+            .terms
+            .iter()
+            .map(|term| term.factors.len().saturating_mul(2).saturating_add(3))
+            .sum::<usize>();
+        if polynomial.terms.len() > self.canonical_term_limit
+            || self.nodes.len().saturating_add(estimated_nodes) > self.canonical_term_limit
+        {
+            self.canonical_limit_reached
+                .get_or_insert(ComputationLimitKind::LogicalWorkUnits);
+            return id;
+        }
+        self.canonical_budget = budget;
+        self.materialize_polynomial(polynomial)
+    }
+
+    fn polynomial_from_expression(
+        &self,
+        id: ExprId,
+        budget: &mut CanonicalBudget,
+    ) -> Result<BuilderPolynomial, ComputationLimitKind> {
+        match self.nodes[id.0 as usize] {
+            ExpressionNode::Rational(value) => Ok(BuilderPolynomial {
+                terms: vec![BuilderMonomial {
+                    coefficient: self.rationals[value.0 as usize].clone(),
+                    factors: Vec::new(),
+                }],
+            }),
+            ExpressionNode::Add(values) => {
+                let mut polynomial = BuilderPolynomial { terms: Vec::new() };
+                for child in &self.lists[values.0 as usize] {
+                    let child = self.polynomial_from_expression(*child, budget)?;
+                    polynomial = self.add_polynomials(polynomial, child, budget)?;
+                }
+                Ok(polynomial)
+            }
+            ExpressionNode::Multiply(values) => {
+                let mut polynomial = BuilderPolynomial::one();
+                for child in &self.lists[values.0 as usize] {
+                    let child = self.polynomial_from_expression(*child, budget)?;
+                    polynomial = self.multiply_polynomials(polynomial, child, budget)?;
+                }
+                Ok(polynomial)
+            }
+            ExpressionNode::Divide {
+                numerator,
+                denominator,
+            } => {
+                let numerator = self.polynomial_from_expression(numerator, budget)?;
+                let denominator = self.polynomial_from_expression(denominator, budget)?;
+                if denominator.terms.len() != 1 {
+                    return Ok(self.atomic_polynomial(id));
+                }
+                let denominator = &denominator.terms[0];
+                if denominator.coefficient.is_zero()
+                    || denominator
+                        .factors
+                        .iter()
+                        .any(|(base, _)| !self.is_proven_nonzero(*base))
+                {
+                    return Ok(self.atomic_polynomial(id));
+                }
+                let coefficient = Rational::one()
+                    .divide(&denominator.coefficient)
+                    .expect("a canonical monomial denominator was checked as non-zero");
+                let factors = denominator
+                    .factors
+                    .iter()
+                    .map(|(base, exponent)| {
+                        exponent
+                            .checked_neg()
+                            .map(|exponent| (*base, exponent))
+                            .ok_or(ComputationLimitKind::LogicalWorkUnits)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let reciprocal = BuilderPolynomial {
+                    terms: vec![BuilderMonomial {
+                        coefficient,
+                        factors,
+                    }],
+                };
+                self.multiply_polynomials(numerator, reciprocal, budget)
+            }
+            ExpressionNode::Power { base, exponent } => {
+                let ExpressionNode::Rational(exponent) = self.nodes[exponent.0 as usize] else {
+                    return Ok(self.atomic_polynomial(id));
+                };
+                let Some(exponent) = self.rationals[exponent.0 as usize].as_i64_if_integer() else {
+                    return Ok(self.atomic_polynomial(id));
+                };
+                if exponent < 0 && !self.is_proven_nonzero(base) {
+                    return Ok(self.atomic_polynomial(id));
+                }
+                let base = self.polynomial_from_expression(base, budget)?;
+                if exponent < 0 && base.terms.len() != 1 {
+                    return Ok(self.atomic_polynomial(id));
+                }
+                self.power_polynomial(base, exponent, budget)
+            }
+            ExpressionNode::Exact(_)
+            | ExpressionNode::Constant(_)
+            | ExpressionNode::LogBase { .. }
+            | ExpressionNode::Function { .. }
+            | ExpressionNode::BinaryFunction { .. } => Ok(self.atomic_polynomial(id)),
+        }
+    }
+
+    fn atomic_polynomial(&self, id: ExprId) -> BuilderPolynomial {
+        BuilderPolynomial {
+            terms: vec![BuilderMonomial {
+                coefficient: Rational::one(),
+                factors: vec![(id, 1)],
+            }],
+        }
+    }
+
+    fn add_polynomials(
+        &self,
+        mut left: BuilderPolynomial,
+        right: BuilderPolynomial,
+        budget: &mut CanonicalBudget,
+    ) -> Result<BuilderPolynomial, ComputationLimitKind> {
+        let work = left.terms.len().saturating_add(right.terms.len());
+        budget.reserve(work, work)?;
+        left.terms.extend(right.terms);
+        self.normalize_polynomial_terms(left)
+    }
+
+    fn multiply_polynomials(
+        &self,
+        left: BuilderPolynomial,
+        right: BuilderPolynomial,
+        budget: &mut CanonicalBudget,
+    ) -> Result<BuilderPolynomial, ComputationLimitKind> {
+        let work = left.terms.len().saturating_mul(right.terms.len());
+        if work > self.canonical_term_limit {
+            return Err(ComputationLimitKind::LogicalWorkUnits);
+        }
+        budget.reserve(work, work)?;
+        let mut terms = Vec::with_capacity(work);
+        for left in &left.terms {
+            for right in &right.terms {
+                terms.push(self.multiply_monomials(left, right)?);
+            }
+        }
+        self.normalize_polynomial_terms(BuilderPolynomial { terms })
+    }
+
+    fn multiply_monomials(
+        &self,
+        left: &BuilderMonomial,
+        right: &BuilderMonomial,
+    ) -> Result<BuilderMonomial, ComputationLimitKind> {
+        let mut factors = left.factors.clone();
+        factors.extend(right.factors.iter().copied());
+        factors.sort_by(|(left, _), (right, _)| self.compare_expressions(*left, *right));
+        let mut merged = Vec::<(ExprId, i64)>::with_capacity(factors.len());
+        for (base, exponent) in factors {
+            if let Some((last_base, last_exponent)) = merged.last_mut() {
+                if *last_base == base {
+                    *last_exponent = last_exponent
+                        .checked_add(exponent)
+                        .ok_or(ComputationLimitKind::LogicalWorkUnits)?;
+                    continue;
+                }
+            }
+            merged.push((base, exponent));
+        }
+        if merged
+            .iter()
+            .any(|(base, exponent)| *exponent == 0 && !self.is_proven_nonzero(*base))
+        {
+            return Err(ComputationLimitKind::LogicalWorkUnits);
+        }
+        merged.retain(|(_, exponent)| *exponent != 0);
+        Ok(BuilderMonomial {
+            coefficient: left.coefficient.multiply(&right.coefficient),
+            factors: merged,
+        })
+    }
+
+    fn power_polynomial(
+        &self,
+        base: BuilderPolynomial,
+        exponent: i64,
+        budget: &mut CanonicalBudget,
+    ) -> Result<BuilderPolynomial, ComputationLimitKind> {
+        if exponent == 0 {
+            return Ok(BuilderPolynomial::one());
+        }
+        if exponent < 0 {
+            let [term] = base.terms.as_slice() else {
+                unreachable!("negative polynomial powers require a non-zero monomial base")
+            };
+            let magnitude = exponent
+                .checked_abs()
+                .ok_or(ComputationLimitKind::LogicalWorkUnits)?;
+            let coefficient = term
+                .coefficient
+                .pow_i64(exponent)
+                .map_err(|_| ComputationLimitKind::LogicalWorkUnits)?;
+            let factors = term
+                .factors
+                .iter()
+                .map(|(base, factor_exponent)| {
+                    factor_exponent
+                        .checked_mul(-magnitude)
+                        .map(|exponent| (*base, exponent))
+                        .ok_or(ComputationLimitKind::LogicalWorkUnits)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(BuilderPolynomial {
+                terms: vec![BuilderMonomial {
+                    coefficient,
+                    factors,
+                }],
+            });
+        }
+
+        let mut exponent =
+            u64::try_from(exponent).map_err(|_| ComputationLimitKind::LogicalWorkUnits)?;
+        let mut factor = base;
+        let mut result = BuilderPolynomial::one();
+        while exponent > 0 {
+            if exponent & 1 == 1 {
+                result = self.multiply_polynomials(result, factor.clone(), budget)?;
+            }
+            exponent >>= 1;
+            if exponent > 0 {
+                factor = self.multiply_polynomials(factor.clone(), factor, budget)?;
+            }
+        }
+        Ok(result)
+    }
+
+    fn normalize_polynomial_terms(
+        &self,
+        mut polynomial: BuilderPolynomial,
+    ) -> Result<BuilderPolynomial, ComputationLimitKind> {
+        polynomial.terms.retain(|term| !term.coefficient.is_zero());
+        polynomial
+            .terms
+            .sort_by(|left, right| self.compare_monomial_factors(&left.factors, &right.factors));
+        let mut terms = Vec::<BuilderMonomial>::with_capacity(polynomial.terms.len());
+        for term in polynomial.terms {
+            if let Some(last) = terms.last_mut() {
+                if self.compare_monomial_factors(&last.factors, &term.factors) == Ordering::Equal {
+                    last.coefficient = last.coefficient.add(&term.coefficient);
+                    continue;
+                }
+            }
+            terms.push(term);
+        }
+        terms.retain(|term| !term.coefficient.is_zero());
+        if terms.len() > self.canonical_term_limit {
+            return Err(ComputationLimitKind::LogicalWorkUnits);
+        }
+        Ok(BuilderPolynomial { terms })
+    }
+
+    fn compare_monomial_factors(
+        &self,
+        left: &[(ExprId, i64)],
+        right: &[(ExprId, i64)],
+    ) -> Ordering {
+        for ((left_base, left_exponent), (right_base, right_exponent)) in left.iter().zip(right) {
+            let order = self.compare_expressions(*left_base, *right_base);
+            if order != Ordering::Equal {
+                return order;
+            }
+            let order = left_exponent.cmp(right_exponent);
+            if order != Ordering::Equal {
+                return order;
+            }
+        }
+        left.len().cmp(&right.len())
+    }
+
+    fn materialize_polynomial(&mut self, polynomial: BuilderPolynomial) -> ExprId {
+        let mut terms = Vec::with_capacity(polynomial.terms.len());
+        for term in polynomial.terms {
+            terms.push(self.materialize_monomial(term));
+        }
+        self.add_many_linear(terms)
+    }
+
+    fn materialize_monomial(&mut self, monomial: BuilderMonomial) -> ExprId {
+        let mut numerator = Vec::new();
+        let mut denominator = Vec::new();
+        for (base, exponent) in monomial.factors {
+            let (target, magnitude) = if exponent < 0 {
+                (&mut denominator, exponent.unsigned_abs())
+            } else {
+                (&mut numerator, exponent as u64)
+            };
+            if magnitude == 0 {
+                continue;
+            }
+            let factor = if magnitude == 1 {
+                base
+            } else {
+                let exponent = self.push_rational(rational_integer(
+                    i64::try_from(magnitude)
+                        .expect("canonical factor exponent magnitude fits in i64"),
+                ));
+                self.power_raw(base, exponent)
+            };
+            target.push(factor);
+        }
+        if monomial.coefficient != Rational::one() || numerator.is_empty() {
+            numerator.insert(0, self.push_rational(monomial.coefficient));
+        }
+        let numerator = self.multiply_many_factors(numerator);
+        if denominator.is_empty() {
+            numerator
+        } else {
+            let denominator = self.multiply_many_factors(denominator);
+            self.divide_raw(numerator, denominator)
         }
     }
 
@@ -7798,7 +8201,12 @@ mod tests {
 
     fn lower(source: &str) -> ExactExpressionDag {
         let parsed = parse_source(source, &ParseSettings::default()).expect(source);
-        lower_source_expression(&parsed, SemanticSettings::default()).expect(source)
+        lower_source_expression(
+            &parsed,
+            SemanticSettings::default(),
+            &ResourceLimits::default(),
+        )
+        .expect(source)
     }
 
     #[test]
@@ -7808,6 +8216,34 @@ mod tests {
         assert_eq!(dag.rationals[1].to_string(), "1/5");
         assert!(matches!(dag.node(dag.root()), ExpressionNode::Add(_)));
         assert_eq!(evaluate_rational_dag(&dag).unwrap().to_string(), "3/10");
+    }
+
+    #[test]
+    fn canonical_lowering_preserves_children_before_parents() {
+        let dag = lower("sin((2^(1/3)+2^(1/3))/2)");
+        for (index, node) in dag.nodes.iter().enumerate() {
+            let parent = u32::try_from(index).unwrap();
+            let children = match node {
+                ExpressionNode::Rational(_)
+                | ExpressionNode::Exact(_)
+                | ExpressionNode::Constant(_) => Vec::new(),
+                ExpressionNode::Add(values) | ExpressionNode::Multiply(values) => {
+                    dag.list(*values).to_vec()
+                }
+                ExpressionNode::Divide {
+                    numerator,
+                    denominator,
+                } => vec![*numerator, *denominator],
+                ExpressionNode::Power { base, exponent } => vec![*base, *exponent],
+                ExpressionNode::LogBase { argument, base } => vec![*argument, *base],
+                ExpressionNode::Function { argument, .. } => vec![*argument],
+                ExpressionNode::BinaryFunction { left, right, .. } => vec![*left, *right],
+            };
+            assert!(
+                children.iter().all(|child| child.0 < parent),
+                "node {index} references a non-child-first id: {node:?}"
+            );
+        }
     }
 
     #[test]

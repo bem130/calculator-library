@@ -120,7 +120,7 @@ pub fn evaluate(
 ) -> Result<EvaluationOutcome, EvaluationError> {
     let limits = resource_limits(&request.limits);
     validate_parsed_expression_limits(expression, &limits).map_err(EvaluationError::InputLimit)?;
-    let dag = lower_source_expression(&expression.root, request.semantics)?;
+    let dag = lower_source_expression(&expression.root, request.semantics, &limits)?;
     validate_expression_dag_limits(&dag, &limits).map_err(EvaluationError::InputLimit)?;
     let (dag, normalization) = normalize_exact_subexpressions(dag, &limits)?;
     let rational = match evaluate_rational_evaluation_dag(&dag) {
@@ -3756,7 +3756,12 @@ mod tests {
 
     fn symbolic_plain_text_from_source(source: &str) -> String {
         let parsed = parse(source, &ParseSettings::default()).unwrap();
-        let dag = lower_source_expression(&parsed.root, SemanticSettings::default()).unwrap();
+        let dag = lower_source_expression(
+            &parsed.root,
+            SemanticSettings::default(),
+            &ResourceLimits::default(),
+        )
+        .unwrap();
         symbolic_presentation_from_dag(&dag).plain_text
     }
 
@@ -6548,6 +6553,40 @@ mod tests {
         };
         assert_eq!(lower.significand, "0.0000");
         assert_eq!(upper.significand, "0.0000");
+    }
+
+    #[test]
+    fn arithmetic_normalization_uses_canonical_factor_and_polynomial_forms() {
+        for (source, expected) in [
+            ("sin(1)*sin(1)", "sin(1)^2"),
+            ("sin(1)^2*sin(1)^3", "sin(1)^5"),
+            ("(exp(1)+sin(1))*cos(1)-exp(1)*cos(1)", "sin(1)*cos(1)"),
+            ("exp(1)*(sin(1)+cos(1))-exp(1)*sin(1)-exp(1)*cos(1)", "0"),
+            ("(exp(1)+sin(1))^2-exp(1)^2-2*exp(1)*sin(1)-sin(1)^2", "0"),
+            ("(exp(1)*sin(1))/exp(1)", "sin(1)"),
+            ("(exp(1)*sin(1)+exp(1)*cos(1))/exp(1)", "sin(1)+cos(1)"),
+        ] {
+            assert_eq!(exact_plain_text(source), expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn factor_normalization_never_cancels_domain_obligations() {
+        for source in [
+            "(ln(-1)*exp(1))/ln(-1)",
+            "(exp(1)+sin(1))*ln(-1)-exp(1)*ln(-1)-sin(1)*ln(-1)",
+        ] {
+            let mut context = EvaluationContext::default();
+            let error = calculate(source, &exact_only_request(), &mut context).expect_err(source);
+            assert_eq!(
+                error,
+                CalculatorError::Domain(DomainError {
+                    kind: DomainErrorKind::LogarithmOfNonPositive,
+                    span: None,
+                }),
+                "{source}"
+            );
+        }
     }
 
     #[test]
