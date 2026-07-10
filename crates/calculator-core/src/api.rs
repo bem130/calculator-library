@@ -13,11 +13,12 @@ use num_traits::{Signed, Zero};
 
 use crate::expression::{
     evaluate_interval_dag, evaluate_radical_dag, evaluate_rational_evaluation_dag,
-    evaluate_rational_pi_multiple_dag, evaluate_real_algebraic_dag, lower_source_expression,
+    evaluate_rational_pi_multiple_dag, evaluate_real_algebraic_dag, logarithm_product_reduction,
+    logarithm_quotient_identity, logarithm_sum_reduction, lower_source_expression,
     node_is_exact_zero, normalize_exact_subexpressions, structurally_equal_expressions,
-    ExactExpressionDag, ExactNormalization, ExactReduction, PiCoefficientEvaluation,
-    RadicalEvaluation, RadicalLinearCombinationEvaluation, RadicalReduction, RationalEvaluation,
-    RealAlgebraicEvaluation,
+    ExactExpressionDag, ExactNormalization, ExactReduction, LogarithmArgumentOperation,
+    PiCoefficientEvaluation, RadicalEvaluation, RadicalLinearCombinationEvaluation,
+    RadicalReduction, RationalEvaluation, RealAlgebraicEvaluation,
 };
 use crate::interval;
 use crate::syntax::{SourceExpr, UnaryOperator};
@@ -1949,6 +1950,24 @@ fn render_signed_symbolic_sum(
     dag: &ExactExpressionDag,
     list_id: ExprListId,
 ) -> SignedRenderedSymbolic {
+    if let Ok(Some(reduction)) = logarithm_sum_reduction(dag, dag.list(list_id)) {
+        let left = render_symbolic_node(dag, reduction.left_argument);
+        let right = render_symbolic_node(dag, reduction.right_argument);
+        let argument = match reduction.operation {
+            LogarithmArgumentOperation::Multiply => format!(
+                "{}*{}",
+                parenthesize_symbolic(&left, SYMBOLIC_PRECEDENCE_MULTIPLY),
+                parenthesize_symbolic(&right, SYMBOLIC_PRECEDENCE_MULTIPLY)
+            ),
+            LogarithmArgumentOperation::Divide => format!(
+                "{}/{}",
+                parenthesize_symbolic(&left, SYMBOLIC_PRECEDENCE_MULTIPLY),
+                parenthesize_symbolic(&right, SYMBOLIC_PRECEDENCE_MULTIPLY)
+            ),
+        };
+        let base = render_symbolic_node(dag, reduction.base);
+        return render_scaled_symbolic_log_text(&argument, &base.text, &reduction.scale);
+    }
     let terms = dag
         .list(list_id)
         .iter()
@@ -2019,6 +2038,11 @@ fn render_signed_symbolic_division(
     numerator: ExprId,
     denominator: ExprId,
 ) -> SignedRenderedSymbolic {
+    if let Ok(Some((argument, base, scale))) =
+        logarithm_quotient_identity(dag, numerator, denominator)
+    {
+        return render_scaled_symbolic_log_base(dag, argument, base, &scale);
+    }
     let numerator = render_signed_symbolic_node(dag, numerator);
     let denominator = render_signed_symbolic_node(dag, denominator);
     SignedRenderedSymbolic {
@@ -2038,6 +2062,13 @@ fn render_signed_symbolic_product(
     dag: &ExactExpressionDag,
     list_id: ExprListId,
 ) -> SignedRenderedSymbolic {
+    let children = dag.list(list_id);
+    if let Ok(Some(reduction)) = logarithm_product_reduction(dag, children) {
+        if let Some((argument, base)) = reduction.logarithm {
+            return render_scaled_symbolic_log_base(dag, argument, base, &reduction.scale);
+        }
+        return signed_rational_symbolic(reduction.scale.value());
+    }
     let mut negative = false;
     let mut factors = Vec::new();
     for child in dag.list(list_id) {
@@ -2061,6 +2092,58 @@ fn render_signed_symbolic_product(
             precedence: SYMBOLIC_PRECEDENCE_MULTIPLY,
         },
     }
+}
+
+fn signed_rational_symbolic(value: &Rational) -> SignedRenderedSymbolic {
+    let negative = value.is_negative();
+    SignedRenderedSymbolic {
+        negative,
+        value: RenderedSymbolic {
+            text: if negative {
+                value.negate().to_string()
+            } else {
+                value.to_string()
+            },
+            precedence: SYMBOLIC_PRECEDENCE_ATOM,
+        },
+    }
+}
+
+fn render_scaled_symbolic_log_base(
+    dag: &ExactExpressionDag,
+    argument: ExprId,
+    base: ExprId,
+    scale: &RationalEvaluation,
+) -> SignedRenderedSymbolic {
+    let argument = render_symbolic_node(dag, argument);
+    let base = render_symbolic_node(dag, base);
+    render_scaled_symbolic_log_text(&argument.text, &base.text, scale)
+}
+
+fn render_scaled_symbolic_log_text(
+    argument: &str,
+    base: &str,
+    scale: &RationalEvaluation,
+) -> SignedRenderedSymbolic {
+    let logarithm = RenderedSymbolic {
+        text: format!("log({argument},{base})"),
+        precedence: SYMBOLIC_PRECEDENCE_ATOM,
+    };
+    let negative = scale.value().is_negative();
+    let magnitude = if negative {
+        scale.value().negate()
+    } else {
+        scale.value().clone()
+    };
+    let value = if magnitude == Rational::one() {
+        logarithm
+    } else {
+        RenderedSymbolic {
+            text: format!("{}*{}", magnitude, logarithm.text),
+            precedence: SYMBOLIC_PRECEDENCE_MULTIPLY,
+        }
+    };
+    SignedRenderedSymbolic { negative, value }
 }
 
 fn render_signed_symbolic_function(
@@ -3645,6 +3728,48 @@ mod tests {
         assert_eq!(exact_presentation_for("exp(3,2)").plain_text, "8");
         assert_eq!(exact_presentation_for("ln(exp(2))").plain_text, "2");
         assert_eq!(exact_presentation_for("log(exp(2), e)").plain_text, "2");
+    }
+
+    #[test]
+    fn logarithm_change_of_base_and_chain_identities_are_exact() {
+        for (source, expected) in [
+            ("ln(8)/ln(2)", "3"),
+            ("ln(sqrt(2))/ln(8)", "1/6"),
+            ("log(8,3)/log(2,3)", "3"),
+            ("log(3,2)/log(3,8)", "3"),
+            ("log(8,3)*log(3,2)", "3"),
+            ("log(3,2)*log(8,3)", "3"),
+            ("2*log(8,3)*log(3,2)", "6"),
+            ("log(2,3)*log(3,2)", "1"),
+            ("log(8,7)*log(7,3)*log(3,2)", "3"),
+            ("log(3,2)*log(8,7)*log(7,3)", "3"),
+            ("log(2,10)+log(5,10)", "1"),
+            ("log(6,2)-log(3,2)", "1"),
+            ("2*log(2,10)+2*log(5,10)", "2"),
+        ] {
+            assert_eq!(exact_plain_text(source), expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn logarithm_change_of_base_normalizes_symbolically_when_not_numeric() {
+        for (source, expected) in [
+            ("ln(3)/ln(2)", "log(3,2)"),
+            ("log(5,3)/log(2,3)", "log(5,2)"),
+            ("log(3,2)/log(3,5)", "log(5,2)"),
+            ("log(5,3)*log(3,2)", "log(5,2)"),
+            ("2*ln(3)/(3*ln(2))", "2/3*log(3,2)"),
+            ("log(5,7)*log(7,3)*log(3,2)", "log(5,2)"),
+            ("log(2,10)+log(3,10)", "log(2*3,10)"),
+            ("log(6,10)-log(3,10)", "log(6/3,10)"),
+            ("2*log(2,10)+2*log(3,10)", "2*log(2*3,10)"),
+        ] {
+            assert_eq!(exact_plain_text(source), expected, "{source}");
+        }
+
+        for source in ["ln(sin(1))/ln(2)", "log(sin(1),3)/log(2,3)"] {
+            assert_eq!(exact_plain_text(source), source, "{source}");
+        }
     }
 
     #[test]
