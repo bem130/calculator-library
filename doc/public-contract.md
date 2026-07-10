@@ -35,7 +35,9 @@ author は `bem130`、license は `MIT` とする。license 本文は repository
 
 `log(argument, base)` と `exp(exponent, base)` は2引数形式を受ける。`ln(argument)` は底 `e` の自然対数として受ける。`log(argument)` のように底を省略した対数は受け付けない。`root(argument, index)` は `argument^(1/index)` と同じ実数主値 semantics へ lower する。`abs(argument)`、`floor(argument)`、postfix `!` / `fact(argument)`、`perm(n,r)`、`comb(n,r)`、`mod(a,b)`、`gcd(a,b)`、`lcm(a,b)` を受ける。`lcd(a,b)` は `lcm(a,b)` の alias として parse し、正規表示名は `lcm` とする。`sinh`、`cosh`、`tanh`、`asinh`、`acosh`、`atanh` は source-level 関数として受け、内部 DAG では exp/log/sqrt の組み合わせへ lower して既存の exact simplification と certified interval の経路を使う。
 
-`e^x`、`exp(x)`、`exp(x,e)` は同じ自然指数関数の内部表現へ正規化する。Add / Multiply は結合順と入力順に依存しないcanonical formを使い、有理係数と証明可能な同類項をexactに統合する。`cosh(100)-sinh(100)`のような式は数値評価より前に`exp(-100)`へ簡約し、その簡約済みexact DAGをcertified intervalとscientific outputにも使用する。
+`e^x`、`exp(x)`、`exp(x,e)` は同じ自然指数関数の内部表現へ正規化する。四則演算と非負整数冪は、有理係数と整数multiplicity付きfactorからなるbounded sparse polynomial formへ正規化する。Add / Multiplyの結合順、入力順、分配前後、同じfactorの積と整数冪に依存せず、証明可能な同類項をexactに統合する。自然指数因子は`exp(a)*exp(b)=exp(a+b)`へ統合する。`cosh(100)-sinh(100)`のような式は数値評価より前に`exp(-100)`へ簡約し、その簡約済みexact DAGをcertified intervalとscientific outputにも使用する。
+
+商のfactor相殺、零係数項の除去、分配後の相殺は、消える部分式の定義済み性と必要な非零性を証明できる場合だけ行う。消去条件は`Defined` / `NonZero` domain obligationとしてDAGに保持し、値の簡約より先に検証する。exact reductionによって子の値が確定した後も親のcanonical factor viewを再構築し、stored exact valueの構造的等値をfactor比較に使用する。canonical expansionがresource limitへ達した場合、部分的な展開結果を完全簡約として返さずtyped partialにする。
 
 相殺、零倍、因子消去によって部分式を消す変形は、その部分式が実数領域で定義済みと証明できる場合だけ適用する。定義済みか不明なら式を保持し、未定義と判明した場合はtyped domain errorを返す。構造が同じという理由だけで、`ln(sin(-1))-ln(sin(-1))`や`0*ln(sin(-1))`を0にしてはならない。
 

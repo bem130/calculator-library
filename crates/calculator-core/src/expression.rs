@@ -24,6 +24,7 @@ pub(crate) struct ExactExpressionDag {
     semantics: SemanticSettings,
     canonical_rewrite_steps_used: u32,
     canonical_logical_work_used: u64,
+    domain_obligations: Vec<DomainObligation>,
 }
 
 impl ExactExpressionDag {
@@ -307,6 +308,7 @@ pub(crate) enum ExactReduction {
 struct StoredExactValue {
     reduction: ExactReduction,
     presentation: ExpressionNode,
+    canonical_polynomial: Option<BuilderPolynomial>,
 }
 
 impl RealAlgebraicEvaluation {
@@ -343,6 +345,13 @@ struct DagBuilder {
     canonical_budget: CanonicalBudget,
     canonical_term_limit: usize,
     canonical_limit_reached: Option<ComputationLimitKind>,
+    domain_obligations: Vec<DomainObligation>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DomainObligation {
+    Defined(ExprId),
+    NonZero(ExprId),
 }
 
 struct BuilderLinearTerm {
@@ -350,13 +359,13 @@ struct BuilderLinearTerm {
     coefficient: Rational,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct BuilderMonomial {
     coefficient: Rational,
     factors: Vec<(ExprId, i64)>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct BuilderPolynomial {
     terms: Vec<BuilderMonomial>,
 }
@@ -434,6 +443,7 @@ pub(crate) fn lower_source_expression(
         semantics,
         canonical_rewrite_steps_used,
         canonical_logical_work_used,
+        domain_obligations: builder.domain_obligations,
     })
 }
 
@@ -455,6 +465,7 @@ pub(crate) fn normalize_exact_subexpressions(
         semantics: dag.semantics,
         canonical_rewrite_steps_used: dag.canonical_rewrite_steps_used,
         canonical_logical_work_used: dag.canonical_logical_work_used,
+        domain_obligations: dag.domain_obligations.clone(),
     };
     let mut normalization = dag.normalization;
     let mut budget = ReductionBudget::new(
@@ -463,6 +474,16 @@ pub(crate) fn normalize_exact_subexpressions(
         dag.canonical_logical_work_used,
         normalization.limit_reached,
     );
+
+    for obligation in &dag.domain_obligations {
+        match obligation {
+            DomainObligation::Defined(id) => validate_obvious_domain(&dag, *id)?,
+            DomainObligation::NonZero(id) => {
+                validate_obvious_domain(&dag, *id)?;
+                let _ = prove_expression_nonzero(&dag, *id)?;
+            }
+        }
+    }
 
     // Lowering assigns children before parents. Each source node is rebuilt and reduced
     // exactly once, so parents always observe memoized exact children.
@@ -481,6 +502,8 @@ pub(crate) fn normalize_exact_subexpressions(
         reduced.nodes[index] =
             store_exact_subexpression(&mut reduced, value, presentation, &mut normalization);
     }
+
+    materialize_stored_canonical_polynomials(&mut reduced, limits, &mut budget);
 
     normalization.limit_reached = budget.limit_reached;
 
@@ -601,6 +624,7 @@ enum RecognizedExactSubexpression {
     PiMultiple(PiCoefficientEvaluation),
     Radical(RadicalReduction),
     RealAlgebraic(RealAlgebraicEvaluation),
+    CanonicalPolynomial(BuilderPolynomial),
     Symbolic,
 }
 
@@ -627,15 +651,6 @@ fn recognize_exact_subexpression(
     if zero_product_has_unproven_factor_domain(dag, id)? {
         return Ok(None);
     }
-    if let Some(value) = recognize_canonical_polynomial_constant(dag, id, limits, budget)? {
-        return Ok(Some(RecognizedExactSubexpression::Rational(
-            RationalEvaluation::direct(value),
-        )));
-    }
-    if budget.limit_reached.is_some() {
-        validate_obvious_domain(dag, id)?;
-        return Ok(None);
-    }
     if let Some(value) = recognize_exact_operation(dag, id, limits)? {
         return Ok(Some(value));
     }
@@ -654,15 +669,29 @@ fn recognize_exact_subexpression(
     if let Some(value) = evaluate_real_algebraic_node(dag, id, limits)? {
         return Ok(Some(RecognizedExactSubexpression::RealAlgebraic(value)));
     }
+    if let Some(polynomial) = recognize_canonical_polynomial(dag, id, limits, budget)? {
+        return Ok(Some(match polynomial.terms.as_slice() {
+            [] => {
+                RecognizedExactSubexpression::Rational(RationalEvaluation::direct(Rational::zero()))
+            }
+            [term] if term.factors.is_empty() => RecognizedExactSubexpression::Rational(
+                RationalEvaluation::direct(term.coefficient.clone()),
+            ),
+            [_] | [_, ..] => RecognizedExactSubexpression::CanonicalPolynomial(polynomial),
+        }));
+    }
+    if budget.limit_reached.is_some() {
+        validate_obvious_domain(dag, id)?;
+    }
     Ok(None)
 }
 
-fn recognize_canonical_polynomial_constant(
+fn recognize_canonical_polynomial(
     dag: &ExactExpressionDag,
     id: ExprId,
     limits: &ResourceLimits,
     budget: &mut ReductionBudget,
-) -> Result<Option<Rational>, EvaluationError> {
+) -> Result<Option<BuilderPolynomial>, EvaluationError> {
     if !matches!(
         dag.semantic_node(id),
         ExpressionNode::Add(_)
@@ -677,11 +706,23 @@ fn recognize_canonical_polynomial_constant(
     let Some(polynomial) = exact_polynomial_from_expression(dag, id, budget, term_limit)? else {
         return Ok(None);
     };
-    match polynomial.terms.as_slice() {
-        [] => Ok(Some(Rational::zero())),
-        [term] if term.factors.is_empty() => Ok(Some(term.coefficient.clone())),
-        [_] | [_, ..] => Ok(None),
+    if polynomial_is_single_atom(dag, id, &polynomial) {
+        Ok(None)
+    } else {
+        Ok(Some(polynomial))
     }
+}
+
+fn polynomial_is_single_atom(
+    dag: &ExactExpressionDag,
+    id: ExprId,
+    polynomial: &BuilderPolynomial,
+) -> bool {
+    let [term] = polynomial.terms.as_slice() else {
+        return false;
+    };
+    term.coefficient == Rational::one()
+        && matches!(term.factors.as_slice(), [(base, 1)] if structurally_equal_expressions(dag, id, *base))
 }
 
 fn exact_polynomial_from_expression(
@@ -1896,6 +1937,7 @@ fn store_exact_subexpression(
     presentation: ExpressionNode,
     normalization: &mut ExactNormalization,
 ) -> ExpressionNode {
+    let mut canonical_polynomial = None;
     let reduction = match value {
         RecognizedExactSubexpression::Rational(value) => {
             normalization.used_special_angle |= value.used_special_angle();
@@ -1937,6 +1979,10 @@ fn store_exact_subexpression(
                 value => ExactReduction::RealAlgebraic(value),
             }
         }
+        RecognizedExactSubexpression::CanonicalPolynomial(polynomial) => {
+            canonical_polynomial = Some(polynomial);
+            ExactReduction::Symbolic
+        }
         RecognizedExactSubexpression::Symbolic => ExactReduction::Symbolic,
     };
     let presentation = canonical_exact_presentation(dag, &presentation, &reduction);
@@ -1944,6 +1990,7 @@ fn store_exact_subexpression(
     dag.exact_values.push(StoredExactValue {
         reduction,
         presentation,
+        canonical_polynomial,
     });
     ExpressionNode::Exact(value)
 }
@@ -1977,6 +2024,154 @@ fn store_rational_node(dag: &mut ExactExpressionDag, value: Rational) -> Express
     let rational = RationalId(dag.rationals.len() as u32);
     dag.rationals.push(value);
     ExpressionNode::Rational(rational)
+}
+
+fn materialize_stored_canonical_polynomials(
+    dag: &mut ExactExpressionDag,
+    limits: &ResourceLimits,
+    budget: &mut ReductionBudget,
+) {
+    for index in 0..dag.exact_values.len() {
+        let Some(polynomial) = dag.exact_values[index].canonical_polynomial.take() else {
+            continue;
+        };
+        let estimated_nodes = canonical_polynomial_node_estimate(&polynomial);
+        let fits_expression_limit = dag
+            .nodes
+            .len()
+            .checked_add(estimated_nodes)
+            .is_some_and(|nodes| nodes <= limits.max_expression_nodes as usize);
+        if !fits_expression_limit {
+            budget
+                .limit_reached
+                .get_or_insert(ComputationLimitKind::LogicalWorkUnits);
+            continue;
+        }
+        let mut reserved = true;
+        for _ in 0..estimated_nodes {
+            if !budget.consume_node() {
+                reserved = false;
+                break;
+            }
+        }
+        if !reserved {
+            continue;
+        }
+        dag.exact_values[index].presentation = materialize_exact_polynomial(dag, polynomial);
+    }
+}
+
+fn canonical_polynomial_node_estimate(polynomial: &BuilderPolynomial) -> usize {
+    polynomial
+        .terms
+        .iter()
+        .map(|term| {
+            let powers = term
+                .factors
+                .iter()
+                .filter(|(_, exponent)| exponent.unsigned_abs() > 1)
+                .count()
+                .saturating_mul(2);
+            let coefficient =
+                usize::from(term.coefficient != Rational::one() || term.factors.is_empty());
+            powers
+                .saturating_add(coefficient)
+                .saturating_add(term.factors.len())
+                .saturating_add(3)
+        })
+        .sum::<usize>()
+        .saturating_add(1)
+}
+
+fn materialize_exact_polynomial(
+    dag: &mut ExactExpressionDag,
+    polynomial: BuilderPolynomial,
+) -> ExpressionNode {
+    let terms = polynomial
+        .terms
+        .into_iter()
+        .map(|term| materialize_exact_monomial(dag, term))
+        .collect::<Vec<_>>();
+    match terms.as_slice() {
+        [] => append_rational_node(dag, Rational::zero()),
+        [term] => dag.node(*term).clone(),
+        [_, ..] => {
+            let list = dag.push_list(terms);
+            ExpressionNode::Add(list)
+        }
+    }
+}
+
+fn materialize_exact_monomial(dag: &mut ExactExpressionDag, monomial: BuilderMonomial) -> ExprId {
+    let mut numerator = Vec::new();
+    let mut denominator = Vec::new();
+    for (base, exponent) in monomial.factors {
+        let (target, magnitude) = if exponent < 0 {
+            (&mut denominator, exponent.unsigned_abs())
+        } else {
+            (&mut numerator, exponent as u64)
+        };
+        if magnitude == 0 {
+            continue;
+        }
+        let factor = if magnitude == 1 {
+            base
+        } else {
+            let exponent = append_rational_expr(
+                dag,
+                rational_integer(
+                    i64::try_from(magnitude)
+                        .expect("canonical factor exponent magnitude fits in i64"),
+                ),
+            );
+            append_expression_node(dag, ExpressionNode::Power { base, exponent })
+        };
+        target.push(factor);
+    }
+    if monomial.coefficient != Rational::one() || numerator.is_empty() {
+        numerator.insert(0, append_rational_expr(dag, monomial.coefficient));
+    }
+    let numerator = append_product(dag, numerator);
+    if denominator.is_empty() {
+        numerator
+    } else {
+        let denominator = append_product(dag, denominator);
+        append_expression_node(
+            dag,
+            ExpressionNode::Divide {
+                numerator,
+                denominator,
+            },
+        )
+    }
+}
+
+fn append_product(dag: &mut ExactExpressionDag, factors: Vec<ExprId>) -> ExprId {
+    match factors.as_slice() {
+        [factor] => *factor,
+        [_, ..] => {
+            let list = dag.push_list(factors);
+            append_expression_node(dag, ExpressionNode::Multiply(list))
+        }
+        [] => append_rational_expr(dag, Rational::one()),
+    }
+}
+
+fn append_rational_node(dag: &mut ExactExpressionDag, value: Rational) -> ExpressionNode {
+    let rational = RationalId(dag.rationals.len() as u32);
+    dag.rationals.push(value);
+    ExpressionNode::Rational(rational)
+}
+
+fn append_rational_expr(dag: &mut ExactExpressionDag, value: Rational) -> ExprId {
+    let node = append_rational_node(dag, value);
+    append_expression_node(dag, node)
+}
+
+fn append_expression_node(dag: &mut ExactExpressionDag, node: ExpressionNode) -> ExprId {
+    let id = ExprId(dag.nodes.len() as u32);
+    dag.nodes.push(node);
+    id
 }
 
 #[cfg(test)]
@@ -7755,7 +7950,33 @@ impl DagBuilder {
             return id;
         }
         self.canonical_budget = budget;
-        self.materialize_polynomial(polynomial)
+        let normalized = self.materialize_polynomial(polynomial);
+        if normalized != id {
+            self.domain_obligations.push(DomainObligation::Defined(id));
+            match self.nodes[id.0 as usize] {
+                ExpressionNode::Divide { denominator, .. } => self
+                    .domain_obligations
+                    .push(DomainObligation::NonZero(denominator)),
+                ExpressionNode::Power { base, exponent } => {
+                    if let ExpressionNode::Rational(value) = self.nodes[exponent.0 as usize] {
+                        let exponent = &self.rationals[value.0 as usize];
+                        if exponent.is_zero() || exponent.is_negative() {
+                            self.domain_obligations
+                                .push(DomainObligation::NonZero(base));
+                        }
+                    }
+                }
+                ExpressionNode::Rational(_)
+                | ExpressionNode::Exact(_)
+                | ExpressionNode::Constant(_)
+                | ExpressionNode::Add(_)
+                | ExpressionNode::Multiply(_)
+                | ExpressionNode::LogBase { .. }
+                | ExpressionNode::Function { .. }
+                | ExpressionNode::BinaryFunction { .. } => {}
+            }
+        }
+        normalized
     }
 
     fn polynomial_from_expression(
@@ -8164,7 +8385,12 @@ impl DagBuilder {
             return false;
         };
         let exponent = &self.rationals[value.0 as usize];
-        exponent.is_integer() && (!exponent.is_negative() || self.is_proven_nonzero(base))
+        exponent.is_integer()
+            && if exponent.is_zero() || exponent.is_negative() {
+                self.is_proven_nonzero(base)
+            } else {
+                true
+            }
     }
 
     fn is_proven_positive(&self, id: ExprId) -> bool {
@@ -8622,6 +8848,37 @@ mod tests {
     }
 
     #[test]
+    fn canonical_lowering_retains_domain_sensitive_zero_powers() {
+        let dag = lower("0^0");
+        assert!(matches!(dag.node(dag.root()), ExpressionNode::Power { .. }));
+    }
+
+    #[test]
+    fn canonical_lowering_records_eliminated_domain_obligations() {
+        let dag = lower("(exp(1)*sin(1))/exp(1)");
+        assert!(dag.domain_obligations.iter().any(|obligation| {
+            matches!(
+                obligation,
+                DomainObligation::Defined(id)
+                    if matches!(dag.node(*id), ExpressionNode::Divide { .. })
+            )
+        }));
+        assert!(dag.domain_obligations.iter().any(|obligation| {
+            matches!(
+                obligation,
+                DomainObligation::NonZero(id)
+                    if matches!(
+                        dag.node(*id),
+                        ExpressionNode::Function {
+                            function: Function::Exp,
+                            ..
+                        }
+                    )
+            )
+        }));
+    }
+
+    #[test]
     fn percent_lowers_to_division_by_one_hundred() {
         let dag = lower("50%");
         let ExpressionNode::Rational(value) = dag.node(dag.root()) else {
@@ -8694,6 +8951,69 @@ mod tests {
             normalize_exact_subexpressions(dag, &ResourceLimits::default()).unwrap();
         assert_eq!(renormalized, expected);
         assert_eq!(repeated_metadata, metadata);
+    }
+
+    #[test]
+    fn post_exact_canonical_presentation_removes_reduced_factors() {
+        let dag = lower("sin(pi/2)*exp(1)+cos(1)");
+        let (dag, _) = normalize_exact_subexpressions(dag, &ResourceLimits::default()).unwrap();
+        assert!(
+            !expression_contains_function(&dag, dag.root(), Function::Sin),
+            "normalized root still contains the reduced sine factor: {dag:#?}"
+        );
+    }
+
+    fn expression_contains_function(
+        dag: &ExactExpressionDag,
+        id: ExprId,
+        expected: Function,
+    ) -> bool {
+        match dag.semantic_node(id) {
+            ExpressionNode::Rational(_) | ExpressionNode::Constant(_) => false,
+            ExpressionNode::Exact(value) => {
+                expression_node_contains_function(dag, dag.exact_presentation(*value), expected)
+            }
+            node => expression_node_contains_function(dag, node, expected),
+        }
+    }
+
+    fn expression_node_contains_function(
+        dag: &ExactExpressionDag,
+        node: &ExpressionNode,
+        expected: Function,
+    ) -> bool {
+        match node {
+            ExpressionNode::Rational(_) | ExpressionNode::Constant(_) => false,
+            ExpressionNode::Exact(value) => {
+                expression_node_contains_function(dag, dag.exact_presentation(*value), expected)
+            }
+            ExpressionNode::Add(values) | ExpressionNode::Multiply(values) => dag
+                .list(*values)
+                .iter()
+                .any(|child| expression_contains_function(dag, *child, expected)),
+            ExpressionNode::Divide {
+                numerator,
+                denominator,
+            } => {
+                expression_contains_function(dag, *numerator, expected)
+                    || expression_contains_function(dag, *denominator, expected)
+            }
+            ExpressionNode::Power { base, exponent } => {
+                expression_contains_function(dag, *base, expected)
+                    || expression_contains_function(dag, *exponent, expected)
+            }
+            ExpressionNode::LogBase { argument, base } => {
+                expression_contains_function(dag, *argument, expected)
+                    || expression_contains_function(dag, *base, expected)
+            }
+            ExpressionNode::Function { function, argument } => {
+                *function == expected || expression_contains_function(dag, *argument, expected)
+            }
+            ExpressionNode::BinaryFunction { left, right, .. } => {
+                expression_contains_function(dag, *left, expected)
+                    || expression_contains_function(dag, *right, expected)
+            }
+        }
     }
 
     #[test]

@@ -364,6 +364,8 @@ const knownValueKeys = [
 
 同様に、数値計算の前にexact expressionがcanonicalizeされる。`cosh(100)-sinh(100)`は巨大な`cosh(100)`と`sinh(100)`を別々に近似してから引くのではなく、まず`exp(-100)`へexactに変形し、その式からscientific outputとcertified intervalを作る。`e^x`、`exp(x)`、`exp(x,e)`も同じ内部表現になる。UI側で先に浮動小数点評価したり、独自の相殺規則を追加したりしない。
 
+四則演算はbounded sparse polynomial formへ正規化されるため、入力の順序や括弧だけでなく、`a*(b+c)`と`a*b+a*c`の違いにも依存しない。同じfactorの積は整数冪へまとめ、自然指数関数の積は引数の和へまとめる。special angleや根号がexact reductionされた後も親のfactor formを再構築するので、`sin(pi/2)*exp(1)-exp(1)`も`0`になる。展開がrequestのresource limitを超える場合は、ライブラリがtyped partialを返す。UIは独自に展開を続行せず、その状態を`CalculationOutcome::Partial`として扱う。
+
 ただしcanonicalizationはdomain errorを隠さない。例えば`ln(sin(-1))-ln(sin(-1))`や`0*ln(sin(-1))`は0ではなくdomain errorである。UIはexact表示文字列から成功・失敗を推測せず、`ApiResult`のtyped errorを処理する。
 
 ---
