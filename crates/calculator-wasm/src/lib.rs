@@ -1310,7 +1310,11 @@ mod tests {
 
     #[test]
     fn wasm_dto_serializes_affine_real_algebraic_expression() {
-        for source in ["1-2^(1/3)", "2^(1/3)/2+1", "1/2^(1/3)+1"] {
+        for (source, expected_exact) in [
+            ("1-2^(1/3)", "1-2^(1/3)"),
+            ("2^(1/3)/2+1", "1/2*2^(1/3)+1"),
+            ("1/2^(1/3)+1", "1/2^(1/3)+1"),
+        ] {
             let mut request = exact_only_request();
             request.scientific_output = ScientificOutputRequestDto::Include {
                 significant_digits: 50,
@@ -1336,7 +1340,7 @@ mod tests {
                 exact.representation,
                 ExactRepresentationKindDto::RealAlgebraic
             );
-            assert_eq!(exact.plain_text, source);
+            assert_eq!(exact.plain_text, expected_exact);
             assert_eq!(
                 metadata.exact_representation,
                 ExactRepresentationKindDto::RealAlgebraic

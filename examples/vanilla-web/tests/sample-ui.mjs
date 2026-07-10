@@ -385,7 +385,7 @@ async function assertRationalPowers(page) {
 
     await setExpression(page, "2^(1/3)/2+1");
     await page.click("#calculate");
-    await waitForText(page, "#exact-output", "= 2^(1/3)/2+1");
+    await waitForText(page, "#exact-output", "= 1/2*2^(1/3)+1");
     await waitForText(page, "#exact-kind", "REAL ALGEBRAIC");
 
     await setExpression(page, "1/2^(1/3)+1");

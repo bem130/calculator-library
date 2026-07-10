@@ -35,6 +35,10 @@ author は `bem130`、license は `MIT` とする。license 本文は repository
 
 `log(argument, base)` と `exp(exponent, base)` は2引数形式を受ける。`ln(argument)` は底 `e` の自然対数として受ける。`log(argument)` のように底を省略した対数は受け付けない。`root(argument, index)` は `argument^(1/index)` と同じ実数主値 semantics へ lower する。`abs(argument)`、`floor(argument)`、postfix `!` / `fact(argument)`、`perm(n,r)`、`comb(n,r)`、`mod(a,b)`、`gcd(a,b)`、`lcm(a,b)` を受ける。`lcd(a,b)` は `lcm(a,b)` の alias として parse し、正規表示名は `lcm` とする。`sinh`、`cosh`、`tanh`、`asinh`、`acosh`、`atanh` は source-level 関数として受け、内部 DAG では exp/log/sqrt の組み合わせへ lower して既存の exact simplification と certified interval の経路を使う。
 
+`e^x`、`exp(x)`、`exp(x,e)` は同じ自然指数関数の内部表現へ正規化する。Add / Multiply は結合順と入力順に依存しないcanonical formを使い、有理係数と証明可能な同類項をexactに統合する。`cosh(100)-sinh(100)`のような式は数値評価より前に`exp(-100)`へ簡約し、その簡約済みexact DAGをcertified intervalとscientific outputにも使用する。
+
+相殺、零倍、因子消去によって部分式を消す変形は、その部分式が実数領域で定義済みと証明できる場合だけ適用する。定義済みか不明なら式を保持し、未定義と判明した場合はtyped domain errorを返す。構造が同じという理由だけで、`ln(sin(-1))-ln(sin(-1))`や`0*ln(sin(-1))`を0にしてはならない。
+
 底変換、同一底・同一真数の対数比、対数連鎖積、同一底の和差は、実数領域の定義域と非零分母を証明できた場合だけexact simplificationへ使用する。証明できない場合は式を保持し、浮動小数点近似を根拠に恒等式を適用しない。
 
 ## Outputs
@@ -64,6 +68,8 @@ Release で公開 surface を変える場合は、生成 DTO、protocol snapshot
 公開 error は `domain`、`parse`、`inputLimit`、`computationLimit`、`unsupportedFeature`、`internalInvariant`、`unsupportedProtocol` に分類する。Wasm 境界では unknown tag/code、`null` / `undefined`、非 canonical number などを `unsupportedProtocol` または input limit として typed error に変換する。
 
 Resource limits は公開契約であり、入力 byte 数、source AST nodes/depth、expression nodes、integer bits、cyclotomic order、algebraic degree、polynomial coefficient bits、resultant degree、factorization work、root isolation steps、rewrite steps、precision bits、refinement rounds、logical work units、presentation nodes、output bytes を制限する。制限超過時に近似値へ破壊的に落としてはならない。
+
+rewriteまたはlogical-work limitへ到達した後は、typed domain errorを保持するための検証を除き、新しいexact simplificationやcertified interval探索を開始しない。確定済みexact expressionを含むtyped `Partial` を返し、limit外の数値評価を行わない。
 
 `maxPresentationNodes` と `maxOutputBytes` は `calculate` の exact/scientific/enclosure output、`partial` outcome に添付できた certified enclosure、Rust `present()` の出力、npm facade の `presentInput()` preview に適用する。resource limit内で保証区間を生成できない場合、partial DTOの `certifiedEnclosure` は `null`、enclosure outputはtyped `unavailable` となる。表示 tree が大きすぎる場合は `computationLimit.presentationNodes`、表示 payload の可変文字列が大きすぎる場合は `inputLimit.outputTooLarge` として返す。
 

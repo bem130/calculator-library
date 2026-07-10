@@ -1257,6 +1257,26 @@ x / x → 1
 
 最初から無制限のe-graph型探索は採用しない。探索順、証明条件、計算量制限、結果の決定性を管理しやすい、段階的なbottom-up簡約を採用する。
 
+Add / Multiply の正規形は、source lowering のすべての演算入口が共有する canonical constructor で作る。constructor はcollision時に構造一致を再確認するhash bucketを使い、同じ有理数、同じ子list、同じ式nodeをinternする。sourceの加減算chainはlowering前に項を一度収集し、累積する中間Add DAGを作らない。処理順は次の通りである。
+
+```text
+1. Add を平坦化する
+2. Multiply の有理係数を一つへ集約し、可換な子を決定的に並べる
+3. 積の比較用AC keyではnested Multiplyを再帰的に平坦化する
+4. Add を「canonical term + rational coefficient」の列として集約する
+5. identityを除去し、既存nodeへaliasできる場合は新しいnodeを作らない
+```
+
+Multiplyのstorage自体は常に平坦化しない。`(sqrt(2)*sqrt(2))`のように子を先にexact reductionするための境界はDAGに保持し、同類項比較に使う論理的なAC keyだけを平坦化する。これにより結合順に依存しない比較と、bottom-up exact value伝播を両立する。
+
+`e^x`、`exp(x)`、`exp(x,e)` は同じ exponential constructor に入れる。双曲線関数をexpへlowerした式も同じAdd / Multiply constructorを通すため、例えば `cosh(x)-sinh(x)` は、`x` が定義済みと証明できる範囲で `exp(-x)` と同じDAGへ正規化される。
+
+可換・結合・分配法則が代数的に正しくても、部分式のdomain errorを消してはならない。`f-f -> 0`、`0*f -> 0`、共通因子の消去は、消えるすべての `f` が実数領域で定義済みと証明できる場合だけ行う。`Unknown` では式を保持し、`Disproven` ではtyped domain errorを返す。例えば `ln(sin(-1))-ln(sin(-1))` や `0*ln(sin(-1))` を0へ変形してはならない。
+
+lowering後のDAGに対するrecursive exact normalizationは、子を先に確定し、元DAGと同じnode/list形状を保ったside valueへ記録する。exact normalizationを完了した同じDAGをrational、radical、real algebraic、certified intervalの順に評価する。scientific outputはこのcertified intervalまたはrecognized exact valueから作り、未簡約の元式を別経路で数値評価しない。
+
+recursive exact normalizationがrewriteまたはlogical-work limitへ到達した場合、未定義部分式を消さないためのdomain検証は続けるが、新しいradical、real algebraic、certified interval探索は開始しない。確定済みexact expressionを保持し、limitを理由とするtyped `Partial` を返す。これによりwork limit 0のrequestが、広い和の全transcendental intervalを制限外で計算することを防ぐ。
+
 ---
 
 ### 7.4 計算用正規形と表示形式を分ける

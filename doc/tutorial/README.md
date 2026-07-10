@@ -362,6 +362,10 @@ const knownValueKeys = [
 
 関数で包んだために内側の簡約が失われてはならない。例えば `exp(sinh(0))` は `1`、`ln(cosh(0))` は `0`、`(sin(pi/2)+4)!` は `120` になる。UI 側で簡約を再実装せず、source をそのまま `calculate()` に渡す。
 
+同様に、数値計算の前にexact expressionがcanonicalizeされる。`cosh(100)-sinh(100)`は巨大な`cosh(100)`と`sinh(100)`を別々に近似してから引くのではなく、まず`exp(-100)`へexactに変形し、その式からscientific outputとcertified intervalを作る。`e^x`、`exp(x)`、`exp(x,e)`も同じ内部表現になる。UI側で先に浮動小数点評価したり、独自の相殺規則を追加したりしない。
+
+ただしcanonicalizationはdomain errorを隠さない。例えば`ln(sin(-1))-ln(sin(-1))`や`0*ln(sin(-1))`は0ではなくdomain errorである。UIはexact表示文字列から成功・失敗を推測せず、`ApiResult`のtyped errorを処理する。
+
 ---
 
 ## 10. Step 9: error と partial を UI に出す
