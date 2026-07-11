@@ -44,8 +44,8 @@ async function assertPublicApiUsage() {
         "sample UI must calculate through the public worker API facade",
     );
     assert(
-        mainSource.includes("id=\"expression-editor\"") && mainSource.includes("inputmode=\"none\""),
-        "sample UI must use a custom editor that does not summon a touch keyboard",
+        mainSource.includes("<textarea id=\"expression-editor\"") && mainSource.includes("inputmode=\"none\""),
+        "sample UI must use a native selection editor without requesting a touch keyboard",
     );
     assert(
         mainSource.includes("button.addEventListener(\"pointerdown\", (event) => event.preventDefault())"),
@@ -108,6 +108,7 @@ async function runBrowserChecks(url, origin) {
         await waitForText(page, "#scientific-output", "≈ 1.4142 × 10^0");
         await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
         await waitForText(page, "#enclosure-output", "∈ [1.4142 × 10^0, 1.4143 × 10^0]");
+        await assertDesktopEditorInput(page);
         assert(await page.locator("#include-scientific").count() === 0, "output toggles remain");
         await assertPhase2Outputs(page);
         await assertExactFormatPreferences(page);
@@ -154,8 +155,89 @@ async function runBrowserChecks(url, origin) {
 
         assert(browserErrors.length === 0, browserErrors.join("\n"));
     } finally {
+        const mobileContext = await browser.newContext({
+            viewport: { width: 390, height: 844 },
+            hasTouch: true,
+            isMobile: true,
+        });
+        try {
+            const mobilePage = await mobileContext.newPage();
+            await mobilePage.goto(url);
+            await assertTouchEditorInput(mobilePage);
+        } finally {
+            await mobileContext.close();
+        }
         await browser.close();
     }
+}
+
+async function assertDesktopEditorInput(page) {
+    const editor = page.locator("#expression-editor");
+    await editor.fill("123456789");
+    const box = await editor.boundingBox();
+    assert(box !== null, "expression editor has no layout box");
+    const geometry = await editor.evaluate((element) => {
+        const style = getComputedStyle(element);
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
+        if (context === null) throw new Error("canvas context unavailable");
+        context.font = style.font;
+        const left = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.borderLeftWidth);
+        return {
+            x: [2, 6].map((index) => left + context.measureText(element.value.slice(0, index)).width),
+            y: Number.parseFloat(style.paddingTop) + Number.parseFloat(style.fontSize) / 2,
+        };
+    });
+
+    await page.mouse.click(box.x + geometry.x[0], box.y + geometry.y);
+    const clicked = await editor.evaluate((element) => element.selectionStart);
+    assert(clicked > 0 && clicked < 9, `mouse click did not place the caret: ${clicked}`);
+
+    await page.mouse.move(box.x + geometry.x[0], box.y + geometry.y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + geometry.x[1], box.y + geometry.y, { steps: 6 });
+    await page.mouse.up();
+    const dragged = await editor.evaluate((element) => [element.selectionStart, element.selectionEnd]);
+    assert(dragged[1] > dragged[0], `mouse drag did not select text: ${dragged}`);
+
+    await page.click("#key-plus");
+    const expectedReplacement = `123456789`.slice(0, dragged[0]) + "+" + `123456789`.slice(dragged[1]);
+    assert(await editor.inputValue() === expectedReplacement, "keypad insertion did not replace the selection");
+    await page.click("#key-left");
+    await page.keyboard.press("Home");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("End");
+    const end = await editor.evaluate((element) => element.selectionStart);
+    assert(end === (await editor.inputValue()).length, "standard keyboard cursor movement failed");
+
+    await page.click("#key-clear");
+    await page.keyboard.type("sqrt(2)");
+    await waitForEditorText(page, "sqrt(2)");
+    await page.click("#calculate");
+}
+
+async function assertTouchEditorInput(page) {
+    const editor = page.locator("#expression-editor");
+    await editor.fill("123456789");
+    const box = await editor.boundingBox();
+    assert(box !== null, "mobile expression editor has no layout box");
+    const geometry = await editor.evaluate((element) => {
+        const style = getComputedStyle(element);
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
+        if (context === null) throw new Error("canvas context unavailable");
+        context.font = style.font;
+        return {
+            x: Number.parseFloat(style.paddingLeft) + context.measureText(element.value.slice(0, 4)).width,
+            y: Number.parseFloat(style.paddingTop) + Number.parseFloat(style.fontSize) / 2,
+        };
+    });
+    await page.touchscreen.tap(box.x + geometry.x, box.y + geometry.y);
+    const cursor = await editor.evaluate((element) => element.selectionStart);
+    assert(cursor > 0 && cursor < 9, `touch did not place the caret: ${cursor}`);
+    await page.click("#key-left");
+    await page.click("#key-right");
+    assert(await editor.getAttribute("inputmode") === "none", "touch editor requested a soft keyboard");
 }
 
 async function assertPhase2Outputs(page) {
@@ -801,7 +883,7 @@ async function setExpression(page, source) {
 async function waitForEditorText(page, expected) {
     await page.waitForFunction(
         (currentExpected) =>
-            document.querySelector("#expression-editor")?.textContent?.trim() === currentExpected,
+            document.querySelector("#expression-editor")?.value === currentExpected,
         expected,
         { timeout: 15000 },
     );

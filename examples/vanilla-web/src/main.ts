@@ -20,7 +20,6 @@ type AngleUnit = CalculationRequest["semantics"]["angleUnit"];
 
 type CalculatorState = {
     expression: string;
-    cursor: number;
     shift: boolean;
     settingsOpen: boolean;
     angleUnit: AngleUnit;
@@ -62,7 +61,6 @@ type KeySpec = {
 
 const state: CalculatorState = {
     expression: "sqrt(2)",
-    cursor: "sqrt(2)".length,
     shift: false,
     settingsOpen: false,
     angleUnit: "radian",
@@ -86,6 +84,7 @@ const directCalculator = createCalculator();
 let activeCalculation: ActiveCalculation | null = null;
 let operationVersion = 0;
 let previewVersion = 0;
+let editorIsComposing = false;
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (app === null) {
@@ -141,7 +140,7 @@ app.innerHTML = `
 
   <section class="calculator-grid" aria-label="Calculator">
     <section class="editor-panel" aria-label="Expression">
-      <div id="expression-editor" class="expression-editor" role="textbox" aria-label="Expression" aria-multiline="false" tabindex="0" inputmode="none" spellcheck="false"></div>
+      <textarea id="expression-editor" class="expression-editor" aria-label="Expression" rows="1" wrap="off" inputmode="none" enterkeyhint="done" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="0"></textarea>
       <div id="input-preview" class="input-preview" aria-label="Input preview"></div>
       <div class="action-row">
         <button class="primary" id="calculate" type="button">=</button>
@@ -181,7 +180,7 @@ app.innerHTML = `
 </main>
 `;
 
-const editor = required<HTMLElement>("#expression-editor");
+const editor = required<HTMLTextAreaElement>("#expression-editor");
 const inputPreview = required<HTMLElement>("#input-preview");
 const settingsToggle = required<HTMLButtonElement>("#settings-toggle");
 const settingsPopover = required<HTMLElement>("#settings-popover");
@@ -256,8 +255,17 @@ keypad.innerHTML = keys
     .map((spec) => `<button id="key-${spec.id}" type="button" data-key="${spec.id}" data-tone="${spec.tone ?? ""}"></button>`)
     .join("");
 
-editor.addEventListener("keydown", handleKeyboard);
-editor.addEventListener("pointerdown", () => editor.focus({ preventScroll: true }));
+editor.addEventListener("input", handleEditorInput);
+editor.addEventListener("compositionstart", () => {
+    editorIsComposing = true;
+});
+editor.addEventListener("compositionend", () => {
+    editorIsComposing = false;
+    syncExpressionFromEditor();
+    invalidatePreview();
+    renderInputPreview();
+    renderStatus();
+});
 settingsToggle.addEventListener("click", () => {
     state.settingsOpen = !state.settingsOpen;
     syncControls();
@@ -357,7 +365,7 @@ function runCommand(command: Command): void {
             invalidatePreview();
             return;
         case "move":
-            state.cursor = clampCursor(state.cursor + command.delta);
+            moveSelection(command.delta);
             return;
         case "backspace":
             deleteBackward();
@@ -369,7 +377,8 @@ function runCommand(command: Command): void {
             return;
         case "clear":
             state.expression = "";
-            state.cursor = 0;
+            editor.value = "";
+            editor.setSelectionRange(0, 0);
             invalidatePreview();
             return;
         case "shift":
@@ -393,6 +402,9 @@ function handleGlobalKeyboard(event: KeyboardEvent): void {
 }
 
 function handleKeyboard(event: KeyboardEvent): void {
+    if (event.isComposing) {
+        return;
+    }
     if (event.metaKey || event.ctrlKey) {
         if (event.key === "Enter") {
             event.preventDefault();
@@ -401,65 +413,91 @@ function handleKeyboard(event: KeyboardEvent): void {
         return;
     }
     switch (event.key) {
-        case "ArrowLeft":
-            event.preventDefault();
-            runCommand({ tag: "move", delta: -1 });
-            syncControls();
-            return;
-        case "ArrowRight":
-            event.preventDefault();
-            runCommand({ tag: "move", delta: 1 });
-            syncControls();
-            return;
-        case "Backspace":
-            event.preventDefault();
-            runCommand({ tag: "backspace" });
-            syncControls();
-            return;
-        case "Delete":
-            event.preventDefault();
-            runCommand({ tag: "delete" });
-            syncControls();
-            return;
         case "Enter":
             event.preventDefault();
             void calculateExpression();
             return;
         default:
-            break;
-    }
-    if (event.key.length === 1 && /^[0-9A-Za-z+\-*/^().,%!]$/u.test(event.key)) {
-        event.preventDefault();
-        insertText(event.key);
-        invalidatePreview();
-        syncControls();
+            return;
     }
 }
 
 function insertText(text: string, cursorFromEnd = 0): void {
-    const cursor = clampCursor(state.cursor);
-    state.expression = `${state.expression.slice(0, cursor)}${text}${state.expression.slice(cursor)}`;
-    state.cursor = clampCursor(cursor + text.length - cursorFromEnd);
+    const { start, end } = editorSelection();
+    editor.setRangeText(text, start, end, "end");
+    const cursor = Math.max(start, start + text.length - cursorFromEnd);
+    editor.setSelectionRange(cursor, cursor);
+    state.expression = editor.value;
     state.copied = false;
 }
 
 function deleteBackward(): void {
-    const cursor = clampCursor(state.cursor);
-    if (cursor === 0) {
+    const { start, end } = editorSelection();
+    if (start !== end) {
+        replaceSelection("");
         return;
     }
-    const previous = previousCharBoundary(state.expression, cursor);
-    state.expression = `${state.expression.slice(0, previous)}${state.expression.slice(cursor)}`;
-    state.cursor = previous;
+    if (start === 0) {
+        return;
+    }
+    const previous = previousCharBoundary(state.expression, start);
+    editor.setRangeText("", previous, start, "start");
+    state.expression = editor.value;
 }
 
 function deleteForward(): void {
-    const cursor = clampCursor(state.cursor);
-    if (cursor >= state.expression.length) {
+    const { start, end } = editorSelection();
+    if (start !== end) {
+        replaceSelection("");
         return;
     }
-    const next = nextCharBoundary(state.expression, cursor);
-    state.expression = `${state.expression.slice(0, cursor)}${state.expression.slice(next)}`;
+    if (start >= state.expression.length) {
+        return;
+    }
+    const next = nextCharBoundary(state.expression, start);
+    editor.setRangeText("", start, next, "start");
+    state.expression = editor.value;
+}
+
+function handleEditorInput(): void {
+    syncExpressionFromEditor();
+    if (editorIsComposing) {
+        return;
+    }
+    invalidatePreview();
+    renderInputPreview();
+    renderStatus();
+}
+
+function syncExpressionFromEditor(): void {
+    state.expression = editor.value.replaceAll(/[\r\n]/gu, "");
+    if (editor.value !== state.expression) {
+        const cursor = Math.min(editor.selectionStart, state.expression.length);
+        editor.value = state.expression;
+        editor.setSelectionRange(cursor, cursor);
+    }
+    state.copied = false;
+}
+
+function editorSelection(): { readonly start: number; readonly end: number } {
+    return {
+        start: clamp(editor.selectionStart, 0, state.expression.length),
+        end: clamp(editor.selectionEnd, 0, state.expression.length),
+    };
+}
+
+function replaceSelection(text: string): void {
+    const { start, end } = editorSelection();
+    editor.setRangeText(text, start, end, "end");
+    state.expression = editor.value;
+}
+
+function moveSelection(delta: -1 | 1): void {
+    const { start, end } = editorSelection();
+    const cursor = delta < 0
+        ? (start !== end ? start : previousCharBoundary(state.expression, start))
+        : (start !== end ? end : nextCharBoundary(state.expression, end));
+    editor.setSelectionRange(cursor, cursor);
 }
 
 async function calculateExpression(): Promise<void> {
@@ -587,11 +625,12 @@ function buildRequest(): CalculationRequest {
 }
 
 function renderEditor(): void {
-    state.cursor = clampCursor(state.cursor);
-    const before = escapeHtml(state.expression.slice(0, state.cursor));
-    const after = escapeHtml(state.expression.slice(state.cursor));
+    const selection = editorSelection();
     editor.dataset.empty = String(state.expression.length === 0);
-    editor.innerHTML = `${before}<span class="editor-caret" aria-hidden="true"></span>${after}`;
+    if (editor.value !== state.expression) {
+        editor.value = state.expression;
+        editor.setSelectionRange(selection.start, selection.end);
+    }
 }
 
 function renderInputPreview(): void {
@@ -727,6 +766,7 @@ function syncControls(): void {
         const button = required<HTMLButtonElement>(`#key-${spec.id}`);
         const layer = state.shift && spec.shift !== undefined ? spec.shift : spec.primary;
         button.innerHTML = keyLabel(spec, layer);
+        button.setAttribute("aria-label", keyAccessibleLabel(spec, layer));
         button.dataset.active = String(spec.id === "shift" && state.shift);
     }
     renderInputPreview();
@@ -758,6 +798,28 @@ function keyLabel(spec: KeySpec, layer: KeyLayer | Command): string {
     return layer.label;
 }
 
+function keyAccessibleLabel(spec: KeySpec, layer: KeyLayer | Command): string {
+    if ("tag" in layer) {
+        switch (layer.tag) {
+            case "move":
+                return layer.delta < 0 ? "Move cursor left" : "Move cursor right";
+            case "backspace":
+                return "Backspace";
+            case "delete":
+                return "Delete";
+            case "clear":
+                return "Clear expression";
+            case "shift":
+                return "Shift keypad";
+            case "calculate":
+                return "Calculate";
+            case "insert":
+                return `Insert ${layer.layer.insert}`;
+        }
+    }
+    return `Insert ${layer.insert}`;
+}
+
 function currentPlainText(): string {
     if (state.result.tag === "error") {
         return formatError(state.result.error);
@@ -780,10 +842,6 @@ function nextCharBoundary(value: string, cursor: number): number {
     return next === undefined ? value.length : cursor + next.length;
 }
 
-function clampCursor(value: number): number {
-    return clamp(value, 0, state.expression.length);
-}
-
 function formatError(error: CalculatorErrorDto): string {
     return `${error.tag}.${error.code}`;
 }
@@ -797,14 +855,6 @@ function clamp(value: number, min: number, max: number): number {
         return min;
     }
     return Math.min(Math.max(value, min), max);
-}
-
-function escapeHtml(value: string): string {
-    return value
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;");
 }
 
 function required<T extends Element>(selector: string): T {

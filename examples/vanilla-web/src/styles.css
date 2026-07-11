@@ -203,7 +203,8 @@ a:focus-visible,
     display: block;
     min-width: 0;
     min-height: 0;
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
     border: 1px solid #3a4547;
     border-radius: 8px;
     background: #090d0e;
@@ -214,29 +215,14 @@ a:focus-visible,
     font-weight: 720;
     letter-spacing: 0;
     line-height: 1.25;
-    overflow-wrap: anywhere;
-    white-space: pre-wrap;
+    resize: none;
+    white-space: pre;
+    caret-color: #85ded0;
 }
 
-.expression-editor[data-empty="true"]::before {
-    content: "0";
+.expression-editor::placeholder {
     color: #68736f;
-}
-
-.editor-caret {
-    display: inline-block;
-    width: 2px;
-    height: 1em;
-    margin: 0 1px;
-    transform: translateY(0.15em);
-    background: #85ded0;
-    animation: caret-blink 1s steps(2, start) infinite;
-}
-
-@keyframes caret-blink {
-    50% {
-        opacity: 0;
-    }
+    opacity: 1;
 }
 
 .input-preview {
