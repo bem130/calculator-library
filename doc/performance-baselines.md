@@ -373,3 +373,21 @@ do
       --example allocation_baseline -- "$case"
 done
 ```
+
+## Geometric-tail logarithm term bound
+
+After range reduction, the logarithm series uses
+`z = (x - 1) / (x + 1)` with `0 <= z <= 1/3`. Its positive omitted tail is at
+most four times the first omitted term. The logarithm-specific term count now
+chooses the smallest `N` satisfying
+`4 / (3^(2N + 3) * (2N + 3)) <= 2^-precision_bits`, instead of reusing the
+larger `precision_bits / 3 + 16` heuristic shared by unrelated series. The
+integer-only selection preserves the directed enclosure and precision contract.
+
+On 2026-07-12 with `rustc 1.97.0`, the same 10-sample `ln(2)` invocation moved
+from 360.69 µs to 208.56 µs (median estimates, about 42% lower). One-iteration
+allocation moved from 56,005 bytes in 2,175 blocks to 39,949 bytes in 1,775
+blocks. Direct `2^sqrt(2)` measured 1.22 ms after the change, and its allocation
+was 465,134 bytes in 12,306 blocks, down from the documented post-trigonometric
+baseline of 569,507 bytes in 16,402 blocks. The final non-degenerate exponential
+stage remains the primary measured target for the next profiling slice.

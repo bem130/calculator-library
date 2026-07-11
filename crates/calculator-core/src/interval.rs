@@ -681,7 +681,7 @@ fn log_reduced_rational_bounds(
     let denominator = value.add(&Rational::one());
     let z = divide_rational(&numerator, &denominator)?;
     let z_squared = z.multiply(&z);
-    let term_count = series_terms(precision_bits)?;
+    let term_count = log_series_terms(precision_bits)?;
     let mut sum = Rational::zero();
     let mut term_power = z.clone();
     for k in 0..=term_count {
@@ -1572,6 +1572,29 @@ fn series_terms(precision_bits: u32) -> Result<u32, IntervalError> {
         .ok_or(IntervalError::ExponentTooLarge)
 }
 
+fn log_series_terms(precision_bits: u32) -> Result<u32, IntervalError> {
+    let target_bits = precision_bits
+        .checked_add(2)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let target = BigInt::one() << target_bits;
+    let mut odd_power_of_three = BigInt::from(27_u8);
+    let mut term_count = 0_u32;
+    loop {
+        let next_denominator = term_count
+            .checked_add(1)
+            .and_then(|value| value.checked_mul(2))
+            .and_then(|value| value.checked_add(1))
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        if &odd_power_of_three * BigInt::from(next_denominator) >= target {
+            return Ok(term_count);
+        }
+        term_count = term_count
+            .checked_add(1)
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        odd_power_of_three *= BigInt::from(9_u8);
+    }
+}
+
 fn exp_series_terms(precision_bits: u32) -> Result<u32, IntervalError> {
     let target_bits = precision_bits
         .checked_add(1)
@@ -1857,6 +1880,38 @@ mod tests {
                 log_reduced_rational_bounds(&two, precision_bits).unwrap()
             );
         }
+    }
+
+    #[test]
+    fn logarithm_series_uses_minimal_geometric_tail_bound() {
+        for precision_bits in [0, 1, 16, 128, 256] {
+            let term_count = log_series_terms(precision_bits).unwrap();
+            let next_denominator = term_count * 2 + 3;
+            let denominator =
+                BigInt::from(3_u8).pow(next_denominator) * BigInt::from(next_denominator);
+            let target = BigInt::one() << (precision_bits + 2);
+            assert!(denominator >= target);
+            if term_count > 0 {
+                let previous_denominator = next_denominator - 2;
+                let previous = BigInt::from(3_u8).pow(previous_denominator)
+                    * BigInt::from(previous_denominator);
+                assert!(previous < target);
+            }
+
+            let maximum_width =
+                rational_from_parts(BigInt::one(), BigInt::one() << precision_bits).unwrap();
+            for value in [rational(1, 1), rational(4, 3), rational(2, 1)] {
+                let (lower, upper) = log_reduced_rational_bounds(&value, precision_bits).unwrap();
+                assert!(
+                    compare_rationals(&upper.subtract(&lower), &maximum_width) != Ordering::Greater
+                );
+            }
+        }
+        assert!(log_series_terms(128).unwrap() < series_terms(128).unwrap());
+        assert_eq!(
+            log_series_terms(u32::MAX),
+            Err(IntervalError::ExponentTooLarge)
+        );
     }
 
     #[test]
