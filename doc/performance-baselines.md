@@ -454,9 +454,19 @@ stops at that proof boundary while retaining the existing trial ceiling and fina
 perfect-square check. Exact-point interval sqrt also converts and scales its dyadic
 input once before deriving the same directed lower and upper roots.
 
-On 2026-07-12 with `rustc 1.97.0`, the same 10-sample `sqrt(2)` evaluation moved
-from a 364.03 µs median estimate to 126.10 µs (about 65% lower). One-iteration
+On 2026-07-12 with `rustc 1.97.0`, base commit `712e9d5` and changed commit
+`d50cda0` measured the same 10-sample `sqrt(2)` evaluation at 364.03 µs and
+126.10 µs respectively (median estimates, about 65% lower). One-iteration
 public-calculation allocation moved from 223,249 bytes in 10,130 blocks to 60,249
 bytes in 1,979 blocks (about 73% fewer bytes and 80% fewer blocks). Peak live
 allocation moved from 1,488 to 1,536 bytes; the total-allocation reduction and the
-small peak tradeoff are tracked separately.
+small peak tradeoff are tracked separately. Reproduce the changed measurements
+with:
+
+```sh
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/sqrt_two
+CALCULATOR_ALLOCATION_ITERATIONS=1 \
+  cargo run --profile bench -p calculator-core --features std \
+    --example allocation_baseline -- approximate_sqrt_two
+```
