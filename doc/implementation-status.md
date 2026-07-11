@@ -56,6 +56,7 @@ general powerの累積benchmarkは`sqrt(2)`、`sqrt(2)*ln(2)`、`exp(sqrt(2)*ln(
 非退化intervalのexpは、下端からlower bound、上端からupper boundだけをcanonical Rationalとして構築する。各endpointでTaylor recurrenceから両方向を構築して片側を捨てていた処理を除き、exact pointでは従来どおり単一recurrence stateから両方向を得る。正負のreciprocal方向、range reduction後の整数冪、directed enclosure、precisionとlogical-work契約は変更しない。
 simple radicalのsquare-factor抽出は、昇順候補の平方が残り値を超えた時点で、それ以降に平方因子が存在しないためtrialを停止する。小さいsquare-free radicandに対して固定上限4096までBigInt剰余を繰り返す処理を除く。exact-point sqrt intervalもdyadic-to-rational変換とprecision scalingを共有し、従来と同じlower/upperを構築する。radical正規形、trial上限、directed enclosureとresource契約は変更しない。
 大きな絶対値のexp endpointは、certified `ln(2)`区間を使って`x = k*ln(2)+r`へ縮約し、有界な`r`だけをTaylor評価した後、ExactDyadicの2冪指数へ`k`を加える。`exp(-x)`で`exp(x)`の巨大Rationalを先に構築せず、微小な正値を絶対刻み`2^-precision`で0へ丸めない。`exp(-10000)`/`e^(-10000)`と正側10000は既存scientific/enclosure DTOで有効桁と10進指数を有界表示する。追加のln2/rational/Taylor workはexact normalization時に保守的に予約し、不足時はinterval評価前にtyped logical-work partialとする。Rational引数はbinary scalingと同じ`|x|>64`条件で予約し、非Rational引数はintervalで巨大endpointとなる可能性に対する固定上界を予約する。既存presentationが巨大2冪・10冪を実体化するためbinary exponent magnitudeを1,000,000に制限し、超過はtyped precision limitにする。通常のRational `|x|<=64`経路、no-float、directed enclosure、公開protocolは変更しない。
+一連のtranscendental/sqrt改善後にnative timing、public calculation allocation、logical-work、Wasm/npm境界を同一commitで再baseline化する。ホスト全体の揺らぎがあるnative timingは新しいsnapshotとして扱い、決定的allocationとlogical-work、同一runのcomponent順位を次のprofiling対象選定に使用する。現時点ではgeneral powerとその最終非退化expが最大のcomponent経路である。
 
 ## Deliberately Not Contract
 

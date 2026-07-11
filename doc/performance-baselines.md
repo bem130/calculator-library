@@ -109,6 +109,36 @@ local comparison point only:
 | wide add (256 terms) | 611 µs | 1,926,770 | 9,512 B | 932 |
 | session dispatch sequence | 655 ns | 187,998 | 12,808 B | not applicable |
 
+## Post-directed-transcendental and square-root baseline
+
+Before the later binary-scaled large-exponential slice, the logarithm, directed
+exponential, trigonometric, and square-root work at commit
+`1767131` was measured on 2026-07-12 with `rustc 1.97.0`, Node `v22.23.1`, and
+Binaryen 130. Criterion used the standard 10-sample configuration. All unrelated
+native controls were slower than their preceding stored samples during this run,
+so these native values are a new local snapshot rather than regression claims.
+Allocation and logical-work rows are deterministic under the documented runners.
+
+| Case | Native median estimate | Native allocated bytes / blocks | Peak bytes / blocks | Wasm ns/iteration | Wasm retained heap | Logical work |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| exact rational | 52.844 µs | 13,382 / 620 | 2,624 / 52 | 1,242,552 | 3,552 B | 231 |
+| exact symbolic | 475.23 µs | 121,348 / 5,178 | 8,853 / 98 | 8,048,350 | 11,936 B | 401,216 |
+| approximate composite | 1.6165 ms | 361,355 / 7,434 | 12,990 / 59 | 21,831,016 | 14,880 B | 400,447 |
+| algebraic | 301.50 µs | 142,739 / 5,318 | 4,884 / 104 | 3,961,319 | 27,840 B | 400,234 |
+| wide add (256 terms) | 705.06 µs | 284,091 / 10,866 | 109,443 / 1,891 | 10,488,154 | 9,464 B | 932 |
+| session dispatch | 831.91 ns | 102 / 20 | 26 / 3 | 568,070 | 7,552 B | not applicable |
+
+The same-run approximate component snapshot was 42.028 µs for `exp(1)`,
+318.50 µs for `ln(2)`, 1.6010 ms for direct `2^sqrt(2)`, 280.76 µs for
+`sin(1)`, 120.38 µs for `sqrt(2)`, 587.89 µs through
+`sqrt(2)*ln(2)`, and 1.8150 ms through `exp(sqrt(2)*ln(2))`. The cumulative
+rows are not expected to be additive because each benchmark evaluates a complete
+expression with its own exact normalization. Their one-iteration allocations
+were respectively 20,157, 39,949, 289,094, 37,039, 60,249, 129,386, and
+323,262 bytes. General power and its final non-degenerate exponential remain the
+largest component paths, so the next profiling slice should separate their
+remaining series-state, rational canonicalization, and exact-normalization costs.
+
 The approximate composite is the dominant measured path in both environments.
 Its Wasm facade time is roughly five times the native estimate on this run, so the
 next profiling slice should separate interval refinement from DTO serialization
