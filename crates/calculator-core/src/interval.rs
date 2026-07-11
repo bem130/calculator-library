@@ -977,7 +977,7 @@ fn sin_unit_rational_bounds(
     }
     debug_assert!(compare_rationals(value, &Rational::one()) != Ordering::Greater);
     let value_squared = value.multiply(value);
-    let term_count = series_terms(precision_bits)?;
+    let term_count = trigonometric_series_terms(precision_bits)?;
     let mut sum = Rational::zero();
     let mut term = value.clone();
     for n in 0..=term_count {
@@ -1019,7 +1019,7 @@ fn cos_unit_rational_bounds(
     };
     debug_assert!(compare_rationals(&value, &Rational::one()) != Ordering::Greater);
     let value_squared = value.multiply(&value);
-    let term_count = series_terms(precision_bits)?;
+    let term_count = trigonometric_series_terms(precision_bits)?;
     let mut sum = Rational::zero();
     let mut term = Rational::one();
     for n in 0..=term_count {
@@ -1590,6 +1590,28 @@ fn exp_series_terms(precision_bits: u32) -> Result<u32, IntervalError> {
         .ok_or(IntervalError::ExponentTooLarge)
 }
 
+fn trigonometric_series_terms(precision_bits: u32) -> Result<u32, IntervalError> {
+    let target = BigInt::one() << precision_bits;
+    let mut factorial = BigInt::one();
+    let mut term_count = 0_u32;
+    loop {
+        let first_factor = term_count
+            .checked_mul(2)
+            .and_then(|value| value.checked_add(1))
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        let second_factor = first_factor
+            .checked_add(1)
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        factorial *= BigInt::from(first_factor) * BigInt::from(second_factor);
+        if factorial >= target {
+            return Ok(term_count);
+        }
+        term_count = term_count
+            .checked_add(1)
+            .ok_or(IntervalError::ExponentTooLarge)?;
+    }
+}
+
 fn rational_integer(value: i64) -> Rational {
     Rational::from_integer(Integer::from(value))
 }
@@ -1909,6 +1931,44 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn trigonometric_series_uses_minimal_alternating_tail_bound() {
+        for precision_bits in [0, 1, 16, 128, 256] {
+            let term_count = trigonometric_series_terms(precision_bits).unwrap();
+            let next_cosine_exponent = term_count * 2 + 2;
+            let factorial = (1..=next_cosine_exponent)
+                .map(BigInt::from)
+                .fold(BigInt::one(), |product, factor| product * factor);
+            let target = BigInt::one() << precision_bits;
+            assert!(factorial >= target);
+            if term_count > 0 {
+                let previous_factorial = &factorial
+                    / BigInt::from(next_cosine_exponent - 1)
+                    / BigInt::from(next_cosine_exponent);
+                assert!(previous_factorial < target);
+            }
+        }
+
+        for precision_bits in [0, 1, 16, 128] {
+            let maximum_width =
+                rational_from_parts(BigInt::one(), BigInt::one() << precision_bits).unwrap();
+            for value in [Rational::zero(), rational(1, 3), Rational::one()] {
+                for (lower, upper) in [
+                    sin_unit_rational_bounds(&value, precision_bits).unwrap(),
+                    cos_unit_rational_bounds(&value, precision_bits).unwrap(),
+                ] {
+                    assert!(compare_rationals(&lower, &Rational::zero()) != Ordering::Less);
+                    assert!(compare_rationals(&upper, &Rational::one()) != Ordering::Greater);
+                    assert!(
+                        compare_rationals(&upper.subtract(&lower), &maximum_width)
+                            != Ordering::Greater
+                    );
+                }
+            }
+        }
+        assert!(trigonometric_series_terms(128).unwrap() < series_terms(128).unwrap());
     }
 
     #[test]

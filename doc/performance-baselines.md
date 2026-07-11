@@ -318,3 +318,22 @@ longer an order-of-magnitude outlier; it and rational-point sine now form the ne
 timing tier. Further work should separately profile sqrt/log/multiply/exp within
 general power and the trigonometric range-reduction/series path before choosing
 between them.
+
+## Factorial-bounded trigonometric series
+
+The post-exponential profile showed rational-point sine at the same timing tier as
+general power. Both unit-range sine and cosine still used the shared
+`precision_bits / 3 + 16` term heuristic. Because their Taylor series alternate
+with decreasing terms for `|x| <= 1`, each enclosure width is at most the first
+omitted term. The shared sin/cos term count now chooses the smallest `N` satisfying
+the stricter cosine condition `(2N + 2)! >= 2^precision_bits`; the following sine
+term has an additional factorial divisor and therefore meets the same bound.
+
+On 2026-07-12, the 10-sample `sin(1)` evaluation estimate moved from 1.38 ms in the
+immediate pre-change run to 124 µs (about 91% lower). One-iteration allocation
+moved from 170,503 bytes in 4,257 blocks to 37,039 bytes in 1,817 blocks. The full
+approximate calculation moved from 2.72 ms to 1.89 ms; allocation moved from
+702,971 bytes in 18,842 blocks to 569,507 bytes in 16,402 blocks. Peak composite
+memory remained 12,894 bytes and logical work remained 400,447 units. General
+power is again the largest measured component, so subsequent work should profile
+its sqrt/log/multiply composition rather than further reducing standalone sine.
