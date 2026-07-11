@@ -2095,11 +2095,19 @@ fn estimated_additional_work(
         } => match dag.semantic_node(*argument) {
             ExpressionNode::Rational(value) => {
                 let value = dag.rational(*value);
-                if value.numerator.inner.magnitude() <= value.denominator.inner.inner.magnitude() {
+                let numerator = value.numerator.inner.magnitude();
+                let denominator = value.denominator.inner.inner.magnitude();
+                let numerator_bits = numerator.bits();
+                let denominator_bits = denominator.bits();
+                let uses_binary_scaling = if numerator_bits != denominator_bits.saturating_add(6) {
+                    numerator_bits > denominator_bits.saturating_add(6)
+                } else {
+                    numerator > &(denominator << 6_u32)
+                };
+                if !uses_binary_scaling {
                     0
                 } else {
-                    let magnitude_bits = value.numerator.inner.magnitude().bits();
-                    4_u64.saturating_mul(130_u64.saturating_add(magnitude_bits))
+                    4_u64.saturating_mul(130_u64.saturating_add(numerator_bits))
                 }
             }
             ExpressionNode::Exact(_)
@@ -2110,7 +2118,14 @@ fn estimated_additional_work(
             | ExpressionNode::Power { .. }
             | ExpressionNode::LogBase { .. }
             | ExpressionNode::Function { .. }
-            | ExpressionNode::BinaryFunction { .. } => 0,
+            | ExpressionNode::BinaryFunction { .. } => {
+                // Interval evaluation can prove a non-rational endpoint large enough to
+                // select binary scaling (for example, 100*pi). Reserve a fixed
+                // conservative guard rather than letting that work bypass the shared
+                // normalization budget. Known rational arguments retain the exact
+                // |x| > 64 path predicate above, so ordinary exp(+-2) is unchanged.
+                4_u64.saturating_mul(130_u64.saturating_add(64))
+            }
         },
         ExpressionNode::Rational(_)
         | ExpressionNode::Exact(_)

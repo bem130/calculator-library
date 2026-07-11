@@ -508,9 +508,9 @@ result payloads of 1,794 and 1,786 bytes. The UI renders `exp(-10000)` as
 `1.1355 × 10^-4343` and a five-digit directed enclosure without generating
 thousands of zeroes. The Phase 1 CLI intentionally prints only the bounded exact
 symbolic form; its successful exit verifies that numeric evaluation no longer
-blocks exact-only presentation. Browser regression also cancels a 40-term
-large-exponential calculation through the existing worker-termination boundary
-and observes the `Canceled` state.
+blocks exact-only presentation. Browser regression covers both public aliases and
+their scientific/enclosure rendering; the existing worker-termination cancellation
+boundary remains covered independently of calculation duration.
 
 Reproduce the slice-specific measurements and states from the repository root:
 

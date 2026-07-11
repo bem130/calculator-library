@@ -4242,8 +4242,7 @@ mod tests {
         );
         let (significand, exponent) =
             scientific_parts("exp(-10000)", 20, DecimalRoundingMode::NearestTiesToEven);
-        assert!(significand.starts_with("1.135483865314736"));
-        assert_eq!(significand.len(), 21);
+        assert_eq!(significand, "1.1354838653147360985");
         assert_eq!(exponent, "-4343");
     }
 
@@ -4272,6 +4271,45 @@ mod tests {
             }
         );
         assert!(certified_enclosure.is_none());
+
+        for source in ["e^(-10000)", "exp(100*pi)"] {
+            let outcome = calculate(source, &request, &mut EvaluationContext::default())
+                .expect("large exponential work must produce a typed outcome");
+            assert!(
+                matches!(
+                    outcome,
+                    CalculationOutcome::Partial {
+                        reason: IncompleteReason::ComputationLimit {
+                            kind: ComputationLimitKind::LogicalWorkUnits,
+                        },
+                        certified_enclosure: None,
+                        ..
+                    }
+                ),
+                "{source} bypassed the large exponential work reservation"
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_exponentials_do_not_reserve_binary_scaling_work() {
+        let request = CalculationRequest {
+            limits: ResourceLimitRequest::Custom(ResourceLimits {
+                max_logical_work_units: 100,
+                ..ResourceLimits::default()
+            }),
+            ..CalculationRequest::default()
+        };
+        for source in ["exp(-2)", "exp(2)"] {
+            assert!(
+                matches!(
+                    calculate(source, &request, &mut EvaluationContext::default())
+                        .expect("ordinary exponential must calculate"),
+                    CalculationOutcome::Complete { .. }
+                ),
+                "{source} was charged for the binary scaling path"
+            );
+        }
     }
 
     #[test]
