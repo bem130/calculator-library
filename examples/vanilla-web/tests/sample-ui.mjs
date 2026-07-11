@@ -191,7 +191,7 @@ async function assertDesktopEditorInput(page) {
 
     await page.mouse.click(box.x + geometry.x[0], box.y + geometry.y);
     const clicked = await editor.evaluate((element) => element.selectionStart);
-    assert(clicked > 0 && clicked < 9, `mouse click did not place the caret: ${clicked}`);
+    assert(Math.abs(clicked - 2) <= 1, `mouse click did not place the caret near boundary 2: ${clicked}`);
 
     await page.mouse.move(box.x + geometry.x[0], box.y + geometry.y);
     await page.mouse.down();
@@ -200,8 +200,26 @@ async function assertDesktopEditorInput(page) {
     const dragged = await editor.evaluate((element) => [element.selectionStart, element.selectionEnd]);
     assert(dragged[1] > dragged[0], `mouse drag did not select text: ${dragged}`);
 
+    await page.mouse.move(box.x + geometry.x[1], box.y + geometry.y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + geometry.x[0], box.y + geometry.y, { steps: 6 });
+    await page.mouse.up();
+    const reverseDragged = await editor.evaluate((element) => [
+        element.selectionStart,
+        element.selectionEnd,
+        element.selectionDirection,
+    ]);
+    assert(reverseDragged[1] > reverseDragged[0], `backward mouse drag did not select text: ${reverseDragged}`);
+
+    await page.mouse.move(box.x + geometry.x[1], box.y + geometry.y);
+    await page.mouse.down();
+    await page.mouse.move(box.x - 20, box.y + geometry.y, { steps: 6 });
+    await page.mouse.up();
+    const outsideDragged = await editor.evaluate((element) => [element.selectionStart, element.selectionEnd]);
+    assert(outsideDragged[1] > outsideDragged[0], "selection stopped when the pointer left the editor");
+
     await page.click("#key-plus");
-    const expectedReplacement = `123456789`.slice(0, dragged[0]) + "+" + `123456789`.slice(dragged[1]);
+    const expectedReplacement = `123456789`.slice(0, outsideDragged[0]) + "+" + `123456789`.slice(outsideDragged[1]);
     assert(await editor.inputValue() === expectedReplacement, "keypad insertion did not replace the selection");
     await page.click("#key-left");
     await page.keyboard.press("Home");
@@ -264,6 +282,11 @@ async function assertDesktopEditorInput(page) {
 }
 
 async function assertTouchEditorInput(page) {
+    const browserErrors = [];
+    page.on("console", (message) => {
+        if (message.type() === "error") browserErrors.push(`console: ${message.text()}`);
+    });
+    page.on("pageerror", (error) => browserErrors.push(`pageerror: ${error.message}`));
     const editor = page.locator("#expression-editor");
     await editor.fill("123456789");
     const box = await editor.boundingBox();
@@ -275,16 +298,46 @@ async function assertTouchEditorInput(page) {
         if (context === null) throw new Error("canvas context unavailable");
         context.font = style.font;
         return {
-            x: Number.parseFloat(style.paddingLeft) + context.measureText(element.value.slice(0, 4)).width,
+            x: [2, 4, 7].map(
+                (index) => Number.parseFloat(style.paddingLeft) + context.measureText(element.value.slice(0, index)).width,
+            ),
             y: Number.parseFloat(style.paddingTop) + Number.parseFloat(style.fontSize) / 2,
         };
     });
-    await page.touchscreen.tap(box.x + geometry.x, box.y + geometry.y);
+    await page.touchscreen.tap(box.x + geometry.x[1], box.y + geometry.y);
     const cursor = await editor.evaluate((element) => element.selectionStart);
     assert(cursor > 0 && cursor < 9, `touch did not place the caret: ${cursor}`);
-    await page.click("#key-left");
-    await page.click("#key-right");
+    const client = await page.context().newCDPSession(page);
+    await editor.evaluate((element) => element.setSelectionRange(2, 7, "forward"));
+    const plusBox = await page.locator("#key-plus").boundingBox();
+    assert(plusBox !== null, "mobile plus key has no layout box");
+    await page.touchscreen.tap(plusBox.x + plusBox.width / 2, plusBox.y + plusBox.height / 2);
+    assert(await editor.inputValue() === "12+89", "touch keypad did not replace the mobile selection exactly once");
+
+    await editor.fill("1234567890".repeat(20));
+    await client.send("Input.synthesizeScrollGesture", {
+        x: box.x + box.width / 2,
+        y: box.y + geometry.y,
+        xDistance: -box.width,
+        yDistance: 0,
+        gestureSourceType: "touch",
+        speed: 800,
+    });
+    const touchScroll = await editor.evaluate((element) => element.scrollLeft);
+    assert(touchScroll > 0, "touch drag did not horizontally scroll a long expression");
+    const leftBox = await page.locator("#key-left").boundingBox();
+    const rightBox = await page.locator("#key-right").boundingBox();
+    assert(leftBox !== null && rightBox !== null, "mobile arrow keys have no layout boxes");
+    await page.touchscreen.tap(leftBox.x + leftBox.width / 2, leftBox.y + leftBox.height / 2);
+    await page.touchscreen.tap(rightBox.x + rightBox.width / 2, rightBox.y + rightBox.height / 2);
+    const beforeInsert = await editor.inputValue();
+    await page.touchscreen.tap(plusBox.x + plusBox.width / 2, plusBox.y + plusBox.height / 2);
+    assert(
+        (await editor.inputValue()).length === beforeInsert.length + 1,
+        "one touch keypad gesture did not produce exactly one edit",
+    );
     assert(await editor.getAttribute("inputmode") === "none", "touch editor requested a soft keyboard");
+    assert(browserErrors.length === 0, browserErrors.join("\n"));
 }
 
 async function assertPhase2Outputs(page) {
