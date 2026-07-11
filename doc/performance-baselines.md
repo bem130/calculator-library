@@ -252,3 +252,24 @@ and is over an order of magnitude slower than the other components combined. The
 next optimization should therefore profile the non-degenerate exponential bounds
 produced after multiplying `log(base)` by the irrational exponent; changing the
 standalone exp/log series or presentation is not supported by this baseline.
+
+## Factorial-bounded exponential series
+
+The non-degenerate general-power profile showed that the exponential backend used
+the shared heuristic `precision_bits / 3 + 16` as a Taylor term count. At 128 bits
+this evaluates 58 terms even after range reduction guarantees `0 <= x <= 1`.
+For that unit range, the complete tail after term `N` is at most twice term
+`N + 1`, hence at most `2 / (N + 1)!`. The exponential path now chooses the
+smallest `N` satisfying `(N + 1)! >= 2^(precision_bits + 1)`. This integer-only
+bound is sufficient for a tail no wider than `2^-precision_bits`; it changes no
+directed-rounding, refinement, or public precision contract.
+
+On 2026-07-12, the 10-sample `2^sqrt(2)` evaluation estimate moved from 57.7 ms
+to 18.35 ms (about 68% lower), while the full approximate calculation measured
+20.4 ms. One-iteration general-power allocation moved from 4,538,222 bytes in
+16,548 blocks to 1,803,214 bytes in 14,737 blocks, with peak live memory moving
+from 37,143 to 22,567 bytes. The full approximate allocation moved from 4,760,003
+bytes in 22,684 blocks to 2,024,995 bytes in 20,873 blocks, with peak live memory
+moving from 38,478 to 23,902 bytes. The deterministic logical-work boundary stayed
+at 400,447 units because resource charging describes the public algorithmic request
+boundary rather than host-dependent internal optimization work.

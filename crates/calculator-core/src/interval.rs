@@ -580,7 +580,7 @@ fn exp_small_nonnegative_rational_bounds(
 ) -> Result<(Rational, Rational), IntervalError> {
     debug_assert!(!value.is_negative());
     debug_assert!(compare_rationals(value, &Rational::one()) != Ordering::Greater);
-    let term_count = series_terms(precision_bits)?;
+    let term_count = exp_series_terms(precision_bits)?;
     let mut sum = Rational::zero();
     let mut term = Rational::one();
     for n in 0..=term_count {
@@ -1548,6 +1548,24 @@ fn series_terms(precision_bits: u32) -> Result<u32, IntervalError> {
         .ok_or(IntervalError::ExponentTooLarge)
 }
 
+fn exp_series_terms(precision_bits: u32) -> Result<u32, IntervalError> {
+    let target_bits = precision_bits
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let target = BigInt::one() << target_bits;
+    let mut factorial = BigInt::one();
+    let mut next_factor = 1_u32;
+    while factorial < target {
+        next_factor = next_factor
+            .checked_add(1)
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        factorial *= BigInt::from(next_factor);
+    }
+    next_factor
+        .checked_sub(1)
+        .ok_or(IntervalError::ExponentTooLarge)
+}
+
 fn rational_integer(value: i64) -> Rational {
     Rational::from_integer(Integer::from(value))
 }
@@ -1832,6 +1850,23 @@ mod tests {
                 divide_rational(&Rational::one(), &positive_lower).unwrap()
             )
         );
+    }
+
+    #[test]
+    fn exponential_series_uses_minimal_factorial_tail_bound() {
+        for precision_bits in [1, 16, 128, 256] {
+            let term_count = exp_series_terms(precision_bits).unwrap();
+            let next_factor = term_count.checked_add(1).unwrap();
+            let factorial = (1..=next_factor)
+                .map(BigInt::from)
+                .fold(BigInt::one(), |product, factor| product * factor);
+            let target = BigInt::one() << (precision_bits + 1);
+            assert!(factorial >= target);
+            if term_count > 0 {
+                assert!(&factorial / BigInt::from(next_factor) < target);
+            }
+        }
+        assert!(exp_series_terms(128).unwrap() < series_terms(128).unwrap());
     }
 
     #[test]
