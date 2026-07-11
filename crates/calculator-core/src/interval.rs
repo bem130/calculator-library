@@ -542,17 +542,35 @@ fn exp_nonnegative_rational_bounds(
     value: &Rational,
     precision_bits: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
+    exp_nonnegative_rational_bounds_with(
+        value,
+        precision_bits,
+        exp_small_nonnegative_rational_bounds,
+        pow_positive_rational,
+    )
+}
+
+fn exp_nonnegative_rational_bounds_with<S, P>(
+    value: &Rational,
+    precision_bits: u32,
+    mut small_bounds: S,
+    mut positive_power: P,
+) -> Result<(Rational, Rational), IntervalError>
+where
+    S: FnMut(&Rational, u32) -> Result<(Rational, Rational), IntervalError>,
+    P: FnMut(&Rational, u32) -> Result<Rational, IntervalError>,
+{
     debug_assert!(!value.is_negative());
     let reduction = ceil_nonnegative_rational_to_u32(value)?;
     if reduction == 1 {
-        return exp_small_nonnegative_rational_bounds(value, precision_bits);
+        return small_bounds(value, precision_bits);
     }
     let divisor = rational_integer(i64::from(reduction));
     let reduced = divide_rational(value, &divisor)?;
-    let (lower, upper) = exp_small_nonnegative_rational_bounds(&reduced, precision_bits)?;
+    let (lower, upper) = small_bounds(&reduced, precision_bits)?;
     Ok((
-        pow_positive_rational(&lower, reduction)?,
-        pow_positive_rational(&upper, reduction)?,
+        positive_power(&lower, reduction)?,
+        positive_power(&upper, reduction)?,
     ))
 }
 
@@ -1779,14 +1797,41 @@ mod tests {
 
     #[test]
     fn unit_range_exponential_uses_small_series_bounds_directly() {
-        for value in [rational(1, 3), rational(1, 1)] {
-            for precision_bits in [1, 64, 256] {
-                assert_eq!(
-                    exp_nonnegative_rational_bounds(&value, precision_bits).unwrap(),
-                    exp_small_nonnegative_rational_bounds(&value, precision_bits).unwrap()
-                );
-            }
-        }
+        let series_calls = Cell::new(0_u32);
+        let power_calls = Cell::new(0_u32);
+        let bounds = |value: &Rational, _| {
+            series_calls.set(series_calls.get() + 1);
+            Ok((value.clone(), value.clone()))
+        };
+        let power = |value: &Rational, _| {
+            power_calls.set(power_calls.get() + 1);
+            Ok(value.clone())
+        };
+
+        exp_nonnegative_rational_bounds_with(&rational(1, 3), 64, bounds, power).unwrap();
+        assert_eq!(series_calls.get(), 1);
+        assert_eq!(power_calls.get(), 0);
+
+        series_calls.set(0);
+        power_calls.set(0);
+        exp_nonnegative_rational_bounds_with(&rational(3, 2), 64, bounds, power).unwrap();
+        assert_eq!(series_calls.get(), 1);
+        assert_eq!(power_calls.get(), 2);
+
+        assert_eq!(
+            exp_rational_bounds(&Rational::zero(), 64).unwrap(),
+            (Rational::one(), Rational::one())
+        );
+        let positive = rational(1, 3);
+        let (positive_lower, positive_upper) =
+            exp_nonnegative_rational_bounds(&positive, 64).unwrap();
+        assert_eq!(
+            exp_rational_bounds(&positive.negate(), 64).unwrap(),
+            (
+                divide_rational(&Rational::one(), &positive_upper).unwrap(),
+                divide_rational(&Rational::one(), &positive_lower).unwrap()
+            )
+        );
     }
 
     #[test]
