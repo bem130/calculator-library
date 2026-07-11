@@ -65,7 +65,7 @@ instrumentation out of timing samples:
 ```sh
 CALCULATOR_ALLOCATION_ITERATIONS=10 \
   cargo run --profile bench -p calculator-core --features std \
-  --example allocation_baseline -- 'sin(1)+ln(2)+2^sqrt(2)'
+  --example allocation_baseline -- approximate
 ```
 
 `dhat` reports total and peak live bytes/blocks and writes `dhat-heap.json` for
@@ -98,16 +98,29 @@ local comparison point only:
 | exact symbolic | 3.77 ms | 21,167,098 | 11,936 B | 401,216 |
 | approximate | 73.8 ms | 401,063,413 | 14,928 B | 400,447 |
 | algebraic | 243 µs | 1,052,608 | 38,088 B | 400,234 |
-| wide add (256 terms) | 611 µs | 1,926,770 | 9,512 B | not sampled |
+| wide add (256 terms) | 611 µs | 1,926,770 | 9,512 B | 932 |
 | session dispatch sequence | 655 ns | 187,998 | 12,808 B | not applicable |
 
 The approximate composite is the dominant measured path in both environments.
 Its Wasm facade time is roughly five times the native estimate on this run, so the
 next profiling slice should separate interval refinement from DTO serialization
 before choosing an optimization. A single retained-heap delta cannot establish a
-growth trend and is too coarse to identify total allocation traffic. A one-run
-native allocation smoke for `0.1+0.2` reported 6,302 allocated bytes in 347
-blocks, a 1,465-byte/31-block peak, and zero bytes retained at exit.
+growth trend and is too coarse to identify total allocation traffic.
+
+One-iteration native `dhat` baselines are:
+
+| Case | Allocated bytes | Blocks | Peak live bytes | Peak blocks |
+| --- | ---: | ---: | ---: | ---: |
+| exact rational | 13,382 | 620 | 2,624 | 52 |
+| exact symbolic | 402,444 | 10,752 | 8,853 | 98 |
+| approximate | 4,916,627 | 28,370 | 38,566 | 66 |
+| algebraic | 144,819 | 5,414 | 4,884 | 104 |
+| wide add (256 terms) | 293,710 | 11,124 | 110,358 | 1,892 |
+| session dispatch sequence | 102 | 20 | 26 | 3 |
+
+All six cases retained zero native bytes at process exit. Use the fixed case names
+shown in the table when collecting comparisons; arbitrary source strings are not
+accepted by the allocation runner.
 
 The native session row measures reducer state creation and eight actions. The Wasm
 row additionally includes Wasm session construction/disposal, DTO conversion,

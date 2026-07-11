@@ -16,18 +16,22 @@ await init({ module_or_path: wasmBytes });
 const calculator = createCalculatorFromWasmModule(wasm);
 
 const cases = [
-    ["exact_rational", "12345678901234567890/7 + 98765432109876543210/11"],
-    ["exact_symbolic", "(exp(1)+sin(1))*cos(1)-exp(1)*cos(1)"],
-    ["approximate", "sin(1)+ln(2)+2^sqrt(2)"],
-    ["algebraic", "((2^(1/3)-2^(1/3))+2)^(1/3)"],
-    ["wide_add_256", Array.from({ length: 256 }, (_, index) => String(index + 1)).join("+")],
+    ["exact_rational", "12345678901234567890/7 + 98765432109876543210/11", "827160492682716049260/77"],
+    ["exact_symbolic", "(exp(1)+sin(1))*cos(1)-exp(1)*cos(1)", "sin(1)*cos(1)"],
+    ["approximate", "sin(1)+ln(2)+2^sqrt(2)", "2^sqrt(2)+sin(1)+ln(2)"],
+    ["algebraic", "((2^(1/3)-2^(1/3))+2)^(1/3)", "2^(1/3)"],
+    ["wide_add_256", Array.from({ length: 256 }, (_, index) => String(index + 1)).join("+"), "32896"],
 ];
 
 const results = [];
-for (const [name, source] of cases) {
+for (const [name, source, expectedExact] of cases) {
     results.push(measure(name, () => {
         const result = calculator.calculate(source, defaultCalculationRequest);
         if (result.tag !== "ok") throw new Error(`${name} failed: ${result.error.tag}.${result.error.code}`);
+        const exact = result.value.calculation.exact;
+        if (exact.tag !== "included" || exact.value.plainText !== expectedExact) {
+            throw new Error(`${name} returned unexpected exact output`);
+        }
         return result;
     }));
 }
