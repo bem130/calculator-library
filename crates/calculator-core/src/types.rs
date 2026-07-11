@@ -1787,6 +1787,26 @@ mod tests {
             extract_square_factor(BigInt::from(59_u32).pow(2) * BigInt::from(2_u8)),
             (BigInt::from(59_u8), BigInt::from(2_u8))
         );
+
+        for (value, expected) in [
+            (
+                BigInt::from(59_u32).pow(4) * BigInt::from(2_u8),
+                (BigInt::from(59_u32).pow(2), BigInt::from(2_u8)),
+            ),
+            (
+                BigInt::from(4093_u32).pow(2) * BigInt::from(2_u8),
+                (BigInt::from(4093_u32), BigInt::from(2_u8)),
+            ),
+            (
+                BigInt::from(4099_u32).pow(2) * BigInt::from(2_u8),
+                (
+                    BigInt::one(),
+                    BigInt::from(4099_u32).pow(2) * BigInt::from(2_u8),
+                ),
+            ),
+        ] {
+            assert_eq!(extract_square_factor(value), expected);
+        }
     }
 
     #[test]
