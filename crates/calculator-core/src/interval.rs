@@ -194,6 +194,12 @@ pub(crate) fn exp(
 ) -> Result<CertifiedInterval, IntervalError> {
     let lower = dyadic_to_rational(&value.lower)?;
     let upper = dyadic_to_rational(&value.upper)?;
+    if exp_uses_binary_scaling(&lower) || exp_uses_binary_scaling(&upper) {
+        return Ok(CertifiedInterval {
+            lower: exp_binary_scaled_bound(&lower, precision_bits, BoundDirection::Lower)?,
+            upper: exp_binary_scaled_bound(&upper, precision_bits, BoundDirection::Upper)?,
+        });
+    }
     let (lower, upper) = if lower == upper {
         exp_rational_bounds(&lower, precision_bits)?
     } else {
@@ -203,6 +209,61 @@ pub(crate) fn exp(
         )
     };
     from_rational_bounds(&lower, &upper, precision_bits)
+}
+
+fn exp_uses_binary_scaling(value: &Rational) -> bool {
+    value.numerator.inner.magnitude() > value.denominator.inner.inner.magnitude()
+}
+
+fn exp_binary_scaled_bound(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+) -> Result<ExactDyadic, IntervalError> {
+    let magnitude = abs_rational(value);
+    let magnitude_integer = magnitude
+        .numerator
+        .inner
+        .div_ceil(&magnitude.denominator.inner.inner);
+    let guard_bits = magnitude_integer
+        .to_biguint()
+        .map_or(0_u64, |value| value.bits())
+        .try_into()
+        .map_err(|_| IntervalError::ExponentTooLarge)?;
+    let working_precision = precision_bits
+        .checked_add(guard_bits)
+        .and_then(|value| value.checked_add(2))
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let (log_two_lower, log_two_upper) =
+        log_reduced_rational_bounds(&rational_integer(2), working_precision)?;
+    let log_two_midpoint = halve_rational(&log_two_lower.add(&log_two_upper))?;
+    let quotient = divide_rational(value, &log_two_midpoint)?;
+    let binary_exponent = quotient
+        .numerator
+        .inner
+        .div_floor(&quotient.denominator.inner.inner)
+        .to_i64()
+        .ok_or(IntervalError::ExponentTooLarge)?;
+
+    let residual = match (binary_exponent.is_negative(), direction) {
+        (false, BoundDirection::Lower) | (true, BoundDirection::Upper) => {
+            value.subtract(&scale_rational(&log_two_upper, binary_exponent))
+        }
+        (false, BoundDirection::Upper) | (true, BoundDirection::Lower) => {
+            value.subtract(&scale_rational(&log_two_lower, binary_exponent))
+        }
+    };
+    let bound = exp_rational_bound(&residual, working_precision, direction)?;
+    let exponent_two = -BigInt::from(working_precision);
+    let mut dyadic = match direction {
+        BoundDirection::Lower => rational_to_dyadic_lower(&bound, working_precision, exponent_two),
+        BoundDirection::Upper => rational_to_dyadic_upper(&bound, working_precision, exponent_two),
+    };
+    dyadic.exponent_two.inner += BigInt::from(binary_exponent);
+    Ok(normalize_dyadic(
+        dyadic.coefficient.inner,
+        dyadic.exponent_two.inner,
+    ))
 }
 
 pub(crate) fn log(
@@ -1922,6 +1983,7 @@ fn normalize_dyadic(mut coefficient: BigInt, mut exponent_two: BigInt) -> ExactD
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
     use core::cell::Cell;
 
     use super::*;
@@ -2386,6 +2448,50 @@ mod tests {
             compare_dyadic_to_rational(&reciprocal.upper, &rational(1, 7)).unwrap(),
             Ordering::Less
         );
+    }
+
+    #[test]
+    fn large_exponent_binary_scaling_preserves_positive_monotone_bounds() {
+        let precision_bits = 128;
+        let values = [
+            -10001, -10000, -9999, -4097, -4096, -2, -1, 0, 1, 2, 4096, 4097, 9999, 10000, 10001,
+        ];
+        let intervals = values
+            .iter()
+            .map(|value| {
+                exp(
+                    &from_rational(&rational(*value, 1), precision_bits),
+                    precision_bits,
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        for interval in &intervals {
+            assert!(interval.lower.coefficient.inner.is_positive());
+            assert!(interval.upper.coefficient.inner.is_positive());
+            assert!(compare_dyadic(&interval.lower, &interval.upper).unwrap() != Ordering::Greater);
+            assert!(interval.lower.coefficient.inner.bits() <= u64::from(precision_bits + 32));
+            assert!(interval.upper.coefficient.inner.bits() <= u64::from(precision_bits + 32));
+        }
+        for pair in intervals.windows(2) {
+            assert!(compare_dyadic(&pair[0].upper, &pair[1].lower).unwrap() == Ordering::Less);
+        }
+
+        for magnitude in [2, 4096, 10000] {
+            let negative = exp(
+                &from_rational(&rational(-magnitude, 1), precision_bits),
+                precision_bits,
+            )
+            .unwrap();
+            let positive = exp(
+                &from_rational(&rational(magnitude, 1), precision_bits),
+                precision_bits,
+            )
+            .unwrap();
+            let product = multiply(&negative, &positive).unwrap();
+            assert!(contains_rational(&product, &Rational::one()).unwrap());
+        }
     }
 
     #[test]

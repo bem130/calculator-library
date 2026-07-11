@@ -55,6 +55,7 @@ general powerの累積benchmarkは`sqrt(2)`、`sqrt(2)*ln(2)`、`exp(sqrt(2)*ln(
 範囲縮小済み対数は`z=(x-1)/(x+1)`が`0 <= z <= 1/3`となることと正項級数の幾何tailを使い、`4/(3^(2N+3)*(2N+3)) <= 2^-precision_bits`を満たす最小項数を整数演算で選ぶ。これにより保証幅、方向付き丸め、range reduction、logical-work課金を維持したまま、対数以外も含む固定heuristicの余分な有理数項を除く。
 非退化intervalのexpは、下端からlower bound、上端からupper boundだけをcanonical Rationalとして構築する。各endpointでTaylor recurrenceから両方向を構築して片側を捨てていた処理を除き、exact pointでは従来どおり単一recurrence stateから両方向を得る。正負のreciprocal方向、range reduction後の整数冪、directed enclosure、precisionとlogical-work契約は変更しない。
 simple radicalのsquare-factor抽出は、昇順候補の平方が残り値を超えた時点で、それ以降に平方因子が存在しないためtrialを停止する。小さいsquare-free radicandに対して固定上限4096までBigInt剰余を繰り返す処理を除く。exact-point sqrt intervalもdyadic-to-rational変換とprecision scalingを共有し、従来と同じlower/upperを構築する。radical正規形、trial上限、directed enclosureとresource契約は変更しない。
+大きな絶対値のexp endpointは、certified `ln(2)`区間を使って`x = k*ln(2)+r`へ縮約し、有界な`r`だけをTaylor評価した後、ExactDyadicの2冪指数へ`k`を加える。`exp(-x)`で`exp(x)`の巨大Rationalを先に構築せず、微小な正値を絶対刻み`2^-precision`で0へ丸めない。`exp(-10000)`/`e^(-10000)`と正側10000は既存scientific/enclosure DTOで有効桁と10進指数を有界表示する。通常の`|x|<=1`経路、no-float、directed enclosure、公開protocolは変更しない。
 
 ## Deliberately Not Contract
 

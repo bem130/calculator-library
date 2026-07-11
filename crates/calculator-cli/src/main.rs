@@ -113,6 +113,8 @@ mod tests {
     fn cli_evaluates_exact_rational_expression() {
         assert_eq!(run(["0.1 + 0.2".to_owned()]).unwrap(), "3/10");
         assert_eq!(run(["1 / 3 + 1 / 6".to_owned()]).unwrap(), "1/2");
+        assert_eq!(run(["exp(-10000)".to_owned()]).unwrap(), "exp(-10000)");
+        assert_eq!(run(["e^(-10000)".to_owned()]).unwrap(), "exp(-10000)");
     }
 
     #[test]

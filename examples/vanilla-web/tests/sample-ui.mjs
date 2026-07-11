@@ -124,6 +124,7 @@ async function runBrowserChecks(url, origin) {
         await assertSpecialAngles(page);
         await assertSimpleRadicalAlgebra(page);
         await assertInitialExpLog(page);
+        await assertLargeNegativeExponential(page);
         await assertArbitraryBaseLogExp(page);
         await assertRationalPowers(page);
         await assertExtendedFunctions(page);
@@ -436,6 +437,20 @@ async function assertInitialExpLog(page) {
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= -sqrt(2)");
     await waitForText(page, "#exact-kind", "RADICAL");
+}
+
+async function assertLargeNegativeExponential(page) {
+    for (const source of ["exp(-10000)", "e^(-10000)"]) {
+        await setExpression(page, source);
+        await page.click("#calculate");
+        await waitForText(page, "#exact-output", "= exp(-10000)");
+        await waitForText(page, "#scientific-output", "≈ 1.1355 × 10^-4343");
+        await waitForText(
+            page,
+            "#enclosure-output",
+            "∈ [1.1354 × 10^-4343, 1.1355 × 10^-4343]",
+        );
+    }
 }
 
 async function assertArbitraryBaseLogExp(page) {

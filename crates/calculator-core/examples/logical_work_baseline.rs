@@ -11,6 +11,8 @@ fn main() {
         ),
         ("exact_symbolic", "(exp(1)+sin(1))*cos(1)-exp(1)*cos(1)"),
         ("approximate", "sin(1)+ln(2)+2^sqrt(2)"),
+        ("exp_negative_10000", "exp(-10000)"),
+        ("exp_positive_10000", "exp(10000)"),
         ("algebraic", "((2^(1/3)-2^(1/3))+2)^(1/3)"),
         ("wide_add_256", wide.as_str()),
     ];

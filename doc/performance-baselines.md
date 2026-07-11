@@ -470,3 +470,33 @@ CALCULATOR_ALLOCATION_ITERATIONS=1 \
   cargo run --profile bench -p calculator-core --features std \
     --example allocation_baseline -- approximate_sqrt_two
 ```
+
+## Binary-scaled large exponential range
+
+At base commit `1767131`, `exp(-10000)`, `e^(-10000)`, and `exp(10000)` returned
+`computationLimit.PrecisionBits` through the CLI in about 0.6 seconds including
+process startup. `exp(-4097)` hit the same fixed range cap, while `exp(-4096)`
+entered the large Rational power path and did not finish within 30 seconds. Merely
+raising the cap would construct `exp(10000)` before taking the negative reciprocal,
+and the final absolute `2^-precision` grid would still round the lower endpoint to
+zero.
+
+The large-range path now computes a certified `ln(2)` interval at guard precision,
+reduces `x = k*ln(2)+r`, evaluates only the bounded residual, and adds `k` to the
+resulting `ExactDyadic` exponent. Both signs therefore retain an O(precision)
+coefficient without a huge positive Rational power or zero underflow. The existing
+scientific and decimal-scientific enclosure presentation carries the bounded
+significand and exponent; no protocol change or fixed-decimal zero string is used.
+
+On 2026-07-12 with `rustc 1.97.0`, native evaluation measured 1.7182 ms for
+`exp(-10000)` and 2.1465 ms for `exp(10000)` (10-sample medians). One public
+calculation allocated 674,032 bytes / 4,574 blocks with a 16,031-byte peak for the
+negative case, and 647,720 bytes / 4,487 blocks with a 17,082-byte peak for the
+positive case. The unchanged `exp(1)` path remained 20,157 bytes / 762 blocks.
+The logical-work equivalence runner reported 10 and 6 units respectively; as
+before, this measures public exact-normalization budget and does not pretend that
+interval arithmetic has a separate work-budget parameter. A release Wasm/npm run
+with three iterations after one warm-up measured 22.43 ms and 17.16 ms per
+iteration, with retained heap changes of 20,616 and 9,392 bytes. The UI renders
+`exp(-10000)` as `1.1355 × 10^-4343` and a five-digit directed enclosure without
+generating thousands of zeroes.

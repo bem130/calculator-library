@@ -25,6 +25,16 @@ enum ExpectedExact {
 
 const APPROXIMATE_COMPONENTS: &[(&str, &str, ExpectedExact)] = &[
     ("exp_one", "exp(1)", ExpectedExact::GeneralSymbolic),
+    (
+        "exp_negative_10000",
+        "exp(-10000)",
+        ExpectedExact::GeneralSymbolic,
+    ),
+    (
+        "exp_positive_10000",
+        "exp(10000)",
+        ExpectedExact::GeneralSymbolic,
+    ),
     ("log_two", "ln(2)", ExpectedExact::GeneralSymbolic),
     ("general_power", "2^sqrt(2)", ExpectedExact::GeneralSymbolic),
     ("sin_one", "sin(1)", ExpectedExact::GeneralSymbolic),

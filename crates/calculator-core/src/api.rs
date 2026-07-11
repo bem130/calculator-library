@@ -4229,6 +4229,20 @@ mod tests {
     }
 
     #[test]
+    fn large_negative_exponential_keeps_scientific_digits_and_symbolic_aliases() {
+        assert_eq!(exact_plain_text("exp(-10000)"), "exp(-10000)");
+        assert_eq!(exact_plain_text("e^(-10000)"), "exp(-10000)");
+        assert_eq!(
+            scientific_parts("exp(-10000)", 5, DecimalRoundingMode::NearestTiesToEven),
+            (String::from("1.1355"), String::from("-4343"))
+        );
+        assert_eq!(
+            scientific_parts("e^(-10000)", 5, DecimalRoundingMode::NearestTiesToEven),
+            (String::from("1.1355"), String::from("-4343"))
+        );
+    }
+
+    #[test]
     fn exact_format_preference_controls_rational_presentation() {
         let finite = exact_output_with_format("0.1 + 0.2", ExactFormatPreference::FiniteDecimal);
         assert_eq!(
