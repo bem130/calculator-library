@@ -587,6 +587,8 @@ fn exp_series_rational_bounds(
     value: &Rational,
     term_count: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
+    debug_assert!(!value.is_negative());
+    debug_assert!(compare_rationals(value, &Rational::one()) != Ordering::Greater);
     let tail_index = term_count
         .checked_add(1)
         .ok_or(IntervalError::ExponentTooLarge)?;
