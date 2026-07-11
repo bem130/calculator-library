@@ -421,13 +421,13 @@ On 2026-07-12 with `rustc 1.97.0`, base commit `1d5b44a` and changed commit
 at 1.4096 ms and 1.2706 ms respectively (median estimates, about 9.9% lower).
 Direct general power measured 1.0230 ms after the change; its immediate
 pre-change timing run contained three outliers, so no timing percentage is
-claimed for that row. After the review-driven removal of endpoint `BigInt` clones,
-one-iteration allocation moved from 499,302 to 486,262 bytes for the cumulative
-exp stage and from 465,134 to 452,094 bytes for direct general power. Exact-point
-`exp(1)` remained unchanged at 20,157 bytes in 762 blocks. Peak live allocation
-increased by 96 bytes in both non-degenerate cases; this remains below the earlier
-12,894-byte composite baseline and is recorded separately from the lower total
-allocation.
+claimed for that row. At review-fix commit `e2c7448`, after removing endpoint
+`BigInt` clones, one-iteration allocation moved from 499,302 to 486,262 bytes for
+the cumulative exp stage and from 465,134 to 452,094 bytes for direct general
+power. Exact-point `exp(1)` remained unchanged at 20,157 bytes in 762 blocks.
+Peak live allocation increased by 96 bytes in both non-degenerate cases; this
+remains below the earlier 12,894-byte composite baseline and is recorded
+separately from the lower total allocation.
 Reproduce the changed measurements with:
 
 ```sh
@@ -435,6 +435,9 @@ for case in exp_power_log_product general_power
 do
   cargo bench -p calculator-core --bench representative_paths --features std \
     -- "approximate_components/$case"
+done
+for case in exp_one exp_power_log_product general_power
+do
   CALCULATOR_ALLOCATION_ITERATIONS=1 \
     cargo run --profile bench -p calculator-core --features std \
       --example allocation_baseline -- "approximate_$case"
