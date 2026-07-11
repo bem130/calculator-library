@@ -390,7 +390,8 @@ On 2026-07-12 with `rustc 1.97.0`, base commit `d0dafc8` and changed commit
 allocation moved from 56,005 bytes in 2,175 blocks to 39,949 bytes in 1,775
 blocks. Direct `2^sqrt(2)` measured 1.22 ms after the change, and its allocation
 moved from the comparable documented direct baseline of 481,190 bytes in 12,706
-blocks to 465,134 bytes in 12,306 blocks. Reproduce the changed measurements with:
+blocks to 465,134 bytes in 12,306 blocks. Reproduce the changed logarithm
+measurements with:
 
 ```sh
 cargo bench -p calculator-core --bench representative_paths --features std \
