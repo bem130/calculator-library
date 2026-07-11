@@ -1854,7 +1854,7 @@ mod tests {
 
     #[test]
     fn exponential_series_uses_minimal_factorial_tail_bound() {
-        for precision_bits in [1, 16, 128, 256] {
+        for precision_bits in [0, 1, 16, 128, 256] {
             let term_count = exp_series_terms(precision_bits).unwrap();
             let next_factor = term_count.checked_add(1).unwrap();
             let factorial = (1..=next_factor)
@@ -1867,6 +1867,24 @@ mod tests {
             }
         }
         assert!(exp_series_terms(128).unwrap() < series_terms(128).unwrap());
+        assert_eq!(
+            exp_series_terms(u32::MAX),
+            Err(IntervalError::ExponentTooLarge)
+        );
+
+        for precision_bits in [0, 1, 16, 128] {
+            let maximum_width =
+                rational_from_parts(BigInt::one(), BigInt::one() << precision_bits).unwrap();
+            for value in [Rational::zero(), rational(1, 3), Rational::one()] {
+                let (lower, upper) =
+                    exp_small_nonnegative_rational_bounds(&value, precision_bits).unwrap();
+                assert!(compare_rationals(&lower, &Rational::one()) != Ordering::Less);
+                assert!(compare_rationals(&upper, &rational(3, 1)) != Ordering::Greater);
+                assert!(
+                    compare_rationals(&upper.subtract(&lower), &maximum_width) != Ordering::Greater
+                );
+            }
+        }
     }
 
     #[test]
