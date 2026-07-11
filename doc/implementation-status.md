@@ -40,6 +40,8 @@ Phase 5 の堅牢化として、次を CI に入れている。
 * package size budget。
 * public enum match exhaustiveness lint。
 
+性能調査用には、native coreのexact/approximate/algebraic/large-expression/session経路を測るCriterion harnessと、公開Wasm/npm facadeの同等経路をJSON出力するrunnerを持つ。再現条件と比較手順は [`performance-baselines.md`](performance-baselines.md) に記録する。測定値は機種依存の診断情報であり、公開契約や固定CI閾値ではない。
+
 ## Deliberately Not Contract
 
 次は実装詳細であり、公開契約として扱わない。
