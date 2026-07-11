@@ -1,5 +1,6 @@
 import init, * as wasm from "../wasm/calculator_wasm.js";
 import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import {
     createCalculatorFromWasmModule,
     createSessionFromWasmModule,
@@ -7,12 +8,11 @@ import {
     defaultInputPolicy,
 } from "../src/direct.ts";
 
-const iterations = positiveInteger(process.env.CALCULATOR_BENCH_ITERATIONS, 50);
-const warmup = nonNegativeInteger(process.env.CALCULATOR_BENCH_WARMUP, 5);
+const iterations = positiveInteger(process.env.CALCULATOR_BENCH_ITERATIONS, 10);
+const warmup = nonNegativeInteger(process.env.CALCULATOR_BENCH_WARMUP, 2);
 
-await init({
-    module_or_path: await readFile(new URL("../wasm/calculator_wasm_bg.wasm", import.meta.url)),
-});
+const wasmBytes = await readFile(new URL("../wasm/calculator_wasm_bg.wasm", import.meta.url));
+await init({ module_or_path: wasmBytes });
 const calculator = createCalculatorFromWasmModule(wasm);
 
 const cases = [
@@ -35,6 +35,12 @@ results.push(measure("session_dispatch_sequence", dispatchSessionSequence));
 
 process.stdout.write(`${JSON.stringify({
     schemaVersion: 1,
+    benchmarkDefinition: "representative-paths-v1",
+    artifact: {
+        wasmSha256: createHash("sha256").update(wasmBytes).digest("hex"),
+        wasmBytes: wasmBytes.byteLength,
+        gcExposed: typeof globalThis.gc === "function",
+    },
     runtime: { node: process.version, platform: process.platform, arch: process.arch },
     iterations,
     warmup,
@@ -44,7 +50,7 @@ process.stdout.write(`${JSON.stringify({
 function dispatchSessionSequence() {
     const session = createSessionFromWasmModule(wasm, defaultInputPolicy);
     try {
-        for (const action of [
+        const actions = [
             { tag: "digit", value: 1 },
             { tag: "digit", value: 2 },
             { tag: "digit", value: 3 },
@@ -53,8 +59,19 @@ function dispatchSessionSequence() {
             { tag: "digit", value: 5 },
             { tag: "percent" },
             { tag: "evaluate" },
-        ]) {
-            session.dispatch(action);
+        ];
+        for (const [index, action] of actions.entries()) {
+            const dispatch = session.dispatch(action);
+            if (dispatch.tag === "inputError") {
+                throw new Error(`session action ${index} failed: ${dispatch.error.code}`);
+            }
+            const expectedTag = index === actions.length - 1 ? "calculate" : "state";
+            if (dispatch.tag !== expectedTag) {
+                throw new Error(`session action ${index} returned ${dispatch.tag}, expected ${expectedTag}`);
+            }
+            if (dispatch.tag === "calculate" && dispatch.source !== "123.45%") {
+                throw new Error(`session evaluate returned unexpected source ${dispatch.source}`);
+            }
         }
         return session.getState();
     } finally {
@@ -82,13 +99,19 @@ function measure(name, operation) {
 }
 
 function positiveInteger(value, fallback) {
-    const parsed = value === undefined ? fallback : Number.parseInt(value, 10);
+    const parsed = parseInteger(value, fallback);
     if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error("iterations must be a positive integer");
     return parsed;
 }
 
 function nonNegativeInteger(value, fallback) {
-    const parsed = value === undefined ? fallback : Number.parseInt(value, 10);
+    const parsed = parseInteger(value, fallback);
     if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error("warmup must be a non-negative integer");
     return parsed;
+}
+
+function parseInteger(value, fallback) {
+    if (value === undefined) return fallback;
+    if (!/^(0|[1-9][0-9]*)$/u.test(value)) throw new Error("benchmark counts must be canonical integers");
+    return Number(value);
 }

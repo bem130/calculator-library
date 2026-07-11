@@ -17,12 +17,21 @@ num-traits = { version = "0.2.19", default-features = false }
 
 [dev-dependencies]
 criterion = { version = "0.7.0", default-features = false, features = ["cargo_bench_support"] }
+dhat = "0.3.3"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 
 [[bench]]
 name = "representative_paths"
 harness = false
+
+[[example]]
+name = "allocation_baseline"
+required-features = ["std"]
+
+[[example]]
+name = "logical_work_baseline"
+required-features = ["std"]
 
 [lints]
 workspace = true

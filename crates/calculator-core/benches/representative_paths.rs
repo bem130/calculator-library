@@ -1,9 +1,10 @@
 use calculator_core::{
-    calculate, reduce_input, CalculationRequest, EvaluationContext, InputAction, InputPolicy,
-    InputState,
+    calculate, reduce_input, CalculationOutcome, CalculationRequest, EvaluationContext,
+    ExactOutput, InputAction, InputPolicy, InputState,
 };
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::hint::black_box;
+use std::time::Duration;
 
 const CASES: &[(&str, &str)] = &[
     (
@@ -19,6 +20,7 @@ fn calculate_representative_paths(criterion: &mut Criterion) {
     let request = CalculationRequest::default();
     let mut group = criterion.benchmark_group("calculate");
     for &(name, source) in CASES {
+        validate_calculation(name, source, &request);
         group.throughput(Throughput::Bytes(source.len() as u64));
         group.bench_with_input(
             BenchmarkId::from_parameter(name),
@@ -26,11 +28,10 @@ fn calculate_representative_paths(criterion: &mut Criterion) {
             |bencher, source| {
                 bencher.iter(|| {
                     let mut context = EvaluationContext::default();
-                    black_box(calculate(
-                        black_box(source),
-                        black_box(&request),
-                        &mut context,
-                    ))
+                    black_box(
+                        calculate(black_box(source), black_box(&request), &mut context)
+                            .expect("representative calculation must not fail"),
+                    )
                 });
             },
         );
@@ -44,19 +45,42 @@ fn calculate_wide_expression(criterion: &mut Criterion) {
         .collect::<Vec<_>>()
         .join("+");
     let request = CalculationRequest::default();
+    let outcome = calculate(&source, &request, &mut EvaluationContext::default())
+        .expect("wide expression preflight must succeed");
+    assert_eq!(exact_plain_text(&outcome), "32896");
     let mut group = criterion.benchmark_group("large_expression");
     group.throughput(Throughput::Elements(256));
     group.bench_function("wide_add_256", |bencher| {
         bencher.iter(|| {
             let mut context = EvaluationContext::default();
-            black_box(calculate(
-                black_box(&source),
-                black_box(&request),
-                &mut context,
-            ))
+            black_box(
+                calculate(black_box(&source), black_box(&request), &mut context)
+                    .expect("wide expression must not fail"),
+            )
         });
     });
     group.finish();
+}
+
+fn validate_calculation(name: &str, source: &str, request: &CalculationRequest) {
+    let outcome = calculate(source, request, &mut EvaluationContext::default())
+        .expect("representative calculation preflight must succeed");
+    let exact = exact_plain_text(&outcome);
+    assert!(!exact.is_empty(), "{name} must retain exact output");
+    if name == "exact_symbolic" {
+        assert_eq!(exact, "sin(1)*cos(1)");
+    }
+}
+
+fn exact_plain_text(outcome: &CalculationOutcome) -> &str {
+    let calculation = match outcome {
+        CalculationOutcome::Complete(calculation) => calculation,
+        CalculationOutcome::Partial { calculation, .. } => calculation,
+    };
+    match &calculation.exact {
+        ExactOutput::Included(exact) => &exact.plain_text,
+        ExactOutput::Omitted => panic!("benchmark request must include exact output"),
+    }
 }
 
 fn reduce_session_input(criterion: &mut Criterion) {
@@ -87,10 +111,12 @@ fn reduce_session_input(criterion: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(
-    representative_paths,
-    calculate_representative_paths,
-    calculate_wide_expression,
-    reduce_session_input
-);
+criterion_group! {
+    name = representative_paths;
+    config = Criterion::default()
+        .sample_size(10)
+        .warm_up_time(Duration::from_secs(1))
+        .measurement_time(Duration::from_secs(1));
+    targets = calculate_representative_paths, calculate_wide_expression, reduce_session_input
+}
 criterion_main!(representative_paths);

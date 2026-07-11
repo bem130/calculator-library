@@ -9,8 +9,8 @@
     "./worker": "./src/worker.ts"
   },
   "scripts": {
-    "benchmark": "node --experimental-strip-types benchmarks/representative-paths.mjs",
-    "benchmark:smoke": "CALCULATOR_BENCH_ITERATIONS=1 CALCULATOR_BENCH_WARMUP=0 node --experimental-strip-types benchmarks/representative-paths.mjs",
+    "benchmark": "node --expose-gc --experimental-strip-types benchmarks/representative-paths.mjs",
+    "benchmark:smoke": "CALCULATOR_BENCH_ITERATIONS=1 CALCULATOR_BENCH_WARMUP=0 node --expose-gc --experimental-strip-types benchmarks/representative-paths.mjs",
     "build:wasm": "wasm-pack build ../../crates/calculator-wasm --target web --out-dir ../../packages/calculator/wasm --release && node scripts/optimize-wasm.mjs",
     "check": "tsc --noEmit && node --experimental-strip-types tests/presentation-renderers.mjs"
   },

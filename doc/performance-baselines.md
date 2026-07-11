@@ -13,6 +13,9 @@ held as stable as practical:
 cargo bench -p calculator-core --bench representative_paths
 ```
 
+The harness fixes Criterion to 10 samples with one-second warm-up and measurement
+windows, matching the sampling configuration used below.
+
 The harness covers exact rational arithmetic, canonical symbolic reduction,
 certified approximate evaluation, bounded algebraic recognition, a 256-term wide
 expression, and a headless session action sequence. Criterion stores statistical
@@ -30,8 +33,7 @@ Build the package, then run the public facade benchmark:
 
 ```sh
 corepack pnpm --dir packages/calculator run build:wasm
-node --expose-gc --experimental-strip-types \
-  packages/calculator/benchmarks/representative-paths.mjs > target/wasm-baseline.json
+corepack pnpm --dir packages/calculator run benchmark > target/wasm-baseline.json
 ```
 
 The JSON includes runtime identity, iteration counts, elapsed time per case, and
@@ -57,6 +59,31 @@ The first baseline intentionally measures cold `EvaluationContext` calculations.
 Warm-context/cache benchmarks should be added only with an explicit assertion that
 observable results and logical-work limit decisions remain identical.
 
+Native allocation traffic is measured separately with `dhat`, keeping allocator
+instrumentation out of timing samples:
+
+```sh
+CALCULATOR_ALLOCATION_ITERATIONS=10 \
+  cargo run --profile bench -p calculator-core --features std \
+  --example allocation_baseline -- 'sin(1)+ln(2)+2^sqrt(2)'
+```
+
+`dhat` reports total and peak live bytes/blocks and writes `dhat-heap.json` for
+call-site inspection. That generated file is not committed. Wasm linear-memory
+allocation is not attributed by this runner; retained JavaScript heap remains a
+boundary leak/payload proxy.
+
+Deterministic logical-work baselines use the smallest custom limit that produces
+an outcome exactly equal to the default-limit outcome:
+
+```sh
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+```
+
+This is an observable limit boundary rather than internal timing. Optimization
+must not lower the charge merely to improve the number.
+
 ## Initial diagnostic baseline
 
 The first run on 2026-07-11 used `rustc 1.97.0` on
@@ -65,18 +92,24 @@ The first run on 2026-07-11 used `rustc 1.97.0` on
 10 iterations after two warm-ups with `--expose-gc`. These values establish the
 local comparison point only:
 
-| Case | Native estimate | Wasm facade ns/iteration | Wasm retained heap |
-| --- | ---: | ---: | ---: |
-| exact rational | 49.9 µs | 592,318 | 4,944 B |
-| exact symbolic | 3.77 ms | 21,167,098 | 11,936 B |
-| approximate | 73.8 ms | 401,063,413 | 14,928 B |
-| algebraic | 243 µs | 1,052,608 | 38,088 B |
-| wide add (256 terms) | 611 µs | 1,926,770 | 9,512 B |
-| session dispatch sequence | 655 ns | 187,998 | 12,808 B |
+| Case | Native estimate | Wasm facade ns/iteration | Wasm retained heap | Logical work |
+| --- | ---: | ---: | ---: | ---: |
+| exact rational | 49.9 µs | 592,318 | 4,944 B | 231 |
+| exact symbolic | 3.77 ms | 21,167,098 | 11,936 B | 401,216 |
+| approximate | 73.8 ms | 401,063,413 | 14,928 B | 400,447 |
+| algebraic | 243 µs | 1,052,608 | 38,088 B | 400,234 |
+| wide add (256 terms) | 611 µs | 1,926,770 | 9,512 B | not sampled |
+| session dispatch sequence | 655 ns | 187,998 | 12,808 B | not applicable |
 
 The approximate composite is the dominant measured path in both environments.
 Its Wasm facade time is roughly five times the native estimate on this run, so the
 next profiling slice should separate interval refinement from DTO serialization
-before choosing an optimization. The retained-heap columns do not show monotonic
-growth in this short run, but they are too coarse to identify total allocation
-traffic.
+before choosing an optimization. A single retained-heap delta cannot establish a
+growth trend and is too coarse to identify total allocation traffic. A one-run
+native allocation smoke for `0.1+0.2` reported 6,302 allocated bytes in 347
+blocks, a 1,465-byte/31-block peak, and zero bytes retained at exit.
+
+The native session row measures reducer state creation and eight actions. The Wasm
+row additionally includes Wasm session construction/disposal, DTO conversion,
+dispatch, and final state retrieval; the rows diagnose their respective layers
+rather than identical operation scope.
