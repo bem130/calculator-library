@@ -33,7 +33,7 @@ Build the package, then run the public facade benchmark:
 
 ```sh
 corepack pnpm --dir packages/calculator run build:wasm
-corepack pnpm --dir packages/calculator run benchmark > target/wasm-baseline.json
+corepack pnpm --silent --dir packages/calculator run benchmark > target/wasm-baseline.json
 ```
 
 The JSON includes runtime identity, iteration counts, elapsed time per case, and
@@ -71,7 +71,9 @@ CALCULATOR_ALLOCATION_ITERATIONS=10 \
 `dhat` reports total and peak live bytes/blocks and writes `dhat-heap.json` for
 call-site inspection. That generated file is not committed. Wasm linear-memory
 allocation is not attributed by this runner; retained JavaScript heap remains a
-boundary leak/payload proxy.
+boundary leak/payload proxy. Source construction, the calculation request, and the
+session policy are prepared before profiling so each iteration matches the timed
+native operation scope.
 
 Deterministic logical-work baselines use the smallest custom limit that produces
 an outcome exactly equal to the default-limit outcome:
@@ -115,7 +117,7 @@ One-iteration native `dhat` baselines are:
 | exact symbolic | 402,444 | 10,752 | 8,853 | 98 |
 | approximate | 4,916,627 | 28,370 | 38,566 | 66 |
 | algebraic | 144,819 | 5,414 | 4,884 | 104 |
-| wide add (256 terms) | 293,710 | 11,124 | 110,358 | 1,892 |
+| wide add (256 terms) | 284,091 | 10,866 | 109,443 | 1,891 |
 | session dispatch sequence | 102 | 20 | 26 | 3 |
 
 All six cases retained zero native bytes at process exit. Use the fixed case names

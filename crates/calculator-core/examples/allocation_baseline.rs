@@ -16,33 +16,41 @@ fn main() {
         .map(|value| value.parse::<u32>().expect("iterations must be a u32"))
         .unwrap_or(10);
     assert!(iterations > 0, "iterations must be positive");
+    let request = CalculationRequest::default();
+    let policy = InputPolicy::default();
+    let source = match case.as_str() {
+        "exact_rational" => Some(String::from(
+            "12345678901234567890/7 + 98765432109876543210/11",
+        )),
+        "exact_symbolic" => Some(String::from("(exp(1)+sin(1))*cos(1)-exp(1)*cos(1)")),
+        "approximate" => Some(String::from("sin(1)+ln(2)+2^sqrt(2)")),
+        "algebraic" => Some(String::from("((2^(1/3)-2^(1/3))+2)^(1/3)")),
+        "wide_add_256" => Some(wide_add_source()),
+        "session_dispatch_sequence" => None,
+        _ => panic!("unknown allocation case: {case}"),
+    };
     let _profiler = dhat::Profiler::new_heap();
     for _ in 0..iterations {
-        match case.as_str() {
-            "exact_rational" => calculate_case("12345678901234567890/7 + 98765432109876543210/11"),
-            "exact_symbolic" => calculate_case("(exp(1)+sin(1))*cos(1)-exp(1)*cos(1)"),
-            "approximate" => calculate_case("sin(1)+ln(2)+2^sqrt(2)"),
-            "algebraic" => calculate_case("((2^(1/3)-2^(1/3))+2)^(1/3)"),
-            "wide_add_256" => calculate_case(&wide_add_source()),
-            "session_dispatch_sequence" => session_case(),
-            _ => panic!("unknown allocation case: {case}"),
+        if let Some(source) = &source {
+            calculate_case(source, &request);
+        } else {
+            session_case(&policy);
         }
     }
 }
 
-fn calculate_case(source: &str) {
+fn calculate_case(source: &str, request: &CalculationRequest) {
     black_box(
         calculate(
             black_box(source),
-            black_box(&CalculationRequest::default()),
+            black_box(request),
             &mut EvaluationContext::default(),
         )
         .expect("allocation baseline calculation must not fail"),
     );
 }
 
-fn session_case() {
-    let policy = InputPolicy::default();
+fn session_case(policy: &InputPolicy) {
     let mut state = InputState::empty();
     for action in [
         InputAction::Digit(1),
@@ -54,7 +62,7 @@ fn session_case() {
         InputAction::Percent,
         InputAction::Evaluate,
     ] {
-        state = reduce_input(&state, action, &policy)
+        state = reduce_input(&state, action, policy)
             .expect("allocation session action must succeed")
             .state;
     }
