@@ -1,7 +1,7 @@
 use calculator_core::{
     calculate, evaluate, parse, present, reduce_input, CalculationOutcome, CalculationRequest,
     CertifiedEnclosureState, EvaluationContext, EvaluationRequest, ExactOutput, InputAction,
-    InputPolicy, InputState, PresentationRequest, RecognizedExact,
+    InputPolicy, InputState, Integer, PresentationRequest, Rational, RecognizedExact,
 };
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::hint::black_box;
@@ -201,10 +201,17 @@ fn profile_approximate_components(criterion: &mut Criterion) {
                     evaluation.value.recognized_exact,
                     RecognizedExact::GeneralSymbolic
                 ),
-                ExpectedExact::Radical => matches!(
-                    evaluation.value.recognized_exact,
-                    RecognizedExact::Radical(_)
-                ),
+                ExpectedExact::Radical => match &evaluation.value.recognized_exact {
+                    RecognizedExact::Radical(value) => {
+                        value.coefficient == Rational::one()
+                            && value.radicand.inner == Integer::from(2)
+                    }
+                    RecognizedExact::Rational(_)
+                    | RecognizedExact::RadicalLinearCombination(_)
+                    | RecognizedExact::RealAlgebraic(_)
+                    | RecognizedExact::RationalPiMultiple(_)
+                    | RecognizedExact::GeneralSymbolic => false,
+                },
             });
             assert!(matches!(
                 evaluation.value.certified_enclosure,

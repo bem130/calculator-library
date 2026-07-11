@@ -347,13 +347,29 @@ certified enclosure. Corresponding one-iteration allocation cases are named
 `approximate_sqrt_two`, `approximate_power_log_product`, and
 `approximate_exp_power_log_product`.
 
-On 2026-07-12, a single 10-sample run measured the cumulative evaluation stages at
-263 µs, 855 µs, and 1.60 ms respectively, while direct general power measured
-1.91 ms. All existing control components slowed during this run, so the absolute
-times are not used as a before/after claim. Within the same run, the increments
-still identify logarithm and final exponential evaluation as the material stages;
-interval multiplication is comparatively small. One-iteration public-calculation
-allocation was 223,249 bytes in 10,130 blocks for sqrt, 308,442 bytes in 13,627
-blocks through the product, and 515,358 bytes in 14,240 blocks through exp. The
-next slice should profile logarithm series/range reduction and sqrt construction
-before selecting another algorithmic change.
+On 2026-07-12, commit `2b7a1c2` with `rustc 1.97.0` recorded a single 10-sample
+run at 263 µs, 855 µs, and 1.60 ms respectively, while direct general power
+measured 1.91 ms. The same-run standalone `ln(2)` control was 482 µs; compared
+with the roughly 593 µs increment from sqrt through the product, the remaining
+approximately 111 µs includes multiplication, exact-expression construction, and
+evaluation dispatch rather than establishing multiplication cost alone. All
+existing controls slowed during this run, so absolute times are not used as a
+before/after claim. The cumulative increments still identify logarithm and final
+non-degenerate exponential evaluation as the primary next profiling targets.
+
+One-iteration public-calculation allocation was 223,249 bytes in 10,130 blocks for
+sqrt, 308,442 bytes in 13,627 blocks through the product, and 515,358 bytes in
+14,240 blocks through exp. Sqrt remains a secondary allocation target despite its
+smaller timing increment. Reproduce these rows with:
+
+```sh
+for case in \
+  approximate_sqrt_two \
+  approximate_power_log_product \
+  approximate_exp_power_log_product
+do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+```
