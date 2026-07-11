@@ -44,6 +44,7 @@ Phase 5 の堅牢化として、次を CI に入れている。
 最初のprofilingではapproximate複合経路の時間がevaluationに集中することを確認し、interval endpoint比較でdyadicを既約rationalへ変換していた不要なGCD/divisionを、2冪指数を整列した係数比較へ置き換えた。logical-work課金と結果契約は維持する。
 続くexp/log profilingでは、lowerとupperが同じexact dyadic pointでも同じTaylor boundsを2回構築していたため、directed lower/upper pairを一度だけ計算して共有する。非退化intervalのendpoint別評価、保証区間、refinement上限、logical-work課金は変更しない。
 対数の範囲縮小後に生じる`log(1)`は、精度分の零Taylor termを構築せず、恒等式のexact directed pair `[0, 0]`を返す。これにより`ln(2)`とgeneral power内の対数経路から不要な有理数演算・allocationを除き、精度、refinement上限、logical-work課金は維持する。
+指数の範囲縮小係数が1となる正のunit-range引数は、引数の1除算とdirected boundsの1乗を行わず、small exponential seriesの保証区間を直接使用する。unit rangeを超える引数の範囲縮小、有理数冪、精度、logical-work課金は変更しない。
 
 ## Deliberately Not Contract
 

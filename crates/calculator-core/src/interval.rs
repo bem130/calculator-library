@@ -544,6 +544,9 @@ fn exp_nonnegative_rational_bounds(
 ) -> Result<(Rational, Rational), IntervalError> {
     debug_assert!(!value.is_negative());
     let reduction = ceil_nonnegative_rational_to_u32(value)?;
+    if reduction == 1 {
+        return exp_small_nonnegative_rational_bounds(value, precision_bits);
+    }
     let divisor = rational_integer(i64::from(reduction));
     let reduced = divide_rational(value, &divisor)?;
     let (lower, upper) = exp_small_nonnegative_rational_bounds(&reduced, precision_bits)?;
@@ -1771,6 +1774,18 @@ mod tests {
                 log_rational_bounds(&two, precision_bits).unwrap(),
                 log_reduced_rational_bounds(&two, precision_bits).unwrap()
             );
+        }
+    }
+
+    #[test]
+    fn unit_range_exponential_uses_small_series_bounds_directly() {
+        for value in [rational(1, 3), rational(1, 1)] {
+            for precision_bits in [1, 64, 256] {
+                assert_eq!(
+                    exp_nonnegative_rational_bounds(&value, precision_bits).unwrap(),
+                    exp_small_nonnegative_rational_bounds(&value, precision_bits).unwrap()
+                );
+            }
         }
     }
 

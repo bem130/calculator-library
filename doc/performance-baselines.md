@@ -188,3 +188,22 @@ the material cost. One-iteration native allocation moved from 4,819,171 bytes in
 400,447-unit logical-work boundary remained unchanged. Timing samples on this host
 show noticeable scheduler variance, while the deterministic removal of 1,014
 allocation blocks provides the stronger local evidence for this fast path.
+
+## Unit-range exponential reduction identity
+
+Profiling the exponential half of the general-power composition found another
+identity case around the Taylor series rather than inside it. For every positive
+argument in `(0, 1]`, exponential range reduction chooses a factor of one. The
+backend nevertheless divided the argument by one and raised each directed series
+bound to the first power, canonicalizing the same large rationals three additional
+times. The unit-range path now returns the small-series directed pair directly;
+arguments above one retain the existing reduction and positive integer powers.
+
+On 2026-07-12, one-iteration native allocation for the approximate composite moved
+from 4,808,083 bytes in 22,740 blocks to 4,760,003 bytes in 22,684 blocks. Peak live
+memory moved from 38,566 bytes in 66 blocks to 38,478 bytes in 62 blocks, and the
+400,447-unit logical-work boundary was unchanged. Wall-clock comparison was
+inconclusive: the after run slowed together with the parse and presentation control
+groups by roughly 50%, identifying host load rather than this evaluation-only
+change. The deterministic removal of division-by-one and first-power rational
+canonicalization is therefore the evidence retained for this slice.
