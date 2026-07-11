@@ -580,16 +580,38 @@ fn exp_small_nonnegative_rational_bounds(
 ) -> Result<(Rational, Rational), IntervalError> {
     debug_assert!(!value.is_negative());
     debug_assert!(compare_rationals(value, &Rational::one()) != Ordering::Greater);
-    let term_count = exp_series_terms(precision_bits)?;
-    let mut sum = Rational::zero();
-    let mut term = Rational::one();
-    for n in 0..=term_count {
-        sum = sum.add(&term);
-        let next_n = n.checked_add(1).ok_or(IntervalError::ExponentTooLarge)?;
-        term = multiply_rationals_divide_u32(&term, value, next_n)?;
+    exp_series_rational_bounds(value, exp_series_terms(precision_bits)?)
+}
+
+fn exp_series_rational_bounds(
+    value: &Rational,
+    term_count: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    let tail_index = term_count
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    if value.is_zero() {
+        return Ok((Rational::one(), Rational::one()));
     }
-    let upper = sum.add(&scale_rational(&term, 2));
-    Ok((sum, upper))
+    let value_numerator = &value.numerator.inner;
+    let value_denominator = &value.denominator.inner.inner;
+    let mut sum_numerator = BigInt::one();
+    let mut term_numerator = BigInt::one();
+    let mut common_denominator = BigInt::one();
+    for next_n in 1..=term_count {
+        let denominator_factor = value_denominator * BigInt::from(next_n);
+        sum_numerator = &sum_numerator * &denominator_factor + &term_numerator * value_numerator;
+        term_numerator *= value_numerator;
+        common_denominator *= denominator_factor;
+    }
+    let next_denominator_factor = value_denominator * BigInt::from(tail_index);
+    let upper_numerator = &sum_numerator * &next_denominator_factor
+        + (&term_numerator * value_numerator * BigInt::from(2_u8));
+    let upper_denominator = &common_denominator * next_denominator_factor;
+    Ok((
+        rational_from_parts(sum_numerator, common_denominator)?,
+        rational_from_parts(upper_numerator, upper_denominator)?,
+    ))
 }
 
 fn log_rational_bounds(
@@ -1374,20 +1396,6 @@ fn divide_rational(left: &Rational, right: &Rational) -> Result<Rational, Interv
         .map_err(|_| IntervalError::DivisionByIntervalContainingZero)
 }
 
-fn multiply_rationals_divide_u32(
-    left: &Rational,
-    right: &Rational,
-    divisor: u32,
-) -> Result<Rational, IntervalError> {
-    if divisor == 0 {
-        return Err(IntervalError::DivisionByIntervalContainingZero);
-    }
-    rational_from_parts(
-        &left.numerator.inner * &right.numerator.inner,
-        &left.denominator.inner.inner * &right.denominator.inner.inner * BigInt::from(divisor),
-    )
-}
-
 fn halve_rational(value: &Rational) -> Result<Rational, IntervalError> {
     divide_rational(value, &rational_integer(2))
 }
@@ -1920,27 +1928,37 @@ mod tests {
     }
 
     #[test]
-    fn fused_rational_term_update_matches_multiply_then_divide() {
-        for (left, right, divisor) in [
-            (rational(2, 3), rational(9, 10), 4),
-            (rational(17, 19), rational(23, 29), 31),
-            (rational(-5, 7), rational(14, 15), 2),
-            (Rational::zero(), rational(11, 13), 7),
-            (rational(5, 7), rational(-14, 15), 1),
-            (rational(6, 35), rational(35, 9), 2),
+    fn common_denominator_exp_series_matches_rational_recurrence() {
+        for value in [
+            Rational::zero(),
+            rational(1, 3),
+            rational(9, 10),
+            Rational::one(),
         ] {
-            assert_eq!(
-                multiply_rationals_divide_u32(&left, &right, divisor).unwrap(),
-                divide_rational(
-                    &left.multiply(&right),
-                    &rational_integer(i64::from(divisor))
-                )
-                .unwrap()
-            );
+            for term_count in [0, 1, 5, 20] {
+                let mut expected_sum = Rational::zero();
+                let mut expected_term = Rational::one();
+                for n in 0..=term_count {
+                    expected_sum = expected_sum.add(&expected_term);
+                    let next_n = n + 1;
+                    expected_term = divide_rational(
+                        &expected_term.multiply(&value),
+                        &rational_integer(i64::from(next_n)),
+                    )
+                    .unwrap();
+                }
+                assert_eq!(
+                    exp_series_rational_bounds(&value, term_count).unwrap(),
+                    (
+                        expected_sum.clone(),
+                        expected_sum.add(&scale_rational(&expected_term, 2))
+                    )
+                );
+            }
         }
         assert_eq!(
-            multiply_rationals_divide_u32(&Rational::one(), &Rational::one(), 0),
-            Err(IntervalError::DivisionByIntervalContainingZero)
+            exp_series_rational_bounds(&Rational::one(), u32::MAX),
+            Err(IntervalError::ExponentTooLarge)
         );
     }
 

@@ -292,3 +292,29 @@ bytes in 14,054 blocks. Full approximate allocation moved from 2,024,995 bytes i
 20,873 blocks to 1,770,019 bytes in 20,190 blocks. Peak live memory remained
 22,567 bytes for general power and 23,902 bytes for the composite; the deterministic
 logical-work boundary remained 400,447 units.
+
+## Common-denominator exponential summation
+
+The post-fusion profile still spent most general-power time canonicalizing both the
+Taylor term and accumulated sum on every iteration. For reduced `x = a/b`, the
+implementation now keeps the term and partial sum over the shared denominator
+`b^n * n!` using integer recurrences. It constructs canonical rationals only for
+the final lower bound and the upper bound that includes twice the first omitted
+term. A regression compares this representation with the former per-step Rational
+recurrence for zero, interior, near-one, and unit inputs across multiple term
+counts.
+
+On 2026-07-12, `2^sqrt(2)` moved from 9.48 ms in the immediate pre-change component
+run to 1.17 ms (about 88% lower). General-power allocation moved from 1,548,238
+bytes in 14,054 blocks to 481,190 bytes in 12,706 blocks, and peak live memory moved
+from 22,567 to 11,559 bytes. The full approximate calculation moved from 13.24 ms
+to 2.72 ms; allocation moved from 1,770,019 bytes in 20,190 blocks to 702,971 bytes
+in 18,842 blocks, with peak live memory moving from 23,902 to 12,894 bytes. Logical
+work remained 400,447 units.
+
+The updated evaluation-only component estimates are 18.6 µs for `exp(1)`, 301 µs
+for `ln(2)`, 1.17 ms for `2^sqrt(2)`, and 1.12 ms for `sin(1)`. General power is no
+longer an order-of-magnitude outlier; it and rational-point sine now form the next
+timing tier. Further work should separately profile sqrt/log/multiply/exp within
+general power and the trigonometric range-reduction/series path before choosing
+between them.

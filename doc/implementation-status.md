@@ -48,6 +48,7 @@ Phase 5 の堅牢化として、次を CI に入れている。
 approximate component benchmarkは`exp(1)`、`ln(2)`、`2^sqrt(2)`、`sin(1)`を同じevaluation境界で分離し、対応する公開`calculate`境界のallocation caseを持つ。現行baselineではgeneral powerが時間とallocationを支配し、次の調査対象は非退化指数intervalのexp bounds構築である。
 expのTaylor級数はrange reduction後の`0 <= x <= 1`と次項以降の剩余が次項の2倍以下であることを使い、`(N + 1)! >= 2^(precision_bits + 1)`を満たす最小項数を整数演算で求める。これにより剩余幅を`2^-precision_bits`以下に保ったまま、general powerの不要な有理数項を除く。directed rounding、refinement、logical-work課金、公開精度契約は変更しない。
 expの項更新`term * x / n`は、中間積と除算結果を別々に既約化せず、分子積と`denominator(term) * denominator(x) * n`から1回だけcanonical Rationalを構築する。exact値・停止性・方向付き保証とlogical-work課金を維持したまま、中間allocationと重複GCDを除く。
+expのTaylor部分和と現在項は、range reduction後の`x = a/b`に対して共通分母`b^n * n!`上のBigInt recurrenceで保持する。loop内で毎回Rationalを既約化せず、最終lowerと最初の未加算項の2倍を含むupperのみcanonical化する。旧Rational recurrenceとのexact一致、directed bounds、停止性、logical-work課金を維持する。
 
 ## Deliberately Not Contract
 
