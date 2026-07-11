@@ -162,8 +162,13 @@ async function runBrowserChecks(url, origin) {
         });
         try {
             const mobilePage = await mobileContext.newPage();
+            const mobileErrors = [];
+            mobilePage.on("console", (message) => {
+                if (message.type() === "error") mobileErrors.push(`console: ${message.text()}`);
+            });
+            mobilePage.on("pageerror", (error) => mobileErrors.push(`pageerror: ${error.message}`));
             await mobilePage.goto(url);
-            await assertTouchEditorInput(mobilePage);
+            await assertTouchEditorInput(mobilePage, mobileErrors);
         } finally {
             await mobileContext.close();
         }
@@ -281,12 +286,7 @@ async function assertDesktopEditorInput(page) {
     await page.click("#calculate");
 }
 
-async function assertTouchEditorInput(page) {
-    const browserErrors = [];
-    page.on("console", (message) => {
-        if (message.type() === "error") browserErrors.push(`console: ${message.text()}`);
-    });
-    page.on("pageerror", (error) => browserErrors.push(`pageerror: ${error.message}`));
+async function assertTouchEditorInput(page, browserErrors) {
     const editor = page.locator("#expression-editor");
     await editor.fill("123456789");
     const box = await editor.boundingBox();
@@ -306,7 +306,7 @@ async function assertTouchEditorInput(page) {
     });
     await page.touchscreen.tap(box.x + geometry.x[1], box.y + geometry.y);
     const cursor = await editor.evaluate((element) => element.selectionStart);
-    assert(cursor > 0 && cursor < 9, `touch did not place the caret: ${cursor}`);
+    assert(Math.abs(cursor - 4) <= 1, `touch did not place the caret near boundary 4: ${cursor}`);
     const client = await page.context().newCDPSession(page);
     await editor.evaluate((element) => element.setSelectionRange(2, 7, "forward"));
     const plusBox = await page.locator("#key-plus").boundingBox();
@@ -328,8 +328,13 @@ async function assertTouchEditorInput(page) {
     const leftBox = await page.locator("#key-left").boundingBox();
     const rightBox = await page.locator("#key-right").boundingBox();
     assert(leftBox !== null && rightBox !== null, "mobile arrow keys have no layout boxes");
+    const originalCursor = await editor.evaluate((element) => element.selectionStart);
     await page.touchscreen.tap(leftBox.x + leftBox.width / 2, leftBox.y + leftBox.height / 2);
+    const leftCursor = await editor.evaluate((element) => element.selectionStart);
+    assert(leftCursor === originalCursor - 1, `one touch left gesture moved ${originalCursor - leftCursor} positions`);
     await page.touchscreen.tap(rightBox.x + rightBox.width / 2, rightBox.y + rightBox.height / 2);
+    const rightCursor = await editor.evaluate((element) => element.selectionStart);
+    assert(rightCursor === originalCursor, `one touch right gesture did not restore the caret: ${rightCursor}`);
     const beforeInsert = await editor.inputValue();
     await page.touchscreen.tap(plusBox.x + plusBox.width / 2, plusBox.y + plusBox.height / 2);
     assert(
