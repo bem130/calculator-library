@@ -1761,10 +1761,15 @@ mod tests {
 
     #[test]
     fn reduced_logarithm_identity_has_exact_zero_bounds() {
+        let two = rational(2, 1);
         for precision_bits in [1, 64, 256] {
             assert_eq!(
                 log_reduced_rational_bounds(&Rational::one(), precision_bits).unwrap(),
                 (Rational::zero(), Rational::zero())
+            );
+            assert_eq!(
+                log_rational_bounds(&two, precision_bits).unwrap(),
+                log_reduced_rational_bounds(&two, precision_bits).unwrap()
             );
         }
     }
