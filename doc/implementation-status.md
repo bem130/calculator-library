@@ -45,6 +45,7 @@ Phase 5 の堅牢化として、次を CI に入れている。
 続くexp/log profilingでは、lowerとupperが同じexact dyadic pointでも同じTaylor boundsを2回構築していたため、directed lower/upper pairを一度だけ計算して共有する。非退化intervalのendpoint別評価、保証区間、refinement上限、logical-work課金は変更しない。
 対数の範囲縮小後に生じる`log(1)`は、精度分の零Taylor termを構築せず、恒等式のexact directed pair `[0, 0]`を返す。これにより`ln(2)`とgeneral power内の対数経路から不要な有理数演算・allocationを除き、精度、refinement上限、logical-work課金は維持する。
 指数の範囲縮小係数が1となる正のunit-range引数は、引数の1除算とdirected boundsの1乗を行わず、small exponential seriesの保証区間を直接使用する。unit rangeを超える引数の範囲縮小、有理数冪、精度、logical-work課金は変更しない。
+approximate component benchmarkは`exp(1)`、`ln(2)`、`2^sqrt(2)`、`sin(1)`を同じevaluation境界で分離し、対応する公開`calculate`境界のallocation caseを持つ。現行baselineではgeneral powerが時間とallocationを支配し、次の調査対象は非退化指数intervalのexp bounds構築である。
 
 ## Deliberately Not Contract
 

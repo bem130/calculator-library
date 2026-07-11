@@ -17,6 +17,13 @@ const CASES: &[(&str, &str)] = &[
     ("algebraic", "((2^(1/3)-2^(1/3))+2)^(1/3)"),
 ];
 
+const APPROXIMATE_COMPONENTS: &[(&str, &str)] = &[
+    ("exp_one", "exp(1)"),
+    ("log_two", "ln(2)"),
+    ("general_power", "2^sqrt(2)"),
+    ("sin_one", "sin(1)"),
+];
+
 fn calculate_representative_paths(criterion: &mut Criterion) {
     let request = CalculationRequest::default();
     let mut group = criterion.benchmark_group("calculate");
@@ -156,12 +163,53 @@ fn profile_approximate_stages(criterion: &mut Criterion) {
     group.finish();
 }
 
+fn profile_approximate_components(criterion: &mut Criterion) {
+    let request = CalculationRequest::default();
+    let evaluation_request = EvaluationRequest {
+        semantics: request.semantics,
+        limits: request.limits.clone(),
+    };
+    let parsed = APPROXIMATE_COMPONENTS
+        .iter()
+        .map(|&(name, source)| {
+            let parsed = parse(source, &request.parse).expect("component parse must succeed");
+            evaluate(
+                &parsed,
+                &evaluation_request,
+                &mut EvaluationContext::default(),
+            )
+            .expect("component evaluation preflight must succeed");
+            (name, parsed)
+        })
+        .collect::<Vec<_>>();
+    let mut group = criterion.benchmark_group("approximate_components");
+    for (name, parsed) in &parsed {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(name),
+            parsed,
+            |bencher, parsed| {
+                bencher.iter(|| {
+                    black_box(
+                        evaluate(
+                            black_box(parsed),
+                            black_box(&evaluation_request),
+                            &mut EvaluationContext::default(),
+                        )
+                        .unwrap(),
+                    )
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
 criterion_group! {
     name = representative_paths;
     config = Criterion::default()
         .sample_size(10)
         .warm_up_time(Duration::from_secs(1))
         .measurement_time(Duration::from_secs(1));
-    targets = calculate_representative_paths, calculate_wide_expression, reduce_session_input, profile_approximate_stages
+    targets = calculate_representative_paths, calculate_wide_expression, reduce_session_input, profile_approximate_stages, profile_approximate_components
 }
 criterion_main!(representative_paths);

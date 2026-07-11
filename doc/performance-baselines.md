@@ -75,6 +75,12 @@ boundary leak/payload proxy. Source construction, the calculation request, and t
 session policy are prepared before profiling so each iteration matches the timed
 native operation scope.
 
+The approximate composite also has fixed `approximate_exp_one`,
+`approximate_log_two`, `approximate_general_power`, and `approximate_sin_one`
+allocation cases. They use the same public `calculate` boundary as the composite;
+the `approximate_components` Criterion group prepares parsed inputs and measures
+only `evaluate` so parse and presentation do not obscure the component comparison.
+
 Deterministic logical-work baselines use the smallest custom limit that produces
 an outcome exactly equal to the default-limit outcome:
 
@@ -207,3 +213,24 @@ inconclusive: the after run slowed together with the parse and presentation cont
 groups by roughly 50%, identifying host load rather than this evaluation-only
 change. The deterministic removal of division-by-one and first-power rational
 canonicalization is therefore the evidence retained for this slice.
+
+## Approximate component baseline
+
+The general-power follow-up separates `exp(1)`, `ln(2)`, `2^sqrt(2)`, and `sin(1)`
+without exposing private interval primitives to the benchmark. On 2026-07-12 the
+10-sample evaluation-only estimates were:
+
+| Component | Estimate | Allocated bytes | Blocks | Peak bytes | Peak blocks |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `exp(1)` | 265.5 µs | 50,981 | 2,044 | 1,719 | 27 |
+| `ln(2)` | 409.6 µs | 56,005 | 2,175 | 2,046 | 47 |
+| `2^sqrt(2)` | 57.7 ms | 4,538,222 | 16,548 | 37,143 | 49 |
+| `sin(1)` | 1.65 ms | 170,503 | 4,257 | 2,703 | 33 |
+
+Allocation rows use one full public calculation, so their fixed parser and output
+cost differs from the evaluation-only timing boundary. Even with that conservative
+boundary, general power accounts for about 95% of the composite's allocated bytes
+and is over an order of magnitude slower than the other components combined. The
+next optimization should therefore profile the non-degenerate exponential bounds
+produced after multiplying `log(base)` by the irrational exponent; changing the
+standalone exp/log series or presentation is not supported by this baseline.
