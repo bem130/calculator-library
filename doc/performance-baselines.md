@@ -416,13 +416,25 @@ same recurrence state representation is shared by paired and directed paths, and
 regression tests require exact equality for positive, negative, zero, unit-range,
 and range-reduced inputs.
 
-On 2026-07-12 with `rustc 1.97.0`, the same 10-sample cumulative
-`exp(sqrt(2)*ln(2))` invocation moved from a 1.4096 ms median estimate to
-1.2706 ms (about 9.9% lower). Direct general power measured 1.0230 ms after the
-change; its immediate pre-change timing run contained three outliers, so no
-timing percentage is claimed for that row. One-iteration allocation moved from
-499,302 to 488,598 bytes for the cumulative exp stage and from 465,134 to 454,430
-bytes for direct general power. Peak live allocation increased by 160 bytes in
-both cases because the directed state owns endpoint components until the selected
-bound is canonicalized; this remains below the earlier 12,894-byte composite
-baseline.
+On 2026-07-12 with `rustc 1.97.0`, base commit `1d5b44a` and changed commit
+`e2119a7` measured the same 10-sample cumulative `exp(sqrt(2)*ln(2))` invocation
+at 1.4096 ms and 1.2706 ms respectively (median estimates, about 9.9% lower).
+Direct general power measured 1.0230 ms after the change; its immediate
+pre-change timing run contained three outliers, so no timing percentage is
+claimed for that row. One-iteration allocation moved from 499,302 to 488,598
+bytes for the cumulative exp stage and from 465,134 to 454,430 bytes for direct
+general power. Peak live allocation increased by 160 bytes in both cases because
+the directed state owns endpoint components until the selected bound is
+canonicalized; this remains below the earlier 12,894-byte composite baseline.
+Reproduce the changed measurements with:
+
+```sh
+for case in exp_power_log_product general_power
+do
+  cargo bench -p calculator-core --bench representative_paths --features std \
+    -- "approximate_components/$case"
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "approximate_$case"
+done
+```
