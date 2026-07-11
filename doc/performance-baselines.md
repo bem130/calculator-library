@@ -421,11 +421,13 @@ On 2026-07-12 with `rustc 1.97.0`, base commit `1d5b44a` and changed commit
 at 1.4096 ms and 1.2706 ms respectively (median estimates, about 9.9% lower).
 Direct general power measured 1.0230 ms after the change; its immediate
 pre-change timing run contained three outliers, so no timing percentage is
-claimed for that row. One-iteration allocation moved from 499,302 to 488,598
-bytes for the cumulative exp stage and from 465,134 to 454,430 bytes for direct
-general power. Peak live allocation increased by 160 bytes in both cases because
-the directed state owns endpoint components until the selected bound is
-canonicalized; this remains below the earlier 12,894-byte composite baseline.
+claimed for that row. After the review-driven removal of endpoint `BigInt` clones,
+one-iteration allocation moved from 499,302 to 486,262 bytes for the cumulative
+exp stage and from 465,134 to 452,094 bytes for direct general power. Exact-point
+`exp(1)` remained unchanged at 20,157 bytes in 762 blocks. Peak live allocation
+increased by 96 bytes in both non-degenerate cases; this remains below the earlier
+12,894-byte composite baseline and is recorded separately from the lower total
+allocation.
 Reproduce the changed measurements with:
 
 ```sh

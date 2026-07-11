@@ -658,7 +658,7 @@ fn exp_series_rational_bounds(
         return Ok((Rational::one(), Rational::one()));
     }
     let state = exp_series_state(value, term_count, tail_index);
-    Ok((state.lower()?, state.upper()?))
+    state.into_bounds()
 }
 
 fn exp_series_rational_bound(
@@ -674,44 +674,54 @@ fn exp_series_rational_bound(
     }
     let state = exp_series_state(value, term_count, tail_index);
     match direction {
-        BoundDirection::Lower => state.lower(),
-        BoundDirection::Upper => state.upper(),
+        BoundDirection::Lower => state.into_lower(),
+        BoundDirection::Upper => state.into_upper(),
     }
 }
 
-struct ExpSeriesState {
+struct ExpSeriesState<'a> {
     sum_numerator: BigInt,
     term_numerator: BigInt,
     common_denominator: BigInt,
-    value_numerator: BigInt,
-    value_denominator: BigInt,
+    value_numerator: &'a BigInt,
+    value_denominator: &'a BigInt,
     tail_index: u32,
 }
 
-impl ExpSeriesState {
-    fn lower(&self) -> Result<Rational, IntervalError> {
-        rational_from_parts(self.sum_numerator.clone(), self.common_denominator.clone())
+impl ExpSeriesState<'_> {
+    fn into_lower(self) -> Result<Rational, IntervalError> {
+        rational_from_parts(self.sum_numerator, self.common_denominator)
+    }
+
+    fn into_upper(self) -> Result<Rational, IntervalError> {
+        self.upper()
+    }
+
+    fn into_bounds(self) -> Result<(Rational, Rational), IntervalError> {
+        let upper = self.upper()?;
+        let lower = rational_from_parts(self.sum_numerator, self.common_denominator)?;
+        Ok((lower, upper))
     }
 
     fn upper(&self) -> Result<Rational, IntervalError> {
-        let next_denominator_factor = &self.value_denominator * BigInt::from(self.tail_index);
+        let next_denominator_factor = self.value_denominator * BigInt::from(self.tail_index);
         let upper_numerator = &self.sum_numerator * &next_denominator_factor
-            + (&self.term_numerator * &self.value_numerator * BigInt::from(2_u8));
+            + (&self.term_numerator * self.value_numerator * BigInt::from(2_u8));
         let upper_denominator = &self.common_denominator * next_denominator_factor;
         rational_from_parts(upper_numerator, upper_denominator)
     }
 }
 
-fn exp_series_state(value: &Rational, term_count: u32, tail_index: u32) -> ExpSeriesState {
-    let value_numerator = value.numerator.inner.clone();
-    let value_denominator = value.denominator.inner.inner.clone();
+fn exp_series_state(value: &Rational, term_count: u32, tail_index: u32) -> ExpSeriesState<'_> {
+    let value_numerator = &value.numerator.inner;
+    let value_denominator = &value.denominator.inner.inner;
     let mut sum_numerator = BigInt::one();
     let mut term_numerator = BigInt::one();
     let mut common_denominator = BigInt::one();
     for next_n in 1..=term_count {
-        let denominator_factor = &value_denominator * BigInt::from(next_n);
-        sum_numerator = &sum_numerator * &denominator_factor + &term_numerator * &value_numerator;
-        term_numerator *= &value_numerator;
+        let denominator_factor = value_denominator * BigInt::from(next_n);
+        sum_numerator = &sum_numerator * &denominator_factor + &term_numerator * value_numerator;
+        term_numerator *= value_numerator;
         common_denominator *= denominator_factor;
     }
     ExpSeriesState {
@@ -1998,20 +2008,25 @@ mod tests {
             }
         }
 
-        let lower = rational(1, 3);
-        let upper = rational(2, 3);
-        let input = from_rational_bounds(&lower, &upper, 128).unwrap();
-        let input_lower = dyadic_to_rational(&input.lower).unwrap();
-        let input_upper = dyadic_to_rational(&input.upper).unwrap();
-        assert_eq!(
-            exp(&input, 128).unwrap(),
-            from_rational_bounds(
-                &exp_rational_bounds(&input_lower, 128).unwrap().0,
-                &exp_rational_bounds(&input_upper, 128).unwrap().1,
-                128
-            )
-            .unwrap()
-        );
+        for (lower, upper) in [
+            (rational(1, 3), rational(2, 3)),
+            (rational(-2, 3), rational(-1, 3)),
+            (rational(-1, 3), rational(1, 3)),
+            (rational(3, 2), rational(5, 2)),
+        ] {
+            let input = from_rational_bounds(&lower, &upper, 128).unwrap();
+            let input_lower = dyadic_to_rational(&input.lower).unwrap();
+            let input_upper = dyadic_to_rational(&input.upper).unwrap();
+            assert_eq!(
+                exp(&input, 128).unwrap(),
+                from_rational_bounds(
+                    &exp_rational_bounds(&input_lower, 128).unwrap().0,
+                    &exp_rational_bounds(&input_upper, 128).unwrap().1,
+                    128
+                )
+                .unwrap()
+            );
+        }
     }
 
     #[test]
