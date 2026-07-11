@@ -586,7 +586,7 @@ fn exp_small_nonnegative_rational_bounds(
     for n in 0..=term_count {
         sum = sum.add(&term);
         let next_n = n.checked_add(1).ok_or(IntervalError::ExponentTooLarge)?;
-        term = divide_rational(&term.multiply(value), &rational_integer(i64::from(next_n)))?;
+        term = multiply_rationals_divide_u32(&term, value, next_n)?;
     }
     let upper = sum.add(&scale_rational(&term, 2));
     Ok((sum, upper))
@@ -1374,6 +1374,20 @@ fn divide_rational(left: &Rational, right: &Rational) -> Result<Rational, Interv
         .map_err(|_| IntervalError::DivisionByIntervalContainingZero)
 }
 
+fn multiply_rationals_divide_u32(
+    left: &Rational,
+    right: &Rational,
+    divisor: u32,
+) -> Result<Rational, IntervalError> {
+    if divisor == 0 {
+        return Err(IntervalError::DivisionByIntervalContainingZero);
+    }
+    rational_from_parts(
+        &left.numerator.inner * &right.numerator.inner,
+        &left.denominator.inner.inner * &right.denominator.inner.inner * BigInt::from(divisor),
+    )
+}
+
 fn halve_rational(value: &Rational) -> Result<Rational, IntervalError> {
     divide_rational(value, &rational_integer(2))
 }
@@ -1903,6 +1917,28 @@ mod tests {
         assert!(contains_rational(&multiply(&left, &right).unwrap(), &rational(3, 50)).unwrap());
         assert!(contains_rational(&divide(&left, &right, 24).unwrap(), &rational(3, 2)).unwrap());
         assert!(contains_rational(&pow_i64(&left, 2, 24).unwrap(), &rational(9, 100)).unwrap());
+    }
+
+    #[test]
+    fn fused_rational_term_update_matches_multiply_then_divide() {
+        for (left, right, divisor) in [
+            (rational(2, 3), rational(9, 10), 4),
+            (rational(17, 19), rational(23, 29), 31),
+            (rational(-5, 7), rational(14, 15), 2),
+        ] {
+            assert_eq!(
+                multiply_rationals_divide_u32(&left, &right, divisor).unwrap(),
+                divide_rational(
+                    &left.multiply(&right),
+                    &rational_integer(i64::from(divisor))
+                )
+                .unwrap()
+            );
+        }
+        assert_eq!(
+            multiply_rationals_divide_u32(&Rational::one(), &Rational::one(), 0),
+            Err(IntervalError::DivisionByIntervalContainingZero)
+        );
     }
 
     #[test]

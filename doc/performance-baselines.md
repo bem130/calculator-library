@@ -273,3 +273,22 @@ bytes in 22,684 blocks to 2,024,995 bytes in 20,873 blocks, with peak live memor
 moving from 38,478 to 23,902 bytes. The deterministic logical-work boundary stayed
 at 400,447 units because resource charging describes the public algorithmic request
 boundary rather than host-dependent internal optimization work.
+
+## Fused exponential term update
+
+After reducing the number of exponential terms, allocation stacks showed that each
+remaining recurrence step still canonicalized `term * x`, then immediately built
+and canonicalized a second rational for division by the positive integer `n`.
+The recurrence now constructs `(term.numerator * x.numerator) /
+(term.denominator * x.denominator * n)` once. `Rational::new` still performs the
+same exact sign and GCD normalization, but the transient rational and its redundant
+GCD pass are removed.
+
+On 2026-07-12, the 10-sample `2^sqrt(2)` evaluation estimate moved from the
+factorial-tail baseline of 18.35 ms to 11.80 ms (about 36% lower), and the full
+approximate calculation measured 13.24 ms instead of 20.4 ms. One-iteration
+general-power allocation moved from 1,803,214 bytes in 14,737 blocks to 1,548,238
+bytes in 14,054 blocks. Full approximate allocation moved from 2,024,995 bytes in
+20,873 blocks to 1,770,019 bytes in 20,190 blocks. Peak live memory remained
+22,567 bytes for general power and 23,902 bytes for the composite; the deterministic
+logical-work boundary remained 400,447 units.
