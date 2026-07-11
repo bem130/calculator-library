@@ -189,6 +189,10 @@ pub(crate) fn exp(
 ) -> Result<CertifiedInterval, IntervalError> {
     let lower = dyadic_to_rational(&value.lower)?;
     let upper = dyadic_to_rational(&value.upper)?;
+    if lower == upper {
+        let (lower, upper) = exp_rational_bounds(&lower, precision_bits)?;
+        return from_rational_bounds(&lower, &upper, precision_bits);
+    }
     let (lower, _) = exp_rational_bounds(&lower, precision_bits)?;
     let (_, upper) = exp_rational_bounds(&upper, precision_bits)?;
     from_rational_bounds(&lower, &upper, precision_bits)
@@ -207,6 +211,10 @@ pub(crate) fn log(
     }
     if lower.is_negative() || lower.is_zero() {
         return Err(IntervalError::UnsupportedExpression);
+    }
+    if lower == upper {
+        let (lower, upper) = log_rational_bounds(&lower, precision_bits)?;
+        return from_rational_bounds(&lower, &upper, precision_bits);
     }
 
     let (lower, _) = log_rational_bounds(&lower, precision_bits)?;
@@ -1699,6 +1707,24 @@ mod tests {
         let interval = from_rational_bounds(&lower, &upper, 12).unwrap();
         assert!(contains_rational(&interval, &lower).unwrap());
         assert!(contains_rational(&interval, &upper).unwrap());
+    }
+
+    #[test]
+    fn exp_log_exact_points_use_their_single_directed_bound_pair() {
+        let precision_bits = 96;
+        let one = rational(1, 1);
+        let (exp_lower, exp_upper) = exp_rational_bounds(&one, precision_bits).unwrap();
+        assert_eq!(
+            exp(&from_rational(&one, precision_bits), precision_bits).unwrap(),
+            from_rational_bounds(&exp_lower, &exp_upper, precision_bits).unwrap()
+        );
+
+        let two = rational(2, 1);
+        let (log_lower, log_upper) = log_rational_bounds(&two, precision_bits).unwrap();
+        assert_eq!(
+            log(&from_rational(&two, precision_bits), precision_bits).unwrap(),
+            from_rational_bounds(&log_lower, &log_upper, precision_bits).unwrap()
+        );
     }
 
     #[test]

@@ -152,3 +152,20 @@ is deliberately kept despite the modest byte reduction because it removes an
 algorithmically unnecessary canonical-rational conversion from every dyadic
 endpoint comparison. Further work should profile the exp/log series and general
 power refinement inside evaluation rather than target serialization first.
+
+## Exact-point exp/log bound reuse
+
+The next profile showed that exact dyadic points passed to `exp` and `log` still
+evaluated the same rational Taylor bound routine independently for equal lower and
+upper endpoints. This occurs for direct `ln(2)` and again for the exact base inside
+`2^sqrt(2)`. A point has one directed lower/upper bound pair, so the interval
+backend now computes that pair once; non-degenerate intervals continue to evaluate
+their distinct endpoints independently.
+
+On 2026-07-12, the same 10-sample composite moved from the post-dyadic-comparison
+70.1 ms estimate to 63.4 ms (about 9.5% lower). One-iteration native allocation
+moved from 4,907,523 bytes in 27,984 blocks to 4,819,171 bytes in 23,754 blocks.
+Peak live memory and the 400,447-unit logical-work boundary were unchanged. The
+stage group continued to place essentially all material time in evaluation; parse
+remained below 1 µs and presentation near 13 µs. Further work should separate the
+remaining general-power exp and log series terms before changing their algorithms.
