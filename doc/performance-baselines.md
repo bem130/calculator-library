@@ -481,7 +481,8 @@ raising the cap would construct `exp(10000)` before taking the negative reciproc
 and the final absolute `2^-precision` grid would still round the lower endpoint to
 zero.
 
-The large-range path now computes a certified `ln(2)` interval at guard precision,
+At implementation commit `4b98a6c`, the large-range path computes a certified
+`ln(2)` interval at guard precision,
 reduces `x = k*ln(2)+r`, evaluates only the bounded residual, and adds `k` to the
 resulting `ExactDyadic` exponent. Both signs therefore retain an O(precision)
 coefficient without a huge positive Rational power or zero underflow. The existing
