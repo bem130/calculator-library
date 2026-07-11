@@ -404,3 +404,25 @@ CALCULATOR_ALLOCATION_ITERATIONS=1 \
 The harness fixes this component group at 10 samples. The final non-degenerate
 exponential stage remains the primary measured target for the next profiling
 slice.
+
+## Directed non-degenerate exponential endpoints
+
+For an exact-point interval, exponential evaluation continues to build one Taylor
+recurrence state and derives both directed bounds from it. For a non-degenerate
+interval, monotonicity needs only the lower bound at the lower endpoint and the
+upper bound at the upper endpoint. The endpoint path now canonicalizes only that
+required Rational instead of constructing and discarding its opposite bound. The
+same recurrence state representation is shared by paired and directed paths, and
+regression tests require exact equality for positive, negative, zero, unit-range,
+and range-reduced inputs.
+
+On 2026-07-12 with `rustc 1.97.0`, the same 10-sample cumulative
+`exp(sqrt(2)*ln(2))` invocation moved from a 1.4096 ms median estimate to
+1.2706 ms (about 9.9% lower). Direct general power measured 1.0230 ms after the
+change; its immediate pre-change timing run contained three outliers, so no
+timing percentage is claimed for that row. One-iteration allocation moved from
+499,302 to 488,598 bytes for the cumulative exp stage and from 465,134 to 454,430
+bytes for direct general power. Peak live allocation increased by 160 bytes in
+both cases because the directed state owns endpoint components until the selected
+bound is canonicalized; this remains below the earlier 12,894-byte composite
+baseline.

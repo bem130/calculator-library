@@ -189,8 +189,14 @@ pub(crate) fn exp(
 ) -> Result<CertifiedInterval, IntervalError> {
     let lower = dyadic_to_rational(&value.lower)?;
     let upper = dyadic_to_rational(&value.upper)?;
-    let (lower, upper) =
-        monotone_rational_bounds(&lower, &upper, precision_bits, exp_rational_bounds)?;
+    let (lower, upper) = if lower == upper {
+        exp_rational_bounds(&lower, precision_bits)?
+    } else {
+        (
+            exp_rational_bound(&lower, precision_bits, BoundDirection::Lower)?,
+            exp_rational_bound(&upper, precision_bits, BoundDirection::Upper)?,
+        )
+    };
     from_rational_bounds(&lower, &upper, precision_bits)
 }
 
@@ -538,6 +544,52 @@ fn exp_rational_bounds(
     exp_nonnegative_rational_bounds(value, precision_bits)
 }
 
+#[derive(Clone, Copy)]
+enum BoundDirection {
+    Lower,
+    Upper,
+}
+
+fn exp_rational_bound(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    if value.is_zero() {
+        return Ok(Rational::one());
+    }
+    if value.is_negative() {
+        let reciprocal_direction = match direction {
+            BoundDirection::Lower => BoundDirection::Upper,
+            BoundDirection::Upper => BoundDirection::Lower,
+        };
+        let positive =
+            exp_nonnegative_rational_bound(&value.negate(), precision_bits, reciprocal_direction)?;
+        return divide_rational(&Rational::one(), &positive);
+    }
+    exp_nonnegative_rational_bound(value, precision_bits, direction)
+}
+
+fn exp_nonnegative_rational_bound(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    debug_assert!(!value.is_negative());
+    let reduction = ceil_nonnegative_rational_to_u32(value)?;
+    let reduced = if reduction == 1 {
+        value.clone()
+    } else {
+        divide_rational(value, &rational_integer(i64::from(reduction)))?
+    };
+    let bound = exp_small_nonnegative_rational_bound(&reduced, precision_bits, direction)?;
+    if reduction == 1 {
+        Ok(bound)
+    } else {
+        pow_positive_rational(&bound, reduction)
+    }
+}
+
 fn exp_nonnegative_rational_bounds(
     value: &Rational,
     precision_bits: u32,
@@ -583,6 +635,16 @@ fn exp_small_nonnegative_rational_bounds(
     exp_series_rational_bounds(value, exp_series_terms(precision_bits)?)
 }
 
+fn exp_small_nonnegative_rational_bound(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    debug_assert!(!value.is_negative());
+    debug_assert!(compare_rationals(value, &Rational::one()) != Ordering::Greater);
+    exp_series_rational_bound(value, exp_series_terms(precision_bits)?, direction)
+}
+
 fn exp_series_rational_bounds(
     value: &Rational,
     term_count: u32,
@@ -595,25 +657,71 @@ fn exp_series_rational_bounds(
     if value.is_zero() {
         return Ok((Rational::one(), Rational::one()));
     }
-    let value_numerator = &value.numerator.inner;
-    let value_denominator = &value.denominator.inner.inner;
+    let state = exp_series_state(value, term_count, tail_index);
+    Ok((state.lower()?, state.upper()?))
+}
+
+fn exp_series_rational_bound(
+    value: &Rational,
+    term_count: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    let tail_index = term_count
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    if value.is_zero() {
+        return Ok(Rational::one());
+    }
+    let state = exp_series_state(value, term_count, tail_index);
+    match direction {
+        BoundDirection::Lower => state.lower(),
+        BoundDirection::Upper => state.upper(),
+    }
+}
+
+struct ExpSeriesState {
+    sum_numerator: BigInt,
+    term_numerator: BigInt,
+    common_denominator: BigInt,
+    value_numerator: BigInt,
+    value_denominator: BigInt,
+    tail_index: u32,
+}
+
+impl ExpSeriesState {
+    fn lower(&self) -> Result<Rational, IntervalError> {
+        rational_from_parts(self.sum_numerator.clone(), self.common_denominator.clone())
+    }
+
+    fn upper(&self) -> Result<Rational, IntervalError> {
+        let next_denominator_factor = &self.value_denominator * BigInt::from(self.tail_index);
+        let upper_numerator = &self.sum_numerator * &next_denominator_factor
+            + (&self.term_numerator * &self.value_numerator * BigInt::from(2_u8));
+        let upper_denominator = &self.common_denominator * next_denominator_factor;
+        rational_from_parts(upper_numerator, upper_denominator)
+    }
+}
+
+fn exp_series_state(value: &Rational, term_count: u32, tail_index: u32) -> ExpSeriesState {
+    let value_numerator = value.numerator.inner.clone();
+    let value_denominator = value.denominator.inner.inner.clone();
     let mut sum_numerator = BigInt::one();
     let mut term_numerator = BigInt::one();
     let mut common_denominator = BigInt::one();
     for next_n in 1..=term_count {
-        let denominator_factor = value_denominator * BigInt::from(next_n);
-        sum_numerator = &sum_numerator * &denominator_factor + &term_numerator * value_numerator;
-        term_numerator *= value_numerator;
+        let denominator_factor = &value_denominator * BigInt::from(next_n);
+        sum_numerator = &sum_numerator * &denominator_factor + &term_numerator * &value_numerator;
+        term_numerator *= &value_numerator;
         common_denominator *= denominator_factor;
     }
-    let next_denominator_factor = value_denominator * BigInt::from(tail_index);
-    let upper_numerator = &sum_numerator * &next_denominator_factor
-        + (&term_numerator * value_numerator * BigInt::from(2_u8));
-    let upper_denominator = &common_denominator * next_denominator_factor;
-    Ok((
-        rational_from_parts(sum_numerator, common_denominator)?,
-        rational_from_parts(upper_numerator, upper_denominator)?,
-    ))
+    ExpSeriesState {
+        sum_numerator,
+        term_numerator,
+        common_denominator,
+        value_numerator,
+        value_denominator,
+        tail_index,
+    }
 }
 
 fn log_rational_bounds(
@@ -1865,6 +1973,45 @@ mod tests {
         .unwrap();
         assert_eq!(calls.get(), 2);
         assert_eq!(interval_bounds, (two, rational(4, 1)));
+    }
+
+    #[test]
+    fn directed_exponential_bounds_match_paired_bounds() {
+        for precision_bits in [1, 64, 128] {
+            for value in [
+                rational(-3, 2),
+                rational(-1, 3),
+                Rational::zero(),
+                rational(1, 3),
+                Rational::one(),
+                rational(3, 2),
+            ] {
+                let (lower, upper) = exp_rational_bounds(&value, precision_bits).unwrap();
+                assert_eq!(
+                    exp_rational_bound(&value, precision_bits, BoundDirection::Lower).unwrap(),
+                    lower
+                );
+                assert_eq!(
+                    exp_rational_bound(&value, precision_bits, BoundDirection::Upper).unwrap(),
+                    upper
+                );
+            }
+        }
+
+        let lower = rational(1, 3);
+        let upper = rational(2, 3);
+        let input = from_rational_bounds(&lower, &upper, 128).unwrap();
+        let input_lower = dyadic_to_rational(&input.lower).unwrap();
+        let input_upper = dyadic_to_rational(&input.upper).unwrap();
+        assert_eq!(
+            exp(&input, 128).unwrap(),
+            from_rational_bounds(
+                &exp_rational_bounds(&input_lower, 128).unwrap().0,
+                &exp_rational_bounds(&input_upper, 128).unwrap().1,
+                128
+            )
+            .unwrap()
+        );
     }
 
     #[test]
