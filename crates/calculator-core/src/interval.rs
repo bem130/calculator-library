@@ -1925,6 +1925,9 @@ mod tests {
             (rational(2, 3), rational(9, 10), 4),
             (rational(17, 19), rational(23, 29), 31),
             (rational(-5, 7), rational(14, 15), 2),
+            (Rational::zero(), rational(11, 13), 7),
+            (rational(5, 7), rational(-14, 15), 1),
+            (rational(6, 35), rational(35, 9), 2),
         ] {
             assert_eq!(
                 multiply_rationals_divide_u32(&left, &right, divisor).unwrap(),
