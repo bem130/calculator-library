@@ -384,10 +384,22 @@ chooses the smallest `N` satisfying
 larger `precision_bits / 3 + 16` heuristic shared by unrelated series. The
 integer-only selection preserves the directed enclosure and precision contract.
 
-On 2026-07-12 with `rustc 1.97.0`, the same 10-sample `ln(2)` invocation moved
-from 360.69 µs to 208.56 µs (median estimates, about 42% lower). One-iteration
+On 2026-07-12 with `rustc 1.97.0`, base commit `d0dafc8` and changed commit
+`216fa08` measured the same 10-sample `ln(2)` invocation at 360.69 µs and
+208.56 µs respectively (median estimates, about 42% lower). One-iteration
 allocation moved from 56,005 bytes in 2,175 blocks to 39,949 bytes in 1,775
 blocks. Direct `2^sqrt(2)` measured 1.22 ms after the change, and its allocation
-was 465,134 bytes in 12,306 blocks, down from the documented post-trigonometric
-baseline of 569,507 bytes in 16,402 blocks. The final non-degenerate exponential
-stage remains the primary measured target for the next profiling slice.
+moved from the comparable documented direct baseline of 481,190 bytes in 12,706
+blocks to 465,134 bytes in 12,306 blocks. Reproduce the changed measurements with:
+
+```sh
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/log_two
+CALCULATOR_ALLOCATION_ITERATIONS=1 \
+  cargo run --profile bench -p calculator-core --features std \
+    --example allocation_baseline -- approximate_log_two
+```
+
+The harness fixes this component group at 10 samples. The final non-degenerate
+exponential stage remains the primary measured target for the next profiling
+slice.
