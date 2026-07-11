@@ -210,6 +210,53 @@ async function assertDesktopEditorInput(page) {
     const end = await editor.evaluate((element) => element.selectionStart);
     assert(end === (await editor.inputValue()).length, "standard keyboard cursor movement failed");
 
+    await editor.fill("a😀e\u0301z");
+    await editor.evaluate((element) => element.setSelectionRange(3, 3));
+    await page.click("#key-backspace");
+    assert(await editor.inputValue() === "ae\u0301z", "keypad backspace split a Unicode grapheme");
+    await editor.evaluate((element) => element.setSelectionRange(1, 1));
+    await page.click("#key-right");
+    const graphemeEnd = await editor.evaluate((element) => element.selectionStart);
+    assert(graphemeEnd === 3, `keypad arrow split a combining grapheme: ${graphemeEnd}`);
+
+    const longExpression = "1234567890".repeat(20);
+    await editor.fill(longExpression);
+    await editor.press("End");
+    const endScroll = await editor.evaluate((element) => element.scrollLeft);
+    assert(endScroll > 0, "long expression did not scroll to its caret");
+    await editor.press("Home");
+    await page.click("#key-right");
+    const startScroll = await editor.evaluate((element) => element.scrollLeft);
+    assert(startScroll < endScroll, "keypad cursor movement did not reveal the native caret");
+
+    await editor.focus();
+    await page.keyboard.down("Shift");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.up("Shift");
+    const shifted = await editor.evaluate((element) => [element.selectionStart, element.selectionEnd]);
+    assert(shifted[1] > shifted[0], "Shift+ArrowRight did not extend the native selection");
+
+    await editor.fill("");
+    await page.locator("#key-plus").focus();
+    await page.keyboard.press("Enter");
+    assert(await editor.inputValue() === "+", "focused keypad button did not keep native Enter activation");
+    assert(await page.locator("#key-left").getAttribute("aria-label") === "Move cursor left", "left key lacks an accessible name");
+
+    await editor.evaluate((element) => {
+        element.value = "before";
+        element.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, data: "未" }));
+        element.value = "before未";
+        element.dispatchEvent(new InputEvent("input", { bubbles: true, data: "未", inputType: "insertCompositionText", isComposing: true }));
+    });
+    await page.locator("#key-plus").evaluate((button) => button.click());
+    assert(await editor.inputValue() === "before未", "keypad mutated an active composition");
+    await editor.evaluate((element) => {
+        element.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "未" }));
+        element.dispatchEvent(new InputEvent("input", { bubbles: true, data: "未", inputType: "insertText" }));
+    });
+    await page.click("#key-plus");
+    assert(await editor.inputValue() === "before未+", "composition was not committed exactly once");
+
     await page.click("#key-clear");
     await page.keyboard.type("sqrt(2)");
     await waitForEditorText(page, "sqrt(2)");

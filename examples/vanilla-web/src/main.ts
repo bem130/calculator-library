@@ -81,6 +81,7 @@ const state: CalculatorState = {
 
 const workerCalculator = createWorkerCalculator();
 const directCalculator = createCalculator();
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 let activeCalculation: ActiveCalculation | null = null;
 let operationVersion = 0;
 let previewVersion = 0;
@@ -256,15 +257,13 @@ keypad.innerHTML = keys
     .join("");
 
 editor.addEventListener("input", handleEditorInput);
+editor.addEventListener("keydown", handleKeyboard);
 editor.addEventListener("compositionstart", () => {
     editorIsComposing = true;
 });
 editor.addEventListener("compositionend", () => {
     editorIsComposing = false;
-    syncExpressionFromEditor();
-    invalidatePreview();
-    renderInputPreview();
-    renderStatus();
+    commitEditorInput();
 });
 settingsToggle.addEventListener("click", () => {
     state.settingsOpen = !state.settingsOpen;
@@ -311,7 +310,6 @@ for (const button of keypad.querySelectorAll<HTMLButtonElement>("[data-key]")) {
         editor.focus({ preventScroll: true });
     });
 }
-window.addEventListener("keydown", handleGlobalKeyboard);
 window.addEventListener("pagehide", shutdown);
 
 syncControls();
@@ -346,6 +344,9 @@ function math(label: string): string {
 }
 
 function runKey(id: string): void {
+    if (editorIsComposing) {
+        return;
+    }
     const spec = keys.find((candidate) => candidate.id === id);
     if (spec === undefined) {
         return;
@@ -359,6 +360,9 @@ function runKey(id: string): void {
 }
 
 function runCommand(command: Command): void {
+    if (editorIsComposing) {
+        return;
+    }
     switch (command.tag) {
         case "insert":
             insertText(command.layer.insert, command.layer.cursorFromEnd ?? 0);
@@ -390,17 +394,6 @@ function runCommand(command: Command): void {
     }
 }
 
-function handleGlobalKeyboard(event: KeyboardEvent): void {
-    if (event.defaultPrevented) {
-        return;
-    }
-    const target = event.target;
-    if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) {
-        return;
-    }
-    handleKeyboard(event);
-}
-
 function handleKeyboard(event: KeyboardEvent): void {
     if (event.isComposing) {
         return;
@@ -427,6 +420,7 @@ function insertText(text: string, cursorFromEnd = 0): void {
     editor.setRangeText(text, start, end, "end");
     const cursor = Math.max(start, start + text.length - cursorFromEnd);
     editor.setSelectionRange(cursor, cursor);
+    revealNativeSelection();
     state.expression = editor.value;
     state.copied = false;
 }
@@ -443,6 +437,7 @@ function deleteBackward(): void {
     const previous = previousCharBoundary(state.expression, start);
     editor.setRangeText("", previous, start, "start");
     state.expression = editor.value;
+    revealNativeSelection();
 }
 
 function deleteForward(): void {
@@ -457,32 +452,50 @@ function deleteForward(): void {
     const next = nextCharBoundary(state.expression, start);
     editor.setRangeText("", start, next, "start");
     state.expression = editor.value;
+    revealNativeSelection();
 }
 
 function handleEditorInput(): void {
-    syncExpressionFromEditor();
     if (editorIsComposing) {
         return;
     }
+    commitEditorInput();
+}
+
+function commitEditorInput(): void {
+    const previousExpression = state.expression;
+    syncExpressionFromEditor();
+    if (state.expression === previousExpression) {
+        return;
+    }
     invalidatePreview();
-    renderInputPreview();
-    renderStatus();
 }
 
 function syncExpressionFromEditor(): void {
-    state.expression = editor.value.replaceAll(/[\r\n]/gu, "");
-    if (editor.value !== state.expression) {
-        const cursor = Math.min(editor.selectionStart, state.expression.length);
-        editor.value = state.expression;
-        editor.setSelectionRange(cursor, cursor);
+    const original = editor.value;
+    const selection = editorSelection(original.length);
+    const expression = original.replaceAll(/[\r\n]/gu, "");
+    if (original !== expression) {
+        const start = offsetAfterRemovingLineBreaks(original, selection.start);
+        const end = offsetAfterRemovingLineBreaks(original, selection.end);
+        const scrollLeft = editor.scrollLeft;
+        editor.value = expression;
+        editor.setSelectionRange(start, end, selection.direction);
+        editor.scrollLeft = scrollLeft;
     }
+    state.expression = expression;
     state.copied = false;
 }
 
-function editorSelection(): { readonly start: number; readonly end: number } {
+function editorSelection(length = state.expression.length): {
+    readonly start: number;
+    readonly end: number;
+    readonly direction: "forward" | "backward" | "none";
+} {
     return {
-        start: clamp(editor.selectionStart, 0, state.expression.length),
-        end: clamp(editor.selectionEnd, 0, state.expression.length),
+        start: clamp(editor.selectionStart, 0, length),
+        end: clamp(editor.selectionEnd, 0, length),
+        direction: editor.selectionDirection,
     };
 }
 
@@ -498,9 +511,23 @@ function moveSelection(delta: -1 | 1): void {
         ? (start !== end ? start : previousCharBoundary(state.expression, start))
         : (start !== end ? end : nextCharBoundary(state.expression, end));
     editor.setSelectionRange(cursor, cursor);
+    revealNativeSelection();
+}
+
+function revealNativeSelection(): void {
+    const start = editor.selectionStart;
+    editor.focus({ preventScroll: true });
+    editor.setSelectionRange(start, editor.selectionEnd, editor.selectionDirection);
+}
+
+function offsetAfterRemovingLineBreaks(value: string, offset: number): number {
+    return value.slice(0, offset).replaceAll(/[\r\n]/gu, "").length;
 }
 
 async function calculateExpression(): Promise<void> {
+    if (editorIsComposing) {
+        return;
+    }
     const operation = beginOperation();
     state.busy = true;
     state.copied = false;
@@ -628,8 +655,10 @@ function renderEditor(): void {
     const selection = editorSelection();
     editor.dataset.empty = String(state.expression.length === 0);
     if (editor.value !== state.expression) {
+        const scrollLeft = editor.scrollLeft;
         editor.value = state.expression;
-        editor.setSelectionRange(selection.start, selection.end);
+        editor.setSelectionRange(selection.start, selection.end, selection.direction);
+        editor.scrollLeft = scrollLeft;
     }
 }
 
@@ -834,12 +863,23 @@ function currentPlainText(): string {
 }
 
 function previousCharBoundary(value: string, cursor: number): number {
-    return value.slice(0, cursor).lastIndexOf(value.slice(0, cursor).at(-1) ?? "");
+    let previous = 0;
+    for (const segment of graphemeSegmenter.segment(value)) {
+        if (segment.index >= cursor) {
+            break;
+        }
+        previous = segment.index;
+    }
+    return previous;
 }
 
 function nextCharBoundary(value: string, cursor: number): number {
-    const next = value.slice(cursor).match(/^./u)?.[0];
-    return next === undefined ? value.length : cursor + next.length;
+    for (const segment of graphemeSegmenter.segment(value)) {
+        if (segment.index > cursor) {
+            return segment.index;
+        }
+    }
+    return value.length;
 }
 
 function formatError(error: CalculatorErrorDto): string {

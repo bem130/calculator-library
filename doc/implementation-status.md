@@ -24,7 +24,7 @@
 * parser/session/DTO/native-Wasm/browser conformance tests。
 * resource limit enforcement before or during expensive evaluation paths。再帰的exact normalizationは共有logical-work budgetを使い、代数演算はresultant・factorization・root isolation、canonical polynomialはterm積・pairwise merge・factor scan・sort・materializationの保守的上界を開始前に累積予約する。rewrite/logical-work limit到達後はstored exact符号等のstructural domain検証だけを行い、新しいexact/interval探索を開始せずtyped partialへ戻る。source加減算chainは単一n-ary Addへlowerし、canonical interningはcollision確認付きhash bucketを使う。presentation tree と出力文字列にも `max_presentation_nodes` / `max_output_bytes` を適用し、`calculate`、`present`、`presentInput`、生成済みpartial certified enclosureで巨大な出力を返さない。保証区間自体を生成できないpartial outcomeはtyped unavailableと`certifiedEnclosure: null`を返す。
 * npm facade の `presentInput` による、評価とは独立した入力式 presentation tree。presentation tree は `renderPlainText`、`renderMathMl`、`renderLatex` で、result relation は `renderResultRelationPlainText`、`renderResultRelationMathMl`、`renderResultRelationLatex` で利用側の表示形式へ変換できる。
-* vanilla web example は custom expression editor、Shift layer keypad、settings popover、常時表示の exact/scientific/certified interval panes を持ち、タッチデバイスの app key 操作では soft keyboard を出さず、PC keyboard では直接入力できる。example は session 入力 API ではなく、独自 UI state から `presentInput` と worker `calculate` を呼ぶ構成を示す。
+* vanilla web example は native textarea の value / selection / composition / scroll を編集中の正本とし、ブラウザ標準の mouse・touch・IME・keyboard editing を保つ expression editor、Shift layer keypad、settings popover、常時表示の exact/scientific/certified interval panes を持つ。画面keypadは確定済みDOM selectionへ同じ編集commandを適用し、タッチデバイスの app key 操作では soft keyboard を出さない。入力previewは公開 `presentInput` facade、結果表示は公開 worker `calculate` DTO と relation/presentation rendererを表示の正本とし、UI独自の数値formatを持たない。
 
 ## Hardened Gates
 
