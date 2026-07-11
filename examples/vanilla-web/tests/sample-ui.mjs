@@ -452,6 +452,20 @@ async function assertLargeNegativeExponential(page) {
         );
     }
 
+    const cancellationState = await page.evaluate(() => {
+        const calculate = document.querySelector("#calculate");
+        const cancel = document.querySelector("#cancel");
+        if (!(calculate instanceof HTMLButtonElement) || !(cancel instanceof HTMLButtonElement)) {
+            throw new Error("calculation controls are unavailable");
+        }
+        calculate.click();
+        const enabledWhileActive = !cancel.disabled;
+        cancel.click();
+        return { enabledWhileActive, disabledAfterCancel: cancel.disabled };
+    });
+    assert(cancellationState.enabledWhileActive, "active calculation did not enable cancellation");
+    assert(cancellationState.disabledAfterCancel, "cancel button remained enabled after cancellation");
+    await waitForText(page, "#status", "Canceled");
 }
 
 async function assertArbitraryBaseLogExp(page) {

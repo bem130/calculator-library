@@ -1,6 +1,6 @@
 use core::cmp::Ordering;
 
-use num_bigint::{BigInt, Sign};
+use num_bigint::{BigInt, BigUint, Sign};
 use num_integer::Integer as _;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
@@ -232,6 +232,16 @@ fn exp_binary_scaled_bound(
     direction: BoundDirection,
 ) -> Result<ExactDyadic, IntervalError> {
     let magnitude = abs_rational(value);
+    // ln(2) < 1, so this magnitude already implies an exponent beyond the
+    // public cap. Reject it before magnitude-dependent guard precision and
+    // certified ln(2) construction. Endpoints below this check need at most
+    // 20 magnitude guard bits, including endpoints of non-rational syntax.
+    if magnitude.numerator.inner.magnitude()
+        > &(magnitude.denominator.inner.inner.magnitude()
+            * BigUint::from(MAX_BINARY_EXPONENT_MAGNITUDE))
+    {
+        return Err(IntervalError::ExponentTooLarge);
+    }
     let magnitude_integer = magnitude
         .numerator
         .inner

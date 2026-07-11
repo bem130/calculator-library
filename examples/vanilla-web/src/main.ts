@@ -600,6 +600,7 @@ async function calculateWithWorker(
     }
     const abortController = new AbortController();
     activeCalculation = { operation, abortController };
+    renderStatus();
     const calculator = await workerCalculator;
     if (!isCurrentOperation(operation)) {
         clearActiveCalculation(operation);
