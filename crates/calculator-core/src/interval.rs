@@ -189,12 +189,8 @@ pub(crate) fn exp(
 ) -> Result<CertifiedInterval, IntervalError> {
     let lower = dyadic_to_rational(&value.lower)?;
     let upper = dyadic_to_rational(&value.upper)?;
-    if lower == upper {
-        let (lower, upper) = exp_rational_bounds(&lower, precision_bits)?;
-        return from_rational_bounds(&lower, &upper, precision_bits);
-    }
-    let (lower, _) = exp_rational_bounds(&lower, precision_bits)?;
-    let (_, upper) = exp_rational_bounds(&upper, precision_bits)?;
+    let (lower, upper) =
+        monotone_rational_bounds(&lower, &upper, precision_bits, exp_rational_bounds)?;
     from_rational_bounds(&lower, &upper, precision_bits)
 }
 
@@ -212,14 +208,26 @@ pub(crate) fn log(
     if lower.is_negative() || lower.is_zero() {
         return Err(IntervalError::UnsupportedExpression);
     }
-    if lower == upper {
-        let (lower, upper) = log_rational_bounds(&lower, precision_bits)?;
-        return from_rational_bounds(&lower, &upper, precision_bits);
-    }
-
-    let (lower, _) = log_rational_bounds(&lower, precision_bits)?;
-    let (_, upper) = log_rational_bounds(&upper, precision_bits)?;
+    let (lower, upper) =
+        monotone_rational_bounds(&lower, &upper, precision_bits, log_rational_bounds)?;
     from_rational_bounds(&lower, &upper, precision_bits)
+}
+
+fn monotone_rational_bounds<F>(
+    lower: &Rational,
+    upper: &Rational,
+    precision_bits: u32,
+    mut bounds: F,
+) -> Result<(Rational, Rational), IntervalError>
+where
+    F: FnMut(&Rational, u32) -> Result<(Rational, Rational), IntervalError>,
+{
+    if lower == upper {
+        return bounds(lower, precision_bits);
+    }
+    let (lower, _) = bounds(lower, precision_bits)?;
+    let (_, upper) = bounds(upper, precision_bits)?;
+    Ok((lower, upper))
 }
 
 pub(crate) fn atan(
@@ -1647,6 +1655,8 @@ fn normalize_dyadic(mut coefficient: BigInt, mut exponent_two: BigInt) -> ExactD
 
 #[cfg(test)]
 mod tests {
+    use core::cell::Cell;
+
     use super::*;
 
     fn rational(numerator: i64, denominator: i64) -> Rational {
@@ -1725,6 +1735,25 @@ mod tests {
             log(&from_rational(&two, precision_bits), precision_bits).unwrap(),
             from_rational_bounds(&log_lower, &log_upper, precision_bits).unwrap()
         );
+
+        let calls = Cell::new(0_u32);
+        let point_bounds = monotone_rational_bounds(&two, &two, precision_bits, |value, _| {
+            calls.set(calls.get() + 1);
+            Ok((value.clone(), value.add(&rational(1, 1))))
+        })
+        .unwrap();
+        assert_eq!(calls.get(), 1);
+        assert_eq!(point_bounds, (two.clone(), rational(3, 1)));
+
+        calls.set(0);
+        let three = rational(3, 1);
+        let interval_bounds = monotone_rational_bounds(&two, &three, precision_bits, |value, _| {
+            calls.set(calls.get() + 1);
+            Ok((value.clone(), value.add(&rational(1, 1))))
+        })
+        .unwrap();
+        assert_eq!(calls.get(), 2);
+        assert_eq!(interval_bounds, (two, rational(4, 1)));
     }
 
     #[test]
