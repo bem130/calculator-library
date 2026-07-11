@@ -1,7 +1,7 @@
 use calculator_core::{
     calculate, evaluate, parse, present, reduce_input, CalculationOutcome, CalculationRequest,
-    EvaluationContext, EvaluationRequest, ExactOutput, InputAction, InputPolicy, InputState,
-    PresentationRequest,
+    CertifiedEnclosureState, EvaluationContext, EvaluationRequest, ExactOutput, InputAction,
+    InputPolicy, InputState, PresentationRequest, RecognizedExact,
 };
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::hint::black_box;
@@ -173,12 +173,20 @@ fn profile_approximate_components(criterion: &mut Criterion) {
         .iter()
         .map(|&(name, source)| {
             let parsed = parse(source, &request.parse).expect("component parse must succeed");
-            evaluate(
+            let evaluation = evaluate(
                 &parsed,
                 &evaluation_request,
                 &mut EvaluationContext::default(),
             )
             .expect("component evaluation preflight must succeed");
+            assert!(matches!(
+                evaluation.value.recognized_exact,
+                RecognizedExact::GeneralSymbolic
+            ));
+            assert!(matches!(
+                evaluation.value.certified_enclosure,
+                CertifiedEnclosureState::Available(_)
+            ));
             (name, parsed)
         })
         .collect::<Vec<_>>();

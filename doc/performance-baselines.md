@@ -217,8 +217,11 @@ canonicalization is therefore the evidence retained for this slice.
 ## Approximate component baseline
 
 The general-power follow-up separates `exp(1)`, `ln(2)`, `2^sqrt(2)`, and `sin(1)`
-without exposing private interval primitives to the benchmark. On 2026-07-12 the
-10-sample evaluation-only estimates were:
+without exposing private interval primitives to the benchmark. The preflight also
+requires every case to retain a general-symbolic exact value and an available
+certified enclosure, preventing a later simplifier change from silently measuring
+a different path. On 2026-07-12, commit `a67ab54` with the same `rustc 1.97.0`
+toolchain recorded these 10-sample evaluation-only estimates:
 
 | Component | Estimate | Allocated bytes | Blocks | Peak bytes | Peak blocks |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -226,6 +229,21 @@ without exposing private interval primitives to the benchmark. On 2026-07-12 the
 | `ln(2)` | 409.6 µs | 56,005 | 2,175 | 2,046 | 47 |
 | `2^sqrt(2)` | 57.7 ms | 4,538,222 | 16,548 | 37,143 | 49 |
 | `sin(1)` | 1.65 ms | 170,503 | 4,257 | 2,703 | 33 |
+
+The allocation rows use one iteration per command:
+
+```sh
+for case in \
+  approximate_exp_one \
+  approximate_log_two \
+  approximate_general_power \
+  approximate_sin_one
+do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+```
 
 Allocation rows use one full public calculation, so their fixed parser and output
 cost differs from the evaluation-only timing boundary. Even with that conservative
