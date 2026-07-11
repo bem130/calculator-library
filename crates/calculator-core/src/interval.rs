@@ -177,10 +177,15 @@ pub(crate) fn sqrt(
         return Err(IntervalError::UnsupportedExpression);
     }
 
-    Ok(CertifiedInterval {
-        lower: sqrt_dyadic_lower(&value.lower, precision_bits)?,
-        upper: sqrt_dyadic_upper(&value.upper, precision_bits)?,
-    })
+    if value.lower == value.upper {
+        let (lower, upper) = sqrt_dyadic_bounds(&value.lower, precision_bits)?;
+        Ok(CertifiedInterval { lower, upper })
+    } else {
+        Ok(CertifiedInterval {
+            lower: sqrt_dyadic_lower(&value.lower, precision_bits)?,
+            upper: sqrt_dyadic_upper(&value.upper, precision_bits)?,
+        })
+    }
 }
 
 pub(crate) fn exp(
@@ -1572,6 +1577,14 @@ fn sqrt_dyadic_lower(
     sqrt_rational_lower(&value, precision_bits)
 }
 
+fn sqrt_dyadic_bounds(
+    value: &ExactDyadic,
+    precision_bits: u32,
+) -> Result<(ExactDyadic, ExactDyadic), IntervalError> {
+    let value = dyadic_to_rational(value)?;
+    sqrt_rational_bounds(&value, precision_bits)
+}
+
 fn sqrt_dyadic_upper(
     value: &ExactDyadic,
     precision_bits: u32,
@@ -1595,6 +1608,31 @@ fn sqrt_rational_lower(
     Ok(normalize_dyadic(
         floor_sqrt_nonnegative(&scaled),
         -BigInt::from(precision_bits),
+    ))
+}
+
+fn sqrt_rational_bounds(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<(ExactDyadic, ExactDyadic), IntervalError> {
+    if value.is_negative() {
+        return Err(IntervalError::Domain(DomainErrorKind::EvenRootOfNegative));
+    }
+    let scale_bits = precision_bits
+        .checked_mul(2)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let scaled_numerator = &value.numerator.inner << scale_bits;
+    let denominator = &value.denominator.inner.inner;
+    let scaled_lower = scaled_numerator.div_floor(denominator);
+    let scaled_upper = if scaled_numerator.is_multiple_of(denominator) {
+        scaled_lower.clone()
+    } else {
+        &scaled_lower + BigInt::one()
+    };
+    let exponent = -BigInt::from(precision_bits);
+    Ok((
+        normalize_dyadic(floor_sqrt_nonnegative(&scaled_lower), exponent.clone()),
+        normalize_dyadic(ceil_sqrt_nonnegative(&scaled_upper), exponent),
     ))
 }
 
@@ -2246,6 +2284,28 @@ mod tests {
         let interval = sqrt(&from_rational(&rational(2, 1), 32), 32).unwrap();
         let squared = multiply(&interval, &interval).unwrap();
         assert!(contains_rational(&squared, &rational(2, 1)).unwrap());
+    }
+
+    #[test]
+    fn exact_point_sqrt_shares_scaled_bounds_without_changing_results() {
+        for precision_bits in [1, 32, 128] {
+            for value in [rational(1, 2), rational(3, 2), rational(2, 1)] {
+                let input = from_rational(&value, precision_bits);
+                assert_eq!(input.lower, input.upper);
+                let (lower, upper) = sqrt_dyadic_bounds(&input.lower, precision_bits).unwrap();
+                assert_eq!(
+                    (lower, upper),
+                    (
+                        sqrt_dyadic_lower(&input.lower, precision_bits).unwrap(),
+                        sqrt_dyadic_upper(&input.upper, precision_bits).unwrap()
+                    )
+                );
+            }
+        }
+        assert_eq!(
+            sqrt_dyadic_bounds(&from_rational(&rational(2, 1), 1).lower, u32::MAX),
+            Err(IntervalError::ExponentTooLarge)
+        );
     }
 
     #[test]

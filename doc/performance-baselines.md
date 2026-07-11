@@ -443,3 +443,20 @@ do
       --example allocation_baseline -- "approximate_$case"
 done
 ```
+
+## Bounded square-factor trials and shared point sqrt scaling
+
+Allocation stacks for `sqrt(2)` showed that simple-radical recognition continued
+testing every odd square-factor candidate through 4095 after the remaining value
+was already 2. Candidates are ascending, so once `factor^2` exceeds the remaining
+positive integer, no later candidate can divide it as a square. Extraction now
+stops at that proof boundary while retaining the existing trial ceiling and final
+perfect-square check. Exact-point interval sqrt also converts and scales its dyadic
+input once before deriving the same directed lower and upper roots.
+
+On 2026-07-12 with `rustc 1.97.0`, the same 10-sample `sqrt(2)` evaluation moved
+from a 364.03 µs median estimate to 126.10 µs (about 65% lower). One-iteration
+public-calculation allocation moved from 223,249 bytes in 10,130 blocks to 60,249
+bytes in 1,979 blocks (about 73% fewer bytes and 80% fewer blocks). Peak live
+allocation moved from 1,488 to 1,536 bytes; the total-allocation reduction and the
+small peak tradeoff are tracked separately.

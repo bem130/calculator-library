@@ -1368,12 +1368,16 @@ fn extract_square_factor(mut value: BigInt) -> (BigInt, BigInt) {
     debug_assert!(value.sign() == Sign::Plus);
     let mut outside = BigInt::one();
     for prime in SMALL_PRIME_SQUARE_FACTORS {
-        extract_repeated_square_factor(&mut value, &mut outside, prime);
+        if !extract_repeated_square_factor(&mut value, &mut outside, prime) {
+            break;
+        }
     }
 
     let mut factor = SMALL_PRIME_SQUARE_FACTORS[SMALL_PRIME_SQUARE_FACTORS.len() - 1] + 2;
     while factor <= MAX_TRIAL_SQUARE_FACTOR && !value.is_one() {
-        extract_repeated_square_factor(&mut value, &mut outside, factor);
+        if !extract_repeated_square_factor(&mut value, &mut outside, factor) {
+            break;
+        }
         factor += 2;
     }
 
@@ -1386,13 +1390,17 @@ fn extract_square_factor(mut value: BigInt) -> (BigInt, BigInt) {
     (outside, value)
 }
 
-fn extract_repeated_square_factor(value: &mut BigInt, outside: &mut BigInt, factor: u32) {
+fn extract_repeated_square_factor(value: &mut BigInt, outside: &mut BigInt, factor: u32) -> bool {
     let factor = BigInt::from(factor);
     let square = &factor * &factor;
+    if square > *value {
+        return false;
+    }
     while (&*value % &square).is_zero() {
         *value /= &square;
         *outside *= &factor;
     }
+    true
 }
 
 pub(crate) fn floor_sqrt_nonnegative(value: &BigInt) -> BigInt {
@@ -1765,6 +1773,20 @@ mod tests {
         assert!(Rational::from_integer(Integer::from(-2))
             .sqrt_as_simple_radical()
             .is_none());
+    }
+
+    #[test]
+    fn square_factor_trial_stops_above_remaining_value() {
+        let mut value = BigInt::from(2_u8);
+        let mut outside = BigInt::one();
+        assert!(!extract_repeated_square_factor(&mut value, &mut outside, 2));
+        assert_eq!(value, BigInt::from(2_u8));
+        assert_eq!(outside, BigInt::one());
+
+        assert_eq!(
+            extract_square_factor(BigInt::from(59_u32).pow(2) * BigInt::from(2_u8)),
+            (BigInt::from(59_u8), BigInt::from(2_u8))
+        );
     }
 
     #[test]
