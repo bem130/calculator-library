@@ -11,6 +11,8 @@ use crate::types::{
 };
 
 const MAX_EXP_RANGE_REDUCTION_STEPS: u32 = 4096;
+const MAX_DIRECT_EXP_REDUCTION: u64 = 64;
+const MAX_BINARY_EXPONENT_MAGNITUDE: u64 = 1_000_000;
 const MAX_LOG_RANGE_REDUCTION_STEPS: u32 = 4096;
 const MAX_TRIG_RANGE_REDUCTION_STEPS: u32 = 4096;
 
@@ -212,7 +214,16 @@ pub(crate) fn exp(
 }
 
 fn exp_uses_binary_scaling(value: &Rational) -> bool {
-    value.numerator.inner.magnitude() > value.denominator.inner.inner.magnitude()
+    let numerator = value.numerator.inner.magnitude();
+    let denominator = value.denominator.inner.inner.magnitude();
+    let threshold_bits = denominator
+        .bits()
+        .saturating_add(MAX_DIRECT_EXP_REDUCTION.ilog2().into());
+    match numerator.bits().cmp(&threshold_bits) {
+        Ordering::Less => false,
+        Ordering::Greater => true,
+        Ordering::Equal => numerator > &(denominator << MAX_DIRECT_EXP_REDUCTION.ilog2()),
+    }
 }
 
 fn exp_binary_scaled_bound(
@@ -244,6 +255,9 @@ fn exp_binary_scaled_bound(
         .div_floor(&quotient.denominator.inner.inner)
         .to_i64()
         .ok_or(IntervalError::ExponentTooLarge)?;
+    if binary_exponent.unsigned_abs() > MAX_BINARY_EXPONENT_MAGNITUDE {
+        return Err(IntervalError::ExponentTooLarge);
+    }
 
     let residual = match (binary_exponent.is_negative(), direction) {
         (false, BoundDirection::Lower) | (true, BoundDirection::Upper) => {
@@ -2492,6 +2506,13 @@ mod tests {
             let product = multiply(&negative, &positive).unwrap();
             assert!(contains_rational(&product, &Rational::one()).unwrap());
         }
+        assert_eq!(
+            exp(
+                &from_rational(&rational(1_000_001, 1), precision_bits),
+                precision_bits
+            ),
+            Err(IntervalError::ExponentTooLarge)
+        );
     }
 
     #[test]

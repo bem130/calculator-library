@@ -481,23 +481,70 @@ raising the cap would construct `exp(10000)` before taking the negative reciproc
 and the final absolute `2^-precision` grid would still round the lower endpoint to
 zero.
 
-At implementation commit `4b98a6c`, the large-range path computes a certified
-`ln(2)` interval at guard precision,
-reduces `x = k*ln(2)+r`, evaluates only the bounded residual, and adds `k` to the
-resulting `ExactDyadic` exponent. Both signs therefore retain an O(precision)
-coefficient without a huge positive Rational power or zero underflow. The existing
-scientific and decimal-scientific enclosure presentation carries the bounded
-significand and exponent; no protocol change or fixed-decimal zero string is used.
+At implementation commit `4b98a6c`, the large-range path is selected beyond the
+direct Rational reduction range of 64. It computes a certified `ln(2)` interval at
+guard precision, reduces `x = k*ln(2)+r`, evaluates only the bounded residual, and
+adds `k` to the resulting `ExactDyadic` exponent. Both signs therefore retain an
+O(precision) coefficient without a huge positive Rational power or zero underflow.
+The existing scientific and decimal-scientific enclosure presentation carries the
+bounded significand and exponent; no protocol change or fixed-decimal zero string
+is used.
 
 On 2026-07-12 with `rustc 1.97.0`, native evaluation measured 1.7182 ms for
 `exp(-10000)` and 2.1465 ms for `exp(10000)` (10-sample medians). One public
 calculation allocated 674,032 bytes / 4,574 blocks with a 16,031-byte peak for the
 negative case, and 647,720 bytes / 4,487 blocks with a 17,082-byte peak for the
 positive case. The unchanged `exp(1)` path remained 20,157 bytes / 762 blocks.
-The logical-work equivalence runner reported 10 and 6 units respectively; as
-before, this measures public exact-normalization budget and does not pretend that
-interval arithmetic has a separate work-budget parameter. A release Wasm/npm run
-with three iterations after one warm-up measured 22.43 ms and 17.16 ms per
-iteration, with retained heap changes of 20,616 and 9,392 bytes. The UI renders
-`exp(-10000)` as `1.1355 × 10^-4343` and a five-digit directed enclosure without
-generating thousands of zeroes.
+The logical-work equivalence runner reported 586 and 582 units respectively after
+reserving the certified `ln(2)`, rational, and Taylor work before interval
+evaluation; a 100-unit request returns a typed logical-work partial without an
+enclosure. Binary exponent magnitude is capped at 1,000,000 before presentation so
+the existing dyadic-to-decimal implementation cannot materialize an unbounded
+power for inputs such as `exp(-1e9)`. A release Wasm/npm artifact of 783,704 bytes
+(`sha256:6a44c38443eb21b11f7886d6bb1c7268855042ea505d02d7639bc902c7c0fca6`)
+measured 14.66 ms and 13.57 ms per iteration over three iterations after one
+warm-up, with retained heap changes of 20,568 and 9,344 bytes and serialized
+result payloads of 1,794 and 1,786 bytes. The UI renders `exp(-10000)` as
+`1.1355 × 10^-4343` and a five-digit directed enclosure without generating
+thousands of zeroes. The Phase 1 CLI intentionally prints only the bounded exact
+symbolic form; its successful exit verifies that numeric evaluation no longer
+blocks exact-only presentation. Browser regression also cancels a 40-term
+large-exponential calculation through the existing worker-termination boundary
+and observes the `Canceled` state.
+
+Reproduce the slice-specific measurements and states from the repository root:
+
+```sh
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/exp_negative_10000
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/exp_positive_10000
+for case in approximate_exp_negative_10000 approximate_exp_positive_10000 approximate_exp_one
+do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+cargo run -p calculator-cli -- 'exp(-10000)'
+cargo run -p calculator-cli -- 'e^(-10000)'
+corepack pnpm --dir examples/vanilla-web run test:e2e
+```
+
+The native component timing boundary is parsed `evaluate`; allocation and CLI use
+the full public `calculate` boundary; the Wasm number includes facade conversion,
+serialization, and presentation DTO construction. Benchmark JSON records the
+serialized result payload bytes separately from retained heap. At base `1767131`,
+all native/CLI/Wasm/UI public calculations failed in core with
+`computationLimit.PrecisionBits`, so no result payload or UI numeric presentation
+existed; the UI worker cancellation mechanism itself was already available and is
+unchanged.
+
+The direct Rational path remains in use through magnitude 64. Same-run normal
+controls measured 33.596 µs for `exp(2)` and 44.637 µs for `exp(-2)`; one public
+calculation allocated 20,913 bytes / 788 blocks and 21,838 bytes / 839 blocks.
+`exp(1)` remained on its existing path at 20,157 bytes / 762 blocks.

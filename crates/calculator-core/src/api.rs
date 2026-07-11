@@ -4240,6 +4240,38 @@ mod tests {
             scientific_parts("e^(-10000)", 5, DecimalRoundingMode::NearestTiesToEven),
             (String::from("1.1355"), String::from("-4343"))
         );
+        let (significand, exponent) =
+            scientific_parts("exp(-10000)", 20, DecimalRoundingMode::NearestTiesToEven);
+        assert!(significand.starts_with("1.135483865314736"));
+        assert_eq!(significand.len(), 21);
+        assert_eq!(exponent, "-4343");
+    }
+
+    #[test]
+    fn large_exponential_work_is_charged_before_interval_evaluation() {
+        let request = CalculationRequest {
+            limits: ResourceLimitRequest::Custom(ResourceLimits {
+                max_logical_work_units: 100,
+                ..ResourceLimits::default()
+            }),
+            ..CalculationRequest::default()
+        };
+        let CalculationOutcome::Partial {
+            reason,
+            certified_enclosure,
+            ..
+        } = calculate("exp(-10000)", &request, &mut EvaluationContext::default())
+            .expect("insufficient large-exp work must return a typed partial")
+        else {
+            panic!("large exp must not evaluate outside its logical-work budget");
+        };
+        assert_eq!(
+            reason,
+            IncompleteReason::ComputationLimit {
+                kind: ComputationLimitKind::LogicalWorkUnits,
+            }
+        );
+        assert!(certified_enclosure.is_none());
     }
 
     #[test]

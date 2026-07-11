@@ -2088,7 +2088,44 @@ fn estimated_additional_work(
         | ExpressionNode::Function { .. }
         | ExpressionNode::BinaryFunction { .. } => Ok(0),
     }?;
-    Ok(integer_work.saturating_add(reserved_algebraic_work(dag, id, limits)))
+    let large_exp_interval_work = match dag.semantic_node(id) {
+        ExpressionNode::Function {
+            function: Function::Exp,
+            argument,
+        } => match dag.semantic_node(*argument) {
+            ExpressionNode::Rational(value) => {
+                let value = dag.rational(*value);
+                if value.numerator.inner.magnitude() <= value.denominator.inner.inner.magnitude() {
+                    0
+                } else {
+                    let magnitude_bits = value.numerator.inner.magnitude().bits();
+                    4_u64.saturating_mul(130_u64.saturating_add(magnitude_bits))
+                }
+            }
+            ExpressionNode::Exact(_)
+            | ExpressionNode::Constant(_)
+            | ExpressionNode::Add(_)
+            | ExpressionNode::Multiply(_)
+            | ExpressionNode::Divide { .. }
+            | ExpressionNode::Power { .. }
+            | ExpressionNode::LogBase { .. }
+            | ExpressionNode::Function { .. }
+            | ExpressionNode::BinaryFunction { .. } => 0,
+        },
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Exact(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::Add(_)
+        | ExpressionNode::Multiply(_)
+        | ExpressionNode::Divide { .. }
+        | ExpressionNode::Power { .. }
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. } => 0,
+    };
+    Ok(integer_work
+        .saturating_add(large_exp_interval_work)
+        .saturating_add(reserved_algebraic_work(dag, id, limits)))
 }
 
 fn reserved_logarithm_identity_work(

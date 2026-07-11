@@ -451,6 +451,16 @@ async function assertLargeNegativeExponential(page) {
             "∈ [1.1354 × 10^-4343, 1.1355 × 10^-4343]",
         );
     }
+
+    await setExpression(
+        page,
+        Array.from({ length: 40 }, (_, index) => `exp(-${10000 + index})`).join("+"),
+    );
+    await page.click("#calculate");
+    assert(!(await page.locator("#cancel").isDisabled()), "large exponential did not become cancelable");
+    await page.click("#cancel");
+    await waitForText(page, "#status", "Canceled");
+    assert(await page.locator("#cancel").isDisabled(), "cancel button remained enabled");
 }
 
 async function assertArbitraryBaseLogExp(page) {

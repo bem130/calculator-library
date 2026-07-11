@@ -101,6 +101,7 @@ function measure(name, operation) {
         elapsedMilliseconds,
         nanosecondsPerIteration: elapsedMilliseconds * 1_000_000 / iterations,
         retainedHeapBytes: heapAfter - heapBefore,
+        payloadBytes: Buffer.byteLength(JSON.stringify(value), "utf8"),
     };
 }
 

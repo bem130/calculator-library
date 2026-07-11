@@ -25,6 +25,12 @@ enum ExpectedExact {
 
 const APPROXIMATE_COMPONENTS: &[(&str, &str, ExpectedExact)] = &[
     ("exp_one", "exp(1)", ExpectedExact::GeneralSymbolic),
+    ("exp_two", "exp(2)", ExpectedExact::GeneralSymbolic),
+    (
+        "exp_negative_two",
+        "exp(-2)",
+        ExpectedExact::GeneralSymbolic,
+    ),
     (
         "exp_negative_10000",
         "exp(-10000)",
