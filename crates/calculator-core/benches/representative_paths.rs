@@ -1,6 +1,7 @@
 use calculator_core::{
-    calculate, reduce_input, CalculationOutcome, CalculationRequest, EvaluationContext,
-    ExactOutput, InputAction, InputPolicy, InputState,
+    calculate, evaluate, parse, present, reduce_input, CalculationOutcome, CalculationRequest,
+    EvaluationContext, EvaluationRequest, ExactOutput, InputAction, InputPolicy, InputState,
+    PresentationRequest,
 };
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::hint::black_box;
@@ -111,12 +112,56 @@ fn reduce_session_input(criterion: &mut Criterion) {
     group.finish();
 }
 
+fn profile_approximate_stages(criterion: &mut Criterion) {
+    let source = "sin(1)+ln(2)+2^sqrt(2)";
+    let request = CalculationRequest::default();
+    let parsed = parse(source, &request.parse).expect("approximate stage parse must succeed");
+    let evaluation_request = EvaluationRequest {
+        semantics: request.semantics,
+        limits: request.limits.clone(),
+    };
+    let evaluation = evaluate(
+        &parsed,
+        &evaluation_request,
+        &mut EvaluationContext::default(),
+    )
+    .expect("approximate stage evaluation must succeed");
+    let presentation_request = PresentationRequest {
+        exact_output: request.exact_output,
+        scientific_output: request.scientific_output,
+        enclosure_output: request.enclosure_output,
+        limits: request.limits.clone(),
+    };
+    let mut group = criterion.benchmark_group("approximate_stages");
+    group.bench_function("parse", |bencher| {
+        bencher.iter(|| black_box(parse(black_box(source), black_box(&request.parse)).unwrap()));
+    });
+    group.bench_function("evaluate", |bencher| {
+        bencher.iter(|| {
+            black_box(
+                evaluate(
+                    black_box(&parsed),
+                    black_box(&evaluation_request),
+                    &mut EvaluationContext::default(),
+                )
+                .unwrap(),
+            )
+        });
+    });
+    group.bench_function("present", |bencher| {
+        bencher.iter(|| {
+            black_box(present(black_box(&evaluation), black_box(&presentation_request)).unwrap())
+        });
+    });
+    group.finish();
+}
+
 criterion_group! {
     name = representative_paths;
     config = Criterion::default()
         .sample_size(10)
         .warm_up_time(Duration::from_secs(1))
         .measurement_time(Duration::from_secs(1));
-    targets = calculate_representative_paths, calculate_wide_expression, reduce_session_input
+    targets = calculate_representative_paths, calculate_wide_expression, reduce_session_input, profile_approximate_stages
 }
 criterion_main!(representative_paths);

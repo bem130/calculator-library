@@ -128,3 +128,27 @@ The native session row measures reducer state creation and eight actions. The Wa
 row additionally includes Wasm session construction/disposal, DTO conversion,
 dispatch, and final state retrieval; the rows diagnose their respective layers
 rather than identical operation scope.
+
+## Approximate-path profiling and first optimization
+
+The `approximate_stages` Criterion group separates the dominant composite into
+public core API stages. On 2026-07-11 it measured parse at about 0.95 µs,
+presentation at about 12.6 µs, and evaluation at 74.7–101 ms. Evaluation therefore
+dominates; DTO/presentation work is not a plausible explanation for the native
+cost.
+
+Native `dhat` call stacks then identified repeated
+`multiply -> compare_dyadic -> dyadic_to_rational -> Rational::new/gcd` traffic.
+Endpoint ordering converted exact dyadics into reduced rationals even though their
+coefficients can be compared directly after aligning powers of two. Direct dyadic
+comparison removes those GCD/division allocations without changing interval
+semantics or logical-work accounting.
+
+With the same 10-sample harness, the composite estimate moved from the initial
+73.8 ms to 70.1 ms (about 5% lower). One-iteration native allocation moved from
+4,916,627 bytes in 28,370 blocks to 4,907,523 bytes in 27,984 blocks; peak live
+memory and the 400,447-unit logical-work boundary were unchanged. The optimization
+is deliberately kept despite the modest byte reduction because it removes an
+algorithmically unnecessary canonical-rational conversion from every dyadic
+endpoint comparison. Further work should profile the exp/log series and general
+power refinement inside evaluation rather than target serialization first.

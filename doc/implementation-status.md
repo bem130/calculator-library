@@ -41,6 +41,7 @@ Phase 5 の堅牢化として、次を CI に入れている。
 * public enum match exhaustiveness lint。
 
 性能調査用には、native coreのexact/approximate/algebraic/large-expression/session経路を測るCriterion harness、native allocationとlogical-work境界のrunner、Wasm/npm facadeの対応経路を境界cost込みでJSON出力するrunnerを持つ。再現条件と比較手順は [`performance-baselines.md`](performance-baselines.md) に記録する。測定値は機種依存の診断情報であり、公開契約や固定CI閾値ではない。
+最初のprofilingではapproximate複合経路の時間がevaluationに集中することを確認し、interval endpoint比較でdyadicを既約rationalへ変換していた不要なGCD/divisionを、2冪指数を整列した係数比較へ置き換えた。logical-work課金と結果契約は維持する。
 
 ## Deliberately Not Contract
 

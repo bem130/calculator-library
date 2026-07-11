@@ -1554,10 +1554,23 @@ fn multiply_dyadic(left: &ExactDyadic, right: &ExactDyadic) -> ExactDyadic {
 }
 
 fn compare_dyadic(left: &ExactDyadic, right: &ExactDyadic) -> Result<Ordering, IntervalError> {
-    Ok(compare_rationals(
-        &dyadic_to_rational(left)?,
-        &dyadic_to_rational(right)?,
-    ))
+    if left.exponent_two == right.exponent_two {
+        return Ok(left.coefficient.inner.cmp(&right.coefficient.inner));
+    }
+    if left.exponent_two.inner > right.exponent_two.inner {
+        let shift = (&left.exponent_two.inner - &right.exponent_two.inner)
+            .to_u32()
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        Ok((&left.coefficient.inner << shift).cmp(&right.coefficient.inner))
+    } else {
+        let shift = (&right.exponent_two.inner - &left.exponent_two.inner)
+            .to_u32()
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        Ok(left
+            .coefficient
+            .inner
+            .cmp(&(&right.coefficient.inner << shift)))
+    }
 }
 
 fn compare_dyadic_to_rational(
@@ -1630,6 +1643,45 @@ mod tests {
 
     fn rational(numerator: i64, denominator: i64) -> Rational {
         Rational::new(Integer::from(numerator), Integer::from(denominator)).unwrap()
+    }
+
+    #[test]
+    fn dyadic_comparison_aligns_exponents_without_rational_conversion() {
+        let values = [
+            ExactDyadic {
+                coefficient: Integer::from(-7),
+                exponent_two: Integer::from(-3),
+            },
+            ExactDyadic {
+                coefficient: Integer::from(-1),
+                exponent_two: Integer::from(4),
+            },
+            ExactDyadic {
+                coefficient: Integer::zero(),
+                exponent_two: Integer::from(-100),
+            },
+            ExactDyadic {
+                coefficient: Integer::from(3),
+                exponent_two: Integer::from(-5),
+            },
+            ExactDyadic {
+                coefficient: Integer::from(6),
+                exponent_two: Integer::from(-6),
+            },
+            ExactDyadic {
+                coefficient: Integer::from(5),
+                exponent_two: Integer::from(7),
+            },
+        ];
+        for left in &values {
+            for right in &values {
+                let rational_order = compare_rationals(
+                    &dyadic_to_rational(left).unwrap(),
+                    &dyadic_to_rational(right).unwrap(),
+                );
+                assert_eq!(compare_dyadic(left, right).unwrap(), rational_order);
+            }
+        }
     }
 
     #[test]
