@@ -17,11 +17,28 @@ const CASES: &[(&str, &str)] = &[
     ("algebraic", "((2^(1/3)-2^(1/3))+2)^(1/3)"),
 ];
 
-const APPROXIMATE_COMPONENTS: &[(&str, &str)] = &[
-    ("exp_one", "exp(1)"),
-    ("log_two", "ln(2)"),
-    ("general_power", "2^sqrt(2)"),
-    ("sin_one", "sin(1)"),
+#[derive(Clone, Copy)]
+enum ExpectedExact {
+    GeneralSymbolic,
+    Radical,
+}
+
+const APPROXIMATE_COMPONENTS: &[(&str, &str, ExpectedExact)] = &[
+    ("exp_one", "exp(1)", ExpectedExact::GeneralSymbolic),
+    ("log_two", "ln(2)", ExpectedExact::GeneralSymbolic),
+    ("general_power", "2^sqrt(2)", ExpectedExact::GeneralSymbolic),
+    ("sin_one", "sin(1)", ExpectedExact::GeneralSymbolic),
+    ("sqrt_two", "sqrt(2)", ExpectedExact::Radical),
+    (
+        "power_log_product",
+        "sqrt(2)*ln(2)",
+        ExpectedExact::GeneralSymbolic,
+    ),
+    (
+        "exp_power_log_product",
+        "exp(sqrt(2)*ln(2))",
+        ExpectedExact::GeneralSymbolic,
+    ),
 ];
 
 fn calculate_representative_paths(criterion: &mut Criterion) {
@@ -171,7 +188,7 @@ fn profile_approximate_components(criterion: &mut Criterion) {
     };
     let parsed = APPROXIMATE_COMPONENTS
         .iter()
-        .map(|&(name, source)| {
+        .map(|&(name, source, expected_exact)| {
             let parsed = parse(source, &request.parse).expect("component parse must succeed");
             let evaluation = evaluate(
                 &parsed,
@@ -179,10 +196,16 @@ fn profile_approximate_components(criterion: &mut Criterion) {
                 &mut EvaluationContext::default(),
             )
             .expect("component evaluation preflight must succeed");
-            assert!(matches!(
-                evaluation.value.recognized_exact,
-                RecognizedExact::GeneralSymbolic
-            ));
+            assert!(match expected_exact {
+                ExpectedExact::GeneralSymbolic => matches!(
+                    evaluation.value.recognized_exact,
+                    RecognizedExact::GeneralSymbolic
+                ),
+                ExpectedExact::Radical => matches!(
+                    evaluation.value.recognized_exact,
+                    RecognizedExact::Radical(_)
+                ),
+            });
             assert!(matches!(
                 evaluation.value.certified_enclosure,
                 CertifiedEnclosureState::Available(_)

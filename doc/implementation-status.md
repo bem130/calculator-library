@@ -51,6 +51,7 @@ expの項更新`term * x / n`は、中間積と除算結果を別々に既約化
 expのTaylor部分和と現在項は、range reduction後の`x = a/b`に対して共通分母`b^n * n!`上のBigInt recurrenceで保持する。loop内で毎回Rationalを既約化せず、最終lowerと最初の未加算項の2倍を含むupperのみcanonical化する。旧Rational recurrenceとのexact一致、directed bounds、停止性、logical-work課金を維持する。
 極端な内部精度では、loop中に既約化しない共通分母の一時BigInt sizeを継続してprofilingする。現在の公開precision/resource上限と固定反復による停止性は維持されるが、代表経路の改善と極端入力のpeak memoryを別々に監視する。
 unit-range sin/cosは交代Taylor級数の剩余が最初の未加算項以下であることを使い、より厳しいcos側の`(2N + 2)! >= 2^precision_bits`を満たす最小項数を整数演算で求める。sinの次項はさらに大きいfactorial除数を持つため同じ幅保証を満たす。directed enclosure、range reduction、logical-work課金は変更しない。
+general powerの累積benchmarkは`sqrt(2)`、`sqrt(2)*ln(2)`、`exp(sqrt(2)*ln(2))`、直接`2^sqrt(2)`を同じevaluation境界で測定し、exact分類とcertified enclosureをpreflightで固定する。現行測定ではlogと最終expが主な増分で、interval multiplyは比較的小さい。
 
 ## Deliberately Not Contract
 

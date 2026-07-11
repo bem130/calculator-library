@@ -337,3 +337,23 @@ approximate calculation moved from 2.72 ms to 1.89 ms; allocation moved from
 memory remained 12,894 bytes and logical work remained 400,447 units. General
 power is again the largest measured component, so subsequent work should profile
 its sqrt/log/multiply composition rather than further reducing standalone sine.
+
+## General-power cumulative stages
+
+The component harness now includes `sqrt(2)`, `sqrt(2)*ln(2)`, and
+`exp(sqrt(2)*ln(2))` alongside direct `2^sqrt(2)`. Each untimed preflight verifies
+the expected radical or general-symbolic exact classification and an available
+certified enclosure. Corresponding one-iteration allocation cases are named
+`approximate_sqrt_two`, `approximate_power_log_product`, and
+`approximate_exp_power_log_product`.
+
+On 2026-07-12, a single 10-sample run measured the cumulative evaluation stages at
+263 µs, 855 µs, and 1.60 ms respectively, while direct general power measured
+1.91 ms. All existing control components slowed during this run, so the absolute
+times are not used as a before/after claim. Within the same run, the increments
+still identify logarithm and final exponential evaluation as the material stages;
+interval multiplication is comparatively small. One-iteration public-calculation
+allocation was 223,249 bytes in 10,130 blocks for sqrt, 308,442 bytes in 13,627
+blocks through the product, and 515,358 bytes in 14,240 blocks through exp. The
+next slice should profile logarithm series/range reduction and sqrt construction
+before selecting another algorithmic change.
