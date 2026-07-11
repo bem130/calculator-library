@@ -169,3 +169,22 @@ Peak live memory and the 400,447-unit logical-work boundary were unchanged. The
 stage group continued to place essentially all material time in evaluation; parse
 remained below 1 µs and presentation near 13 µs. Further work should separate the
 remaining general-power exp and log series terms before changing their algorithms.
+
+## Reduced logarithm identity fast path
+
+Separating the logarithm range reduction exposed an identity case inside the
+remaining series work. `ln(2)` is reduced to `log(1) + log(2)`: the first term is
+exactly zero, but the interval backend still built every zero Taylor term requested
+by the precision before calculating `log(2)`. The reduced logarithm primitive now
+returns the exact directed pair `[0, 0]` for one before entering the series. This is
+the mathematical identity element of the existing range-reduction algorithm, not
+a precision or iteration-limit change.
+
+On 2026-07-12, the same 10-sample composite estimate was 60.9 ms, about 4% below
+the preceding 63.4 ms run. The evaluation-only estimate moved from 70.9 ms in the
+immediately preceding local run to 63.5 ms; parse and presentation remained outside
+the material cost. One-iteration native allocation moved from 4,819,171 bytes in
+23,754 blocks to 4,808,083 bytes in 22,740 blocks. Peak live memory and the
+400,447-unit logical-work boundary remained unchanged. Timing samples on this host
+show noticeable scheduler variance, while the deterministic removal of 1,014
+allocation blocks provides the stronger local evidence for this fast path.

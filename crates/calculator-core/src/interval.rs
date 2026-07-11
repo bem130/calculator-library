@@ -629,6 +629,9 @@ fn log_reduced_rational_bounds(
 ) -> Result<(Rational, Rational), IntervalError> {
     debug_assert!(compare_rationals(value, &Rational::one()) != Ordering::Less);
     debug_assert!(compare_rationals(value, &rational_integer(2)) != Ordering::Greater);
+    if value == &Rational::one() {
+        return Ok((Rational::zero(), Rational::zero()));
+    }
     let numerator = value.subtract(&Rational::one());
     let denominator = value.add(&Rational::one());
     let z = divide_rational(&numerator, &denominator)?;
@@ -1754,6 +1757,16 @@ mod tests {
         .unwrap();
         assert_eq!(calls.get(), 2);
         assert_eq!(interval_bounds, (two, rational(4, 1)));
+    }
+
+    #[test]
+    fn reduced_logarithm_identity_has_exact_zero_bounds() {
+        for precision_bits in [1, 64, 256] {
+            assert_eq!(
+                log_reduced_rational_bounds(&Rational::one(), precision_bits).unwrap(),
+                (Rational::zero(), Rational::zero())
+            );
+        }
     }
 
     #[test]
