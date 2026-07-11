@@ -117,7 +117,9 @@ exponential, trigonometric, and square-root work at commit
 Binaryen 130. Criterion used the standard 10-sample configuration. All unrelated
 native controls were slower than their preceding stored samples during this run,
 so these native values are a new local snapshot rather than regression claims.
-Allocation and logical-work rows are deterministic under the documented runners.
+The Wasm runner used its default 10 measured iterations after two warm-ups with
+`--expose-gc`; allocation rows used one measured public calculation. Allocation
+and logical-work rows are deterministic under the documented runners.
 
 | Case | Native median estimate | Native allocated bytes / blocks | Peak bytes / blocks | Wasm ns/iteration | Wasm retained heap | Logical work |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -139,10 +141,11 @@ were respectively 20,157, 39,949, 289,094, 37,039, 60,249, 129,386, and
 largest component paths, so the next profiling slice should separate their
 remaining series-state, rational canonicalization, and exact-normalization costs.
 
-The approximate composite is the dominant measured path in both environments.
-Its Wasm facade time is roughly five times the native estimate on this run, so the
-next profiling slice should separate interval refinement from DTO serialization
-before choosing an optimization. A single retained-heap delta cannot establish a
+In the initial diagnostic run, the approximate composite was the dominant
+measured path in both environments. Its Wasm facade time was roughly five times
+the native estimate in that run, motivating separation of interval refinement
+from DTO serialization before choosing the first optimization. A single
+retained-heap delta cannot establish a
 growth trend and is too coarse to identify total allocation traffic.
 
 One-iteration native `dhat` baselines are:
