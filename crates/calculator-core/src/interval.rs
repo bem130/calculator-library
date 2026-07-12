@@ -1999,16 +1999,18 @@ fn compare_rationals(left: &Rational, right: &Rational) -> Ordering {
 }
 
 pub(crate) fn dyadic_to_rational(value: &ExactDyadic) -> Result<Rational, IntervalError> {
+    let exponent = &value.exponent_two.inner;
+    let exponent_shift = if exponent.sign() == Sign::Minus {
+        exponent.abs().to_u32()
+    } else {
+        exponent.to_u32()
+    }
+    .ok_or(IntervalError::ExponentTooLarge)?;
     if value.coefficient.is_zero() {
         return Ok(Rational::zero());
     }
-    let exponent = &value.exponent_two.inner;
     if exponent.sign() == Sign::Minus && !value.coefficient.inner.is_even() {
-        let denominator = BigInt::one()
-            << exponent
-                .abs()
-                .to_u32()
-                .ok_or(IntervalError::ExponentTooLarge)?;
+        let denominator = BigInt::one() << exponent_shift;
         Ok(Rational {
             numerator: value.coefficient.clone(),
             denominator: PositiveInteger {
@@ -2017,20 +2019,12 @@ pub(crate) fn dyadic_to_rational(value: &ExactDyadic) -> Result<Rational, Interv
         })
     } else if exponent.sign() == Sign::Minus {
         let mut coefficient = value.coefficient.inner.clone();
-        let mut exponent = exponent.clone();
         let trailing_zeros = coefficient.trailing_zeros().unwrap_or(0);
-        let removed = exponent
-            .abs()
-            .to_u64()
-            .map_or(trailing_zeros, |magnitude| magnitude.min(trailing_zeros));
+        let removed = u64::from(exponent_shift).min(trailing_zeros);
         coefficient >>= removed;
-        exponent += removed;
-        if exponent.sign() == Sign::Minus {
-            let denominator = BigInt::one()
-                << exponent
-                    .abs()
-                    .to_u32()
-                    .ok_or(IntervalError::ExponentTooLarge)?;
+        let remaining_exponent = exponent_shift - removed as u32;
+        if remaining_exponent > 0 {
+            let denominator = BigInt::one() << remaining_exponent;
             Ok(Rational {
                 numerator: Integer::from_bigint(coefficient),
                 denominator: PositiveInteger {
@@ -2038,13 +2032,10 @@ pub(crate) fn dyadic_to_rational(value: &ExactDyadic) -> Result<Rational, Interv
                 },
             })
         } else {
-            let numerator =
-                coefficient << exponent.to_u32().ok_or(IntervalError::ExponentTooLarge)?;
-            Ok(Rational::from_integer(Integer::from_bigint(numerator)))
+            Ok(Rational::from_integer(Integer::from_bigint(coefficient)))
         }
     } else {
-        let numerator =
-            &value.coefficient.inner << exponent.to_u32().ok_or(IntervalError::ExponentTooLarge)?;
+        let numerator = &value.coefficient.inner << exponent_shift;
         Ok(Rational::from_integer(Integer::from_bigint(numerator)))
     }
 }
@@ -2124,6 +2115,7 @@ mod tests {
             exact_dyadic(-3, -5),
             exact_dyadic(12, -5),
             exact_dyadic(-12, -5),
+            exact_dyadic(12, -2),
             exact_dyadic(5, 0),
             exact_dyadic(-5, 0),
             exact_dyadic(12, 3),
@@ -2146,6 +2138,23 @@ mod tests {
                 .unwrap()
             };
             assert_eq!(dyadic_to_rational(&value).unwrap(), expected);
+        }
+
+        let oversized = BigInt::from(u32::MAX) + BigInt::one();
+        for (coefficient, exponent) in [
+            (Integer::one(), oversized.clone()),
+            (Integer::one(), -oversized.clone()),
+            (Integer::from(12), -oversized.clone()),
+            (Integer::zero(), oversized.clone()),
+            (Integer::zero(), -oversized),
+        ] {
+            assert_eq!(
+                dyadic_to_rational(&ExactDyadic {
+                    coefficient,
+                    exponent_two: Integer::from_bigint(exponent),
+                }),
+                Err(IntervalError::ExponentTooLarge)
+            );
         }
     }
 
