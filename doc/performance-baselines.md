@@ -673,6 +673,57 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Arctangent common-denominator recurrence
+
+At base commit `7e6e53a`, unit-range atan and the two reciprocal atan series in
+Machin's pi formula normalized a Rational after every power update, odd
+division, and partial-sum operation. Commit `d24bb3d` instead carries the power,
+odd-factor product, common denominator, and signed sum as BigInts, then
+canonicalizes only the final adjacent alternating-series bounds. An exact
+regression compares the new helper with the former Rational definition for
+zero, several proper fractions, one, and multiple term-count parities.
+
+On 2026-07-12 with `rustc 1.97.0`, one public calculation produced these
+deterministic before/after allocation totals:
+
+| Case | Bytes | Blocks |
+| --- | ---: | ---: |
+| `atan(1/2)` | 80,774 / 25,638 | 3,976 / 980 |
+| `atan(2)` | 444,698 / 81,754 | 11,173 / 1,783 |
+
+Twenty-sample Criterion runs changed `atan(1/2)` from a 609.91 µs median to
+62.214 µs and `atan(2)` from 4.615 ms to 956.04 µs. The larger-input path also
+uses the optimized recurrence for both pi terms, accounting for its remaining
+cost above the direct unit-range case. Logical-work boundaries remained 231,
+401216, 400447, 586, 582, 400234, and 932 because this internal representation
+change does not alter evaluator accounting.
+
+A three-iteration/one-warmup Wasm/npm boundary snapshot used artifact
+`ae837ff837a7d3241d7807b2b7d8fb978835cebf4d6da148af70acc1c7eddbb7`
+(784,287 bytes). The aggregate approximate case measured 6.40 ms/iteration and
+retained its 1,812-byte payload. This low-sample Wasm result is an integration
+snapshot, not a statistically powered timing claim.
+
+Reproduce with:
+
+```sh
+for case in approximate_atan_half approximate_atan_two
+do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/atan_half --sample-size 20
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/atan_two --sample-size 20
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
+
 ## Structural reciprocal for negative exponential bounds
 
 At base commit `e8fe092`, negative direct-range exponential endpoints calculated
