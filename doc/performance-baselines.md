@@ -677,8 +677,8 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
 
 At base commit `d84b6ca`, binary angle composition started from the identity pair,
 so its first set bit performed a result-preserving interval composition. Commit
-`2862f0b` starts from the reduced factor and composes only the remaining
-`divisor-1` power. Exact regressions compare the former identity-seeded result for
+`ab3aec1` preserves the original bit scan but clones the factor at the first set
+bit instead of multiplying it by the identity. Exact regressions compare the former identity-seeded result for
 positive and negative divisors two through four; larger-divisor composition and
 tangent pole handling retain the same operations.
 
