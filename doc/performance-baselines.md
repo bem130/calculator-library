@@ -673,6 +673,59 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Exponential recurrence product and buffer reuse
+
+At base commit `3180b15`, each exponential-series iteration computed
+`term * value_numerator` once as the sum correction and then repeated the same
+arbitrary-precision multiplication to update `term`. It also replaced the owned
+sum with a newly formed multiply-add result. Commit `11ab4ce` computes the next
+term once, moves it into the recurrence state after adding it, and multiplies/adds
+into the owned sum buffer. The upper-tail numerator similarly adds its correction
+into the owned product.
+
+On 2026-07-12 with `rustc 1.97.0`, deterministic one-calculation allocations and
+20-sample native timings changed as follows:
+
+| Case | Bytes | Blocks | Native median |
+| --- | ---: | ---: | ---: |
+| `exp(1)` | 18,621 / 18,213 | 702 / 667 | 31.66 / 20.43 µs |
+| `exp(2)` | 19,393 / 18,985 | 726 / 691 | not sampled |
+| `2^sqrt(2)` | 285,246 / 246,798 | 3,984 / 3,916 | 1.274 ms / 700.29 µs |
+| `exp(sqrt(2)*ln(2))` | 319,198 / 280,750 | 5,500 / 5,432 | not sampled |
+| `exp(-10000)` | 656,720 / 613,040 | 4,464 / 4,390 | 2.485 / 1.446 ms |
+
+Criterion reported statistically significant improvements of about 29%, 43%,
+and 40% for the three sampled rows. Logical-work boundaries remained 231,
+401216, 400447, 586, 582, 400234, and 932. A three-iteration/one-warmup Wasm/npm
+snapshot used artifact
+`5319b5c4fed787e15f7629bba2f9f6c45e7e3d1f8540f3dd8adc893fc56cbb34`
+(784,475 bytes); approximate evaluation measured 6.36 ms/iteration and preserved
+the 1,812-byte payload. The Wasm sample is recorded as a boundary snapshot rather
+than a statistically powered before/after claim.
+
+Reproduce with:
+
+```sh
+for case in approximate_exp_one approximate_exp_two approximate_general_power \
+  approximate_exp_power_log_product approximate_exp_negative_10000
+do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/exp_one --sample-size 20
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/general_power --sample-size 20
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/exp_negative_10000 --sample-size 20
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
+
 ## Primitive exponential recurrence indices
 
 At base commit `5506090`, the common-denominator exponential recurrence converted
