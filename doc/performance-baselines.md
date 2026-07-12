@@ -781,6 +781,15 @@ On 2026-07-12 with `rustc 1.97.0`, public `acos(1/3)` allocation moved from
 Timing moved with host load and did not establish a speedup, so this slice claims
 only deterministic allocation reduction. Directed bounds and protocol are unchanged.
 
+## Structural inverse-trig unit checks
+
+At base commit `73f3810`, asin/acos built Rational ±1 for every endpoint special
+check. Commit `088e730` compares canonical sign and numerator/denominator
+magnitudes directly. Exact regressions cover -2 through 2. On 2026-07-12 with
+`rustc 1.97.0`, public `acos(1/3)` allocation moved from 655,818 bytes / 1,877
+blocks to 655,306 / 1,845. This slice claims deterministic allocation reduction
+only; logical work, directed bounds, and protocol are unchanged.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
