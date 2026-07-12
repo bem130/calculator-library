@@ -1104,16 +1104,15 @@ Each affected public calculation removed 80 bytes / 4 blocks: `ln(2)` moved from
 deterministic allocation reduction only; directions, logical work, and protocol
 are unchanged.
 
-## Direct unit-range trigonometric pair
-
 ## Shared transformed inverse-sine pi enclosure
 
 At base commit `f3cdf78`, each transformed asin endpoint independently ran the
 two Machin arctangent recurrences needed for its directed pi bound. Commit
-`e612f15` builds one paired pi enclosure when either endpoint is in the transform
+`e612f15` builds one paired pi enclosure when both endpoints are in the transform
 region and shares it across both endpoints. The existing acos shared enclosure
 now also reaches its internal directed asin. Series-only intervals do not build
-pi. Exact regressions cover both signs, unit and half-region values, and intervals
+pi, and a mixed series/transform interval retains its single directed pi bound.
+Exact regressions cover both signs, unit and half-region values, and intervals
 with one or both transformed endpoints.
 
 On 2026-07-13 with `rustc 1.97.0`, deterministic one-calculation allocations for

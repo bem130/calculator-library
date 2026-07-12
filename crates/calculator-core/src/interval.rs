@@ -368,7 +368,7 @@ pub(crate) fn asin(
         return from_rational_bounds(&lower, &upper, precision_bits);
     }
     let shared_pi = if compare_absolute_rational_to_half(&lower) == Ordering::Greater
-        || compare_absolute_rational_to_half(&upper) == Ordering::Greater
+        && compare_absolute_rational_to_half(&upper) == Ordering::Greater
     {
         Some(pi_bounds(precision_bits)?)
     } else {
