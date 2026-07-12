@@ -46,7 +46,7 @@ fn main() {
         "approximate_asin_non_degenerate_unit" => Some(String::from("asin(sin(1)/3)")),
         "approximate_asin_non_degenerate_transform" => Some(String::from("asin((2+sin(1))/3)")),
         "approximate_acos_third" => Some(String::from("acos(1/3)")),
-        "approximate_acos_two_thirds" => Some(String::from("acos(2/3)")),
+        "approximate_acos_three_fourths" => Some(String::from("acos(3/4)")),
         "approximate_acos_non_degenerate_transform" => Some(String::from("acos((2+sin(1))/3)")),
         "approximate_sqrt_two" => Some(String::from("sqrt(2)")),
         "approximate_power_log_product" => Some(String::from("sqrt(2)*ln(2)")),

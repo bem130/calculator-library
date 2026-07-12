@@ -29,7 +29,7 @@ const cases = [
     ["asin_third", "asin(1/3)", "asin(1/3)"],
     ["asin_non_degenerate_transform", "asin((2+sin(1))/3)", "asin(1/3*sin(1)+2/3)"],
     ["acos_third", "acos(1/3)", "acos(1/3)"],
-    ["acos_two_thirds", "acos(2/3)", "acos(2/3)"],
+    ["acos_three_fourths", "acos(3/4)", "acos(3/4)"],
     ["acos_non_degenerate_transform", "acos((2+sin(1))/3)", "acos(1/3*sin(1)+2/3)"],
     ["sin_one", "sin(1)", "sin(1)"],
     ["cos_one", "cos(1)", "cos(1)"],
