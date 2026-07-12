@@ -1128,18 +1128,14 @@ fn inverse_sine_cosine_domain_bounds(
 ) -> Result<(Rational, Rational), IntervalError> {
     let lower = dyadic_to_rational(&value.lower)?;
     let upper = dyadic_to_rational(&value.upper)?;
-    let minus_one = rational_integer(-1);
-    let one = Rational::one();
-    if compare_rationals(&upper, &minus_one) == Ordering::Less
-        || compare_rationals(&lower, &one) == Ordering::Greater
-    {
+    let lower_outside_unit = !is_unit_rational(&lower);
+    let upper_outside_unit = !is_unit_rational(&upper);
+    if (upper_outside_unit && upper.is_negative()) || (lower_outside_unit && !lower.is_negative()) {
         return Err(IntervalError::Domain(
             DomainErrorKind::InverseTrigonometricOutOfRange,
         ));
     }
-    if compare_rationals(&lower, &minus_one) == Ordering::Less
-        || compare_rationals(&upper, &one) == Ordering::Greater
-    {
+    if lower_outside_unit || upper_outside_unit {
         return Err(IntervalError::UnsupportedExpression);
     }
     Ok((lower, upper))
@@ -3702,6 +3698,41 @@ mod tests {
                 16,
             ),
             Err(IntervalError::UnsupportedExpression)
+        );
+    }
+
+    #[test]
+    fn inverse_trig_structural_domain_units_preserve_interval_classes() {
+        for (lower, upper) in [
+            (rational(-3, 1), rational(-2, 1)),
+            (rational(2, 1), rational(3, 1)),
+        ] {
+            let interval = from_rational_bounds(&lower, &upper, 16).unwrap();
+            assert_eq!(
+                inverse_sine_cosine_domain_bounds(&interval),
+                Err(IntervalError::Domain(
+                    DomainErrorKind::InverseTrigonometricOutOfRange
+                )),
+            );
+        }
+
+        for (lower, upper) in [
+            (rational(-2, 1), Rational::zero()),
+            (Rational::zero(), rational(2, 1)),
+        ] {
+            let interval = from_rational_bounds(&lower, &upper, 16).unwrap();
+            assert_eq!(
+                inverse_sine_cosine_domain_bounds(&interval),
+                Err(IntervalError::UnsupportedExpression),
+            );
+        }
+
+        let lower = rational(-1, 1);
+        let upper = Rational::one();
+        let interval = from_rational_bounds(&lower, &upper, 16).unwrap();
+        assert_eq!(
+            inverse_sine_cosine_domain_bounds(&interval).unwrap(),
+            (lower, upper),
         );
     }
 
