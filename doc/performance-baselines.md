@@ -1060,6 +1060,15 @@ approximately 157.32 ms and 75.84 ms, about a 52% reduction. Logical work remain
 Reproduce with allocation/criterion case `acos_non_degenerate_transform` and
 `logical_work_baseline`.
 
+## Borrowed positive cosine inputs
+
+At base commit `61d4a6e`, unit cosine cloned every Rational before applying even
+symmetry. Commit `0bcf9ab` owns only the negated storage for negative values and
+borrows nonnegative inputs. On 2026-07-13, deterministic allocations changed
+from 8,149 bytes / 317 blocks to 8,133 / 315 for `cos(1)`, and from 12,823 / 522
+to 12,807 / 520 for `cos(2)`. This slice claims allocation reduction only;
+series bounds, range reduction, logical work, and protocol are unchanged.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
