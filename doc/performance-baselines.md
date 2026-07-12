@@ -999,6 +999,25 @@ Reproduce with allocation case `approximate_atan_non_degenerate`, Criterion case
 `approximate_components/atan_non_degenerate`, `logical_work_baseline`, and the
 package Wasm build/benchmark commands.
 
+## Directed unit inverse-sine endpoints
+
+At base commit `671dc62`, non-degenerate asin endpoints built paired positive
+series bounds and discarded one side. Commit `28d1f62` constructs only the
+partial sum for a requested lower bound or the existing next-term tail for an
+upper bound when `|x|<=1/2`; negative inputs reverse direction before negation.
+The transform region retains its paired fallback. Directed and paired regressions
+cover precisions 1, 64, and 128, zero, both signs, the half boundary, and a
+transform-region control.
+
+The public case `asin(sin(1)/3)` moved from 965,275 bytes / 1,827 blocks to
+881,539 / 1,794. Separate 20-sample Criterion runs measured native medians of
+approximately 8.72 ms and 4.05 ms, about a 54% reduction. Logical work remained
+200,216 units. This slice changes no public protocol or resource accounting.
+
+Reproduce with allocation case `approximate_asin_non_degenerate_unit`, Criterion
+case `approximate_components/asin_non_degenerate_unit`, and
+`logical_work_baseline`.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
