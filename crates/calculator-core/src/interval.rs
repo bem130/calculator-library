@@ -1537,8 +1537,8 @@ fn asin_positive_rational_bounds_with_pi(
     let ratio_lower = divide_rational(&dyadic_to_rational(&numerator.lower)?, value)?;
     let ratio_upper = divide_rational(&dyadic_to_rational(&numerator.upper)?, value)?;
     let (atan_lower, atan_upper) = (
-        atan_rational_bounds(&ratio_lower, precision_bits)?.0,
-        atan_rational_bounds(&ratio_upper, precision_bits)?.1,
+        atan_rational_bound(&ratio_lower, precision_bits, BoundDirection::Lower)?,
+        atan_rational_bound(&ratio_upper, precision_bits, BoundDirection::Upper)?,
     );
     let owned_pi;
     let pi = match shared_pi {
