@@ -1264,9 +1264,15 @@ fn sin_cos_rational(
     precision_bits: u32,
 ) -> Result<(CertifiedInterval, CertifiedInterval), IntervalError> {
     let divisor = ceil_absolute_rational_to_u32(value)?;
-    let reduced = divide_rational(value, &rational_integer(i64::from(divisor)))?;
-    let (sin_lower, sin_upper) = sin_unit_rational_bounds(&reduced, precision_bits)?;
-    let (cos_lower, cos_upper) = cos_unit_rational_bounds(&reduced, precision_bits)?;
+    let reduced_storage;
+    let reduced = if divisor == 1 {
+        value
+    } else {
+        reduced_storage = divide_rational(value, &rational_integer(i64::from(divisor)))?;
+        &reduced_storage
+    };
+    let (sin_lower, sin_upper) = sin_unit_rational_bounds(reduced, precision_bits)?;
+    let (cos_lower, cos_upper) = cos_unit_rational_bounds(reduced, precision_bits)?;
     let mut factor = TrigPair {
         cosine: from_rational_bounds(&cos_lower, &cos_upper, precision_bits)?,
         sine: from_rational_bounds(&sin_lower, &sin_upper, precision_bits)?,
@@ -2629,6 +2635,20 @@ mod tests {
             };
             let composed = multiply_trig_pairs(&identity, &factor, precision_bits).unwrap();
             assert_eq!(direct, (composed.sine, composed.cosine));
+        }
+    }
+
+    #[test]
+    fn unit_trigonometric_reduction_matches_general_division() {
+        for value in [
+            rational(-1, 1),
+            rational(-1, 3),
+            Rational::zero(),
+            rational(1, 3),
+            Rational::one(),
+        ] {
+            assert_eq!(divide_rational(&value, &Rational::one()).unwrap(), value,);
+            assert_eq!(ceil_absolute_rational_to_u32(&value).unwrap(), 1);
         }
     }
 
