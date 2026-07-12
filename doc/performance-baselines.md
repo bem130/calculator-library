@@ -937,6 +937,28 @@ public protocol are unchanged. Reproduce with allocation cases
 `approximate_power_log_product`, and `approximate_exp_power_log_product`, followed
 by `logical_work_baseline`.
 
+## Directed logarithm endpoints
+
+At base commit `b95bde6`, a non-degenerate logarithm interval evaluated paired
+bounds at both endpoints, retaining only the lower result from the lower endpoint
+and the upper result from the upper endpoint. Commit `fb56605` keeps one shared
+series state for exact points but gives directed endpoints only the requested
+canonical Rational. Negative binary exponents reverse the selected log-two bound
+before signed composition, exactly as in the paired path. Regressions compare
+directed and paired results at precisions 1, 64, and 128 across unit, fractional,
+positive/negative binary-exponent, and multi-step inputs.
+
+The public benchmark case `ln(2+sin(1))` exercises a genuinely non-degenerate
+log interval. On 2026-07-13 with `rustc 1.97.0`, one calculation moved from
+410,484 bytes / 1,889 blocks to 351,468 / 1,787. Separate 20-sample Criterion
+runs at the base and implementation commits measured medians of approximately
+8.40 ms and 3.75 ms, about a 55% reduction. Logical work remained 200,225 units.
+Directed bounds, tail guarantees, resource accounting, and public protocol are
+unchanged.
+
+Reproduce with allocation case `approximate_log_non_degenerate`, Criterion case
+`approximate_components/log_non_degenerate`, and `logical_work_baseline`.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the

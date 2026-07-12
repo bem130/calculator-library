@@ -85,6 +85,7 @@ asin/acosのinterval domain分類は上下端のunit predicateと符号から、
 expの正値range reductionはceilで得た正のprimitive divisorを既存Rational分母へ直接掛けて一度だけcanonical化する。整数Rationalの構築と汎用division dispatchをpaired/direct endpoint経路から除き、reduction=1のdirected boundは入力をcloneせず借用する。整数冪、負expのreciprocal方向、logical-work契約を維持する。
 range-reduced logの級数変数`z=(x-1)/(x+1)`はcanonical `x=n/d`から`(n-d)/(n+d)`を構築し、最後に一度だけcanonical化する。Rational加減算と除算の3段階正規化を除き、`log(1)=0` fast path、正項級数tail、logical-work契約を維持する。
 logの`[1,2)` range reductionはcanonical正Rationalのpartsを1・2境界と構造比較し、各stepの2倍・半減をprimitive scalar helperで行う。Rational境界/operandの構築と汎用乗除算dispatchを除き、step上限、binary exponent、log2合成、logical-work契約を維持する。
+非退化intervalのlogはlower endpointからlower bound、upper endpointからupper boundだけを構築する。共通分母級数stateはexact pointではpaired boundsを共有し、directed endpointでは不要なlower canonicalizationまたはupper tailを作らない。正負binary exponentのlog2方向選択、range reduction、tail、logical-work契約を維持する。
 
 ## Deliberately Not Contract
 
