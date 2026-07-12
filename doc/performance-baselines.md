@@ -811,6 +811,30 @@ reduction only; series selection, directed bounds, domain behavior, and public
 protocol are unchanged. Reproduce with allocation cases `approximate_asin_third`
 and `approximate_acos_third`, followed by `logical_work_baseline`.
 
+## Structural arctangent unit threshold
+
+At base commit `31682c5`, nonnegative atan constructed Rational `1` to select
+between its unit series and reciprocal identity, then repeated that comparison
+in the unit helper assertion. Commit `5fe32ea` reuses the existing canonical
+unit predicate, which compares numerator magnitude with the positive denominator.
+Regression values cover both signs, zero, the exact unit boundary, and values on
+either side; the existing `atan(2)` identity regression fixes reciprocal and pi
+bound direction.
+
+On 2026-07-13 with `rustc 1.97.0`, deterministic one-calculation allocations
+changed as follows:
+
+| Case | Bytes | Blocks |
+| --- | ---: | ---: |
+| `atan(1/2)` | 22,078 / 22,046 | 824 / 820 |
+| `atan(2)` | 49,434 / 49,402 | 1,149 / 1,145 |
+
+Logical work remained 31 and 5 units respectively. This slice claims only the
+deterministic allocation reduction; reciprocal direction, directed bounds, and
+public protocol are unchanged. Reproduce with allocation cases
+`approximate_atan_half` and `approximate_atan_two`, followed by
+`logical_work_baseline`.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
