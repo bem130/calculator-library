@@ -1267,13 +1267,16 @@ fn sin_cos_rational(
     let reduced = divide_rational(value, &rational_integer(i64::from(divisor)))?;
     let (sin_lower, sin_upper) = sin_unit_rational_bounds(&reduced, precision_bits)?;
     let (cos_lower, cos_upper) = cos_unit_rational_bounds(&reduced, precision_bits)?;
-    let mut result = TrigPair {
-        cosine: from_rational(&Rational::one(), precision_bits),
-        sine: from_rational(&Rational::zero(), precision_bits),
-    };
     let mut factor = TrigPair {
         cosine: from_rational_bounds(&cos_lower, &cos_upper, precision_bits)?,
         sine: from_rational_bounds(&sin_lower, &sin_upper, precision_bits)?,
+    };
+    if divisor == 1 {
+        return Ok((factor.sine, factor.cosine));
+    }
+    let mut result = TrigPair {
+        cosine: from_rational(&Rational::one(), precision_bits),
+        sine: from_rational(&Rational::zero(), precision_bits),
     };
     let mut remaining = divisor;
     while remaining > 0 {
@@ -2599,6 +2602,32 @@ mod tests {
         }
         assert!(!is_unit_rational(&rational(-4, 3)));
         assert!(!is_unit_rational(&rational(4, 3)));
+    }
+
+    #[test]
+    fn unit_trigonometric_pair_matches_identity_composition() {
+        for value in [
+            rational(-1, 1),
+            rational(-1, 3),
+            Rational::zero(),
+            rational(1, 3),
+            Rational::one(),
+        ] {
+            let precision_bits = 128;
+            let direct = sin_cos_rational(&value, precision_bits).unwrap();
+            let (sin_lower, sin_upper) = sin_unit_rational_bounds(&value, precision_bits).unwrap();
+            let (cos_lower, cos_upper) = cos_unit_rational_bounds(&value, precision_bits).unwrap();
+            let factor = TrigPair {
+                cosine: from_rational_bounds(&cos_lower, &cos_upper, precision_bits).unwrap(),
+                sine: from_rational_bounds(&sin_lower, &sin_upper, precision_bits).unwrap(),
+            };
+            let identity = TrigPair {
+                cosine: from_rational(&Rational::one(), precision_bits),
+                sine: from_rational(&Rational::zero(), precision_bits),
+            };
+            let composed = multiply_trig_pairs(&identity, &factor, precision_bits).unwrap();
+            assert_eq!(direct, (composed.sine, composed.cosine));
+        }
     }
 
     #[test]
