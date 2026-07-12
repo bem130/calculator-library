@@ -695,6 +695,16 @@ Reproduce with the allocation runner cases `approximate_exp_negative_two`,
 `approximate_exp_positive_10000`, followed by the documented logical-work and
 Wasm benchmark commands above.
 
+## Canonical reciprocals in interval evaluation
+
+Commit `fdd20b0` generalizes the structural reciprocal from positive exponential
+bounds to signed nonzero canonical Rationals, preserving a positive denominator
+by flipping both signs for negative inputs. Interval reciprocal and `atan(x>1)`
+therefore avoid general division/GCD. The new `atan(2)` public allocation case
+moved from 444,794 bytes / 11,185 blocks to 444,698 / 11,173. The small delta is
+recorded without a timing claim; directed bounds, logical-work, and public DTOs
+are unchanged.
+
 ## Common-denominator logarithm recurrence
 
 At base commit `e42c235`, reduced logarithm evaluation represented every
