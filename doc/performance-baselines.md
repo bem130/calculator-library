@@ -1214,6 +1214,8 @@ smokes moved from 94.87 ms at base artifact
 (793,396 bytes). This is not a powered Wasm timing claim. Directed enclosures,
 resource accounting, and protocol are unchanged. CLI stdout remained byte-identical,
 SHA-256 `721cd6720b8af23ec51372d6fb543fdd6d7ee15f1a964bbfdef080013e3dbb19`.
+Package check, example production build, and browser E2E passed for the
+implementation artifact, confirming unchanged npm and example-ui presentation.
 
 ## Direct unit-range trigonometric pair
 

@@ -3198,6 +3198,52 @@ mod tests {
     }
 
     #[test]
+    fn directed_exact_asin_atan_matches_former_paired_composition() {
+        fn former_positive_bounds(value: &Rational, precision_bits: u32) -> (Rational, Rational) {
+            let complement = one_minus_rational_square(value).unwrap();
+            let numerator = nth_root_nonnegative_rational(&complement, 2, precision_bits).unwrap();
+            let ratio_lower =
+                divide_rational(&dyadic_to_rational(&numerator.lower).unwrap(), value).unwrap();
+            let ratio_upper =
+                divide_rational(&dyadic_to_rational(&numerator.upper).unwrap(), value).unwrap();
+            let atan_lower = atan_rational_bounds(&ratio_lower, precision_bits)
+                .unwrap()
+                .0;
+            let atan_upper = atan_rational_bounds(&ratio_upper, precision_bits)
+                .unwrap()
+                .1;
+            let pi = pi_bounds(precision_bits).unwrap();
+            (
+                halve_rational(&pi.0).unwrap().subtract(&atan_upper),
+                halve_rational(&pi.1).unwrap().subtract(&atan_lower),
+            )
+        }
+
+        for precision_bits in [1, 64, 128] {
+            let pi = pi_bounds(precision_bits).unwrap();
+            for positive in [rational(3, 4), rational(999, 1_000)] {
+                let former = former_positive_bounds(&positive, precision_bits);
+                assert_eq!(
+                    asin_rational_bounds_with_pi(&positive, precision_bits, Some(&pi)).unwrap(),
+                    former,
+                );
+                let negative = positive.negate();
+                assert_eq!(
+                    asin_rational_bounds_with_pi(&negative, precision_bits, Some(&pi)).unwrap(),
+                    (former.1.negate(), former.0.negate()),
+                );
+                assert_eq!(
+                    acos_rational_bounds_with_pi(&positive, precision_bits, Some(&pi)).unwrap(),
+                    (
+                        halve_rational(&pi.0).unwrap().subtract(&former.1),
+                        halve_rational(&pi.1).unwrap().subtract(&former.0),
+                    ),
+                );
+            }
+        }
+    }
+
+    #[test]
     fn directed_acos_bounds_match_shared_paired_bounds() {
         let pi = pi_bounds(128).unwrap();
         for value in [
