@@ -1896,7 +1896,8 @@ fn trigonometric_series_terms(precision_bits: u32) -> Result<u32, IntervalError>
         let second_factor = first_factor
             .checked_add(1)
             .ok_or(IntervalError::ExponentTooLarge)?;
-        factorial *= BigInt::from(first_factor) * BigInt::from(second_factor);
+        factorial *= first_factor;
+        factorial *= second_factor;
         if factorial >= target {
             return Ok(term_count);
         }

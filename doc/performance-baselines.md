@@ -688,15 +688,15 @@ On 2026-07-12 with `rustc 1.97.0`, deterministic one-calculation allocations wer
 | --- | ---: | ---: |
 | `exp(1)` | 18,213 / 17,125 | 667 / 633 |
 | `ln(2)` | 39,597 / 37,133 | 1,751 / 1,674 |
-| `sin(1)` control | 35,999 / 35,999 | 1,745 / 1,745 |
+| `sin(1)` | 35,999 / 33,695 | 1,745 / 1,673 |
 | `2^sqrt(2)` | 246,798 / 242,158 | 3,916 / 3,771 |
 
 Native timing moved with host-wide load and did not establish a speedup; this
 slice claims only the deterministic allocation reduction. Logical-work boundaries
 remained 231, 401216, 400447, 586, 582, 400234, and 932. The three-iteration,
 one-warmup Wasm/npm boundary snapshot used artifact
-`84035e4f45bdb139dbac3142c67b1c840f27157c52a65f5f8e5351966a432179`
-(784,422 bytes), measured the approximate case at 8.55 ms/iteration, and retained
+`5c9d838ff3ecb5bcc7f38e7187d8f907c2e587baa1f57361f1f05bf9b4e54908`
+(784,386 bytes), measured the approximate case at 8.31 ms/iteration, and retained
 the unchanged 1,812-byte payload.
 
 Reproduce with:
