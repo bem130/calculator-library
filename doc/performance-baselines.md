@@ -677,8 +677,8 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
 identity pair and composed it with the series pair even when the range-reduction
-divisor was one. That composition constructed four interval products, two
-additions, and two clamps without changing the result. Commit `f85a422` returns
+divisor was one. That composition constructed four interval products, one
+addition, one subtraction, and two clamps without changing the result. Commit `f85a422` returns
 the series pair directly for divisor one while retaining binary angle
 composition for larger divisors. A regression reconstructs the former identity
 composition and checks exact dyadic equality for negative, zero, fractional, and
