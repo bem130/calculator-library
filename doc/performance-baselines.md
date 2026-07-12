@@ -673,6 +673,45 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Direct unit-range trigonometric pair
+
+At base commit `f12fc66`, the paired trigonometric evaluator initialized the
+identity pair and composed it with the series pair even when the range-reduction
+divisor was one. That composition constructed four interval products, two
+additions, and two clamps without changing the result. Commit `f85a422` returns
+the series pair directly for divisor one while retaining binary angle
+composition for larger divisors. A regression reconstructs the former identity
+composition and checks exact dyadic equality for negative, zero, fractional, and
+boundary-one inputs.
+
+On 2026-07-12 with `rustc 1.97.0`, one public `tan(1)` calculation moved from
+21,903 bytes / 768 blocks to 11,527 bytes / 405 blocks. A twenty-sample Criterion
+run changed the native median from 33.659 µs to 16.478 µs. The affected
+logical-work boundary remained 200,133 units.
+
+A three-iteration/one-warmup Wasm/npm snapshot used base artifact
+`5b56dbe91a5857d9815cd959c70246120b6e69b51e31bfd4a7b9bcba4f91454c`
+(785,045 bytes) and implementation artifact
+`fca976e3afaaebb715dfda4f2a0021cbf7ab9d0db70a0d2cb6abb33181a60fda`
+(785,129 bytes). The public `tan(1)` path moved from 0.389 to 0.312 ms per
+iteration and retained its 1,760-byte payload. These low-sample Wasm values are
+integration snapshots, not statistically powered claims.
+
+Reproduce with:
+
+```sh
+CALCULATOR_ALLOCATION_ITERATIONS=1 \
+  cargo run --profile bench -p calculator-core --features std \
+    --example allocation_baseline -- approximate_tan_one
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/tan_one --sample-size 20
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
+
 ## Direct unit-range trigonometric projection
 
 At base commit `8112e5d`, `sin_rational` and `cos_rational` always evaluated both
