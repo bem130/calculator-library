@@ -20,6 +20,7 @@ fn main() {
         ("acos_third", "acos(1/3)"),
         ("sin_one", "sin(1)"),
         ("cos_one", "cos(1)"),
+        ("tan_one", "tan(1)"),
         ("algebraic", "((2^(1/3)-2^(1/3))+2)^(1/3)"),
         ("wide_add_256", wide.as_str()),
     ];
