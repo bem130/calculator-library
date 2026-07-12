@@ -753,12 +753,14 @@ fn exp_nonnegative_rational_bound(
 ) -> Result<Rational, IntervalError> {
     debug_assert!(!value.is_negative());
     let reduction = ceil_nonnegative_rational_to_u32(value)?;
+    let reduced_storage;
     let reduced = if reduction == 1 {
-        value.clone()
+        value
     } else {
-        divide_rational(value, &rational_integer(i64::from(reduction)))?
+        reduced_storage = divide_rational_by_positive_u32(value, reduction)?;
+        &reduced_storage
     };
-    let bound = exp_small_nonnegative_rational_bound(&reduced, precision_bits, direction)?;
+    let bound = exp_small_nonnegative_rational_bound(reduced, precision_bits, direction)?;
     if reduction == 1 {
         Ok(bound)
     } else {
@@ -793,8 +795,7 @@ where
     if reduction == 1 {
         return small_bounds(value, precision_bits);
     }
-    let divisor = rational_integer(i64::from(reduction));
-    let reduced = divide_rational(value, &divisor)?;
+    let reduced = divide_rational_by_positive_u32(value, reduction)?;
     let (lower, upper) = small_bounds(&reduced, precision_bits)?;
     Ok((
         positive_power(&lower, reduction)?,
@@ -2241,7 +2242,7 @@ fn normalize_dyadic(mut coefficient: BigInt, mut exponent_two: BigInt) -> ExactD
 #[cfg(test)]
 mod tests {
     use alloc::vec::Vec;
-    use core::cell::Cell;
+    use core::cell::{Cell, RefCell};
 
     use super::*;
 
@@ -3066,8 +3067,10 @@ mod tests {
     fn unit_range_exponential_uses_small_series_bounds_directly() {
         let series_calls = Cell::new(0_u32);
         let power_calls = Cell::new(0_u32);
+        let reduced_inputs = RefCell::new(Vec::new());
         let bounds = |value: &Rational, _| {
             series_calls.set(series_calls.get() + 1);
+            reduced_inputs.borrow_mut().push(value.clone());
             Ok((value.clone(), value.clone()))
         };
         let power = |value: &Rational, _| {
@@ -3078,12 +3081,15 @@ mod tests {
         exp_nonnegative_rational_bounds_with(&rational(1, 3), 64, bounds, power).unwrap();
         assert_eq!(series_calls.get(), 1);
         assert_eq!(power_calls.get(), 0);
+        assert_eq!(reduced_inputs.borrow().as_slice(), &[rational(1, 3)]);
 
         series_calls.set(0);
         power_calls.set(0);
+        reduced_inputs.borrow_mut().clear();
         exp_nonnegative_rational_bounds_with(&rational(3, 2), 64, bounds, power).unwrap();
         assert_eq!(series_calls.get(), 1);
         assert_eq!(power_calls.get(), 2);
+        assert_eq!(reduced_inputs.borrow().as_slice(), &[rational(3, 4)]);
 
         assert_eq!(
             exp_rational_bounds(&Rational::zero(), 64).unwrap(),
