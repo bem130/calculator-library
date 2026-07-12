@@ -353,8 +353,23 @@ pub(crate) fn atan(
         let (lower, upper) = atan_rational_bounds(&lower, precision_bits)?;
         return from_rational_bounds(&lower, &upper, precision_bits);
     }
-    let lower = atan_rational_bound(&lower, precision_bits, BoundDirection::Lower)?;
-    let upper = atan_rational_bound(&upper, precision_bits, BoundDirection::Upper)?;
+    let shared_pi = if !is_unit_rational(&lower) && !is_unit_rational(&upper) {
+        Some(pi_bounds(precision_bits)?)
+    } else {
+        None
+    };
+    let lower = atan_rational_bound_with_pi(
+        &lower,
+        precision_bits,
+        BoundDirection::Lower,
+        shared_pi.as_ref(),
+    )?;
+    let upper = atan_rational_bound_with_pi(
+        &upper,
+        precision_bits,
+        BoundDirection::Upper,
+        shared_pi.as_ref(),
+    )?;
     from_rational_bounds(&lower, &upper, precision_bits)
 }
 
@@ -1165,25 +1180,36 @@ fn atan_rational_bound(
     precision_bits: u32,
     direction: BoundDirection,
 ) -> Result<Rational, IntervalError> {
+    atan_rational_bound_with_pi(value, precision_bits, direction, None)
+}
+
+fn atan_rational_bound_with_pi(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+    shared_pi: Option<&(Rational, Rational)>,
+) -> Result<Rational, IntervalError> {
     if value.is_negative() {
         let positive_direction = match direction {
             BoundDirection::Lower => BoundDirection::Upper,
             BoundDirection::Upper => BoundDirection::Lower,
         };
-        return Ok(atan_nonnegative_rational_bound(
+        return Ok(atan_nonnegative_rational_bound_with_pi(
             &value.negate(),
             precision_bits,
             positive_direction,
+            shared_pi,
         )?
         .negate());
     }
-    atan_nonnegative_rational_bound(value, precision_bits, direction)
+    atan_nonnegative_rational_bound_with_pi(value, precision_bits, direction, shared_pi)
 }
 
-fn atan_nonnegative_rational_bound(
+fn atan_nonnegative_rational_bound_with_pi(
     value: &Rational,
     precision_bits: u32,
     direction: BoundDirection,
+    shared_pi: Option<&(Rational, Rational)>,
 ) -> Result<Rational, IntervalError> {
     debug_assert!(!value.is_negative());
     if value.is_zero() {
@@ -1197,9 +1223,16 @@ fn atan_nonnegative_rational_bound(
         };
         let reciprocal_bound =
             atan_unit_rational_bound(&reciprocal, precision_bits, reciprocal_direction)?;
-        return Ok(
-            halve_rational(&pi_bound(precision_bits, direction)?)?.subtract(&reciprocal_bound)
-        );
+        let owned_pi_bound;
+        let selected_pi = match (shared_pi, direction) {
+            (Some((pi_lower, _)), BoundDirection::Lower) => pi_lower,
+            (Some((_, pi_upper)), BoundDirection::Upper) => pi_upper,
+            (None, _) => {
+                owned_pi_bound = pi_bound(precision_bits, direction)?;
+                &owned_pi_bound
+            }
+        };
+        return Ok(halve_rational(selected_pi)?.subtract(&reciprocal_bound));
     }
     atan_unit_rational_bound(value, precision_bits, direction)
 }
@@ -2927,6 +2960,47 @@ mod tests {
             assert_eq!(
                 pi_bound(precision_bits, BoundDirection::Upper).unwrap(),
                 pi_upper,
+            );
+        }
+    }
+
+    #[test]
+    fn shared_arctangent_pi_matches_independent_directed_bounds() {
+        let pi = pi_bounds(128).unwrap();
+        for value in [
+            rational(-3, 1),
+            rational(-1, 1),
+            rational(-1, 3),
+            Rational::zero(),
+            rational(1, 3),
+            Rational::one(),
+            rational(3, 1),
+        ] {
+            for direction in [BoundDirection::Lower, BoundDirection::Upper] {
+                assert_eq!(
+                    atan_rational_bound_with_pi(&value, 128, direction, Some(&pi)).unwrap(),
+                    atan_rational_bound(&value, 128, direction).unwrap(),
+                );
+            }
+        }
+
+        for (lower, upper) in [
+            (rational(2, 1), rational(3, 1)),
+            (rational(-3, 1), rational(-2, 1)),
+            (rational(-3, 1), rational(3, 1)),
+            (rational(-1, 2), rational(2, 1)),
+        ] {
+            let input = from_rational_bounds(&lower, &upper, 128).unwrap();
+            let input_lower = dyadic_to_rational(&input.lower).unwrap();
+            let input_upper = dyadic_to_rational(&input.upper).unwrap();
+            assert_eq!(
+                atan(&input, 128).unwrap(),
+                from_rational_bounds(
+                    &atan_rational_bound(&input_lower, 128, BoundDirection::Lower).unwrap(),
+                    &atan_rational_bound(&input_upper, 128, BoundDirection::Upper).unwrap(),
+                    128,
+                )
+                .unwrap(),
             );
         }
     }
