@@ -673,6 +673,36 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Factor-seeded trigonometric range composition
+
+At base commit `d84b6ca`, binary angle composition started from the identity pair,
+so its first set bit performed a result-preserving interval composition. Commit
+`2862f0b` starts from the reduced factor and composes only the remaining
+`divisor-1` power. Exact regressions compare the former identity-seeded result for
+positive and negative divisors two through four; larger-divisor composition and
+tangent pole handling retain the same operations.
+
+On 2026-07-12 with `rustc 1.97.0`, controlled measurements were:
+
+| Case | Bytes | Blocks | Native median |
+| --- | ---: | ---: | ---: |
+| `sin(2)` | 23,259 / 12,883 | 881 / 518 | 36.780 / 21.823 µs |
+| `cos(2)` | 23,239 / 12,863 | 887 / 524 | 31.017 / 24.001 µs |
+| `tan(2)` | 25,507 / 15,131 | 913 / 550 | 32.776 / 20.108 µs |
+
+All three affected logical-work boundaries remained 200,133 units. The
+three-iteration/one-warmup Wasm/npm snapshots used base artifact
+`fca976e3afaaebb715dfda4f2a0021cbf7ab9d0db70a0d2cb6abb33181a60fda`
+(785,129 bytes) and implementation artifact
+`9fccc881f8552ee8213999b3a3151221647934a623c21a7814d6edc01c2665cb`
+(785,094 bytes). Public facade times moved from 0.624/0.448/0.544 ms to
+0.320/0.290/0.375 ms for sin/cos/tan respectively, with unchanged payloads of
+1,766/1,772/1,766 bytes. These low-sample values are integration snapshots, not
+statistically powered claims.
+
+Reproduce with the allocation, Criterion, logical-work, and Wasm commands above,
+using the `sin_two`, `cos_two`, and `tan_two` case names.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
