@@ -1107,9 +1107,9 @@ are unchanged.
 ## Shared transformed inverse-sine pi enclosure
 
 At base commit `f3cdf78`, each transformed asin endpoint independently ran the
-two Machin arctangent recurrences needed for its directed pi bound. Commit
-`e612f15` builds one paired pi enclosure when both endpoints are in the transform
-region and shares it across both endpoints. The existing acos shared enclosure
+two Machin arctangent recurrences needed for its directed pi bound. Commits
+`e612f15` and `385efeb` build one paired pi enclosure only when both endpoints
+are in the transform region and share it across them. The existing acos enclosure
 now also reaches its internal directed asin. Series-only intervals do not build
 pi, and a mixed series/transform interval retains its single directed pi bound.
 Exact regressions cover both signs, unit and half-region values, and intervals
