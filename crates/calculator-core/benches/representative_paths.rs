@@ -74,6 +74,11 @@ const APPROXIMATE_COMPONENTS: &[(&str, &str, ExpectedExact)] = &[
         ExpectedExact::GeneralSymbolic,
     ),
     ("acos_third", "acos(1/3)", ExpectedExact::GeneralSymbolic),
+    (
+        "acos_non_degenerate_transform",
+        "acos((2+sin(1))/3)",
+        ExpectedExact::GeneralSymbolic,
+    ),
     ("sqrt_two", "sqrt(2)", ExpectedExact::Radical),
     (
         "power_log_product",

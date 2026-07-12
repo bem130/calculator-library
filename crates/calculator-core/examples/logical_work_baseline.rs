@@ -22,6 +22,7 @@ fn main() {
         ("asin_non_degenerate_unit", "asin(sin(1)/3)"),
         ("asin_non_degenerate_transform", "asin((2+sin(1))/3)"),
         ("acos_third", "acos(1/3)"),
+        ("acos_non_degenerate_transform", "acos((2+sin(1))/3)"),
         ("sin_one", "sin(1)"),
         ("cos_one", "cos(1)"),
         ("tan_one", "tan(1)"),

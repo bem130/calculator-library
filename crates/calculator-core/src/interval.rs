@@ -382,8 +382,10 @@ pub(crate) fn acos(
         return from_rational_bounds(&lower, &upper, precision_bits);
     }
     let pi = pi_bounds(precision_bits)?;
-    let (lower, _) = acos_rational_bounds_with_pi(&upper_endpoint, precision_bits, Some(&pi))?;
-    let (_, upper) = acos_rational_bounds_with_pi(&lower_endpoint, precision_bits, Some(&pi))?;
+    let lower =
+        acos_rational_bound_with_pi(&upper_endpoint, precision_bits, BoundDirection::Lower, &pi)?;
+    let upper =
+        acos_rational_bound_with_pi(&lower_endpoint, precision_bits, BoundDirection::Upper, &pi)?;
     from_rational_bounds(&lower, &upper, precision_bits)
 }
 
@@ -1586,6 +1588,39 @@ fn acos_rational_bounds_with_pi(
         halve_rational(pi_lower)?.subtract(&asin_upper),
         halve_rational(pi_upper)?.subtract(&asin_lower),
     ))
+}
+
+fn acos_rational_bound_with_pi(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+    pi: &(Rational, Rational),
+) -> Result<Rational, IntervalError> {
+    if is_negative_one_rational(value) {
+        return Ok(match direction {
+            BoundDirection::Lower => pi.0.clone(),
+            BoundDirection::Upper => pi.1.clone(),
+        });
+    }
+    if is_positive_one_rational(value) {
+        return Ok(Rational::zero());
+    }
+    if value.is_zero() {
+        return match direction {
+            BoundDirection::Lower => halve_rational(&pi.0),
+            BoundDirection::Upper => halve_rational(&pi.1),
+        };
+    }
+    let asin_direction = match direction {
+        BoundDirection::Lower => BoundDirection::Upper,
+        BoundDirection::Upper => BoundDirection::Lower,
+    };
+    let asin_bound = asin_rational_bound(value, precision_bits, asin_direction)?;
+    let pi_bound = match direction {
+        BoundDirection::Lower => &pi.0,
+        BoundDirection::Upper => &pi.1,
+    };
+    Ok(halve_rational(pi_bound)?.subtract(&asin_bound))
 }
 
 fn sin_cos_rational(
@@ -2935,6 +2970,30 @@ mod tests {
             assert_eq!(
                 acos_rational_bounds_with_pi(&value, 128, Some(&pi)).unwrap(),
                 acos_rational_bounds(&value, 128).unwrap(),
+            );
+        }
+    }
+
+    #[test]
+    fn directed_acos_bounds_match_shared_paired_bounds() {
+        let pi = pi_bounds(128).unwrap();
+        for value in [
+            rational(-1, 1),
+            rational(-2, 3),
+            rational(-1, 3),
+            Rational::zero(),
+            rational(1, 3),
+            rational(2, 3),
+            Rational::one(),
+        ] {
+            let (lower, upper) = acos_rational_bounds_with_pi(&value, 128, Some(&pi)).unwrap();
+            assert_eq!(
+                acos_rational_bound_with_pi(&value, 128, BoundDirection::Lower, &pi).unwrap(),
+                lower,
+            );
+            assert_eq!(
+                acos_rational_bound_with_pi(&value, 128, BoundDirection::Upper, &pi).unwrap(),
+                upper,
             );
         }
     }
