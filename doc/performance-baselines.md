@@ -1169,8 +1169,6 @@ and acos SHA-256
 The package check, example production build, and browser E2E passed against the
 reviewed artifact, confirming unchanged npm presentation and example-ui display.
 
-## Direct unit-range trigonometric pair
-
 ## Shared exact transformed-acos pi enclosure
 
 At base commit `35956af`, an exact dyadic transformed acos point built one pi
@@ -1185,6 +1183,16 @@ Separate 10-sample Criterion runs moved the native midpoint estimate from
 The benchmark uses dyadic `3/4`; non-dyadic `2/3` enters the already optimized
 non-degenerate enclosure path and is not evidence for this exact-point slice.
 Directed bounds, resource accounting, and protocol are unchanged.
+
+Wasm/npm benchmark definition v12 retained the 1,772-byte payload. Contended
+one-iteration smokes used base artifact
+`aed5ef521c7fd69606d8651ae0020997b2726573892c77a95dd6c46290d6995f`
+(793,711 bytes) and implementation artifact
+`3c7210041401c36c10085e905fdea68846ca6ddfc9e6d8b41e1d31fdc77a1cd1`
+(793,501 bytes); their elapsed values are not used as a timing claim. Package
+check, example production build, and browser E2E passed for the implementation.
+CLI stdout was byte-identical, SHA-256
+`721cd6720b8af23ec51372d6fb543fdd6d7ee15f1a964bbfdef080013e3dbb19`.
 
 ## Direct unit-range trigonometric pair
 
