@@ -910,6 +910,33 @@ public protocol are unchanged. Reproduce with allocation cases
 `approximate_power_log_product`, and `approximate_exp_power_log_product`, followed
 by `logical_work_baseline`.
 
+## Structural logarithm range reduction
+
+At base commit `08cf67a`, logarithm range reduction compared each positive
+Rational against constructed `1` and `2` values and used general Rational
+multiplication or division for every binary step. Commit `33446e0` compares the
+canonical numerator with the denominator or twice the denominator, and uses the
+existing primitive scaling and halving helpers. Exact regressions compare the
+old and new loops for positive and negative binary exponents, multiple steps,
+fractional inputs, and both range boundaries.
+
+On 2026-07-13 with `rustc 1.97.0`, deterministic one-calculation allocations
+changed as follows:
+
+| Case | Bytes | Blocks |
+| --- | ---: | ---: |
+| `ln(2)` | 20,917 / 20,829 | 778 / 770 |
+| `2^sqrt(2)` | 225,814 / 225,726 | 2,871 / 2,863 |
+| `sqrt(2)*ln(2)` | 108,978 / 108,890 | 4,009 / 4,001 |
+| `exp(sqrt(2)*ln(2))` | 259,766 / 259,678 | 4,387 / 4,379 |
+
+This slice claims deterministic allocation reduction only. Range boundaries,
+step limits, binary-exponent accounting, directed bounds, logical work, and
+public protocol are unchanged. Reproduce with allocation cases
+`approximate_log_two`, `approximate_general_power`,
+`approximate_power_log_product`, and `approximate_exp_power_log_product`, followed
+by `logical_work_baseline`.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
