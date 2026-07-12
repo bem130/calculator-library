@@ -392,8 +392,9 @@ pub(crate) fn acos(
         let (lower, upper) = acos_rational_bounds(&lower_endpoint, precision_bits)?;
         return from_rational_bounds(&lower, &upper, precision_bits);
     }
-    let (lower, _) = acos_rational_bounds(&upper_endpoint, precision_bits)?;
-    let (_, upper) = acos_rational_bounds(&lower_endpoint, precision_bits)?;
+    let pi = pi_bounds(precision_bits)?;
+    let (lower, _) = acos_rational_bounds_with_pi(&upper_endpoint, precision_bits, Some(&pi))?;
+    let (_, upper) = acos_rational_bounds_with_pi(&lower_endpoint, precision_bits, Some(&pi))?;
     from_rational_bounds(&lower, &upper, precision_bits)
 }
 
@@ -1250,24 +1251,48 @@ fn acos_rational_bounds(
     value: &Rational,
     precision_bits: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
+    acos_rational_bounds_with_pi(value, precision_bits, None)
+}
+
+fn acos_rational_bounds_with_pi(
+    value: &Rational,
+    precision_bits: u32,
+    shared_pi: Option<&(Rational, Rational)>,
+) -> Result<(Rational, Rational), IntervalError> {
     let minus_one = rational_integer(-1);
     if compare_rationals(value, &minus_one) == Ordering::Equal {
-        let (pi_lower, pi_upper) = pi_bounds(precision_bits)?;
-        return Ok((pi_lower, pi_upper));
+        return match shared_pi {
+            Some((pi_lower, pi_upper)) => Ok((pi_lower.clone(), pi_upper.clone())),
+            None => pi_bounds(precision_bits),
+        };
     }
     if compare_rationals(value, &Rational::one()) == Ordering::Equal {
         return Ok((Rational::zero(), Rational::zero()));
     }
     if value.is_zero() {
-        let (pi_lower, pi_upper) = pi_bounds(precision_bits)?;
-        return Ok((halve_rational(&pi_lower)?, halve_rational(&pi_upper)?));
+        let owned_pi;
+        let (pi_lower, pi_upper) = match shared_pi {
+            Some(pi) => pi,
+            None => {
+                owned_pi = pi_bounds(precision_bits)?;
+                &owned_pi
+            }
+        };
+        return Ok((halve_rational(pi_lower)?, halve_rational(pi_upper)?));
     }
 
     let (asin_lower, asin_upper) = asin_rational_bounds(value, precision_bits)?;
-    let (pi_lower, pi_upper) = pi_bounds(precision_bits)?;
+    let owned_pi;
+    let (pi_lower, pi_upper) = match shared_pi {
+        Some(pi) => pi,
+        None => {
+            owned_pi = pi_bounds(precision_bits)?;
+            &owned_pi
+        }
+    };
     Ok((
-        halve_rational(&pi_lower)?.subtract(&asin_upper),
-        halve_rational(&pi_upper)?.subtract(&asin_lower),
+        halve_rational(pi_lower)?.subtract(&asin_upper),
+        halve_rational(pi_upper)?.subtract(&asin_lower),
     ))
 }
 
@@ -2507,6 +2532,22 @@ mod tests {
             assert_eq!(
                 actual,
                 from_rational_bounds(&expected.0, &expected.1, 128).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn shared_acos_pi_matches_independent_endpoint_bounds() {
+        let pi = pi_bounds(128).unwrap();
+        for value in [
+            rational(-1, 1),
+            Rational::zero(),
+            rational(1, 3),
+            Rational::one(),
+        ] {
+            assert_eq!(
+                acos_rational_bounds_with_pi(&value, 128, Some(&pi)).unwrap(),
+                acos_rational_bounds(&value, 128).unwrap(),
             );
         }
     }
