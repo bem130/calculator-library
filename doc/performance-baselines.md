@@ -1069,6 +1069,18 @@ from 8,149 bytes / 317 blocks to 8,133 / 315 for `cos(1)`, and from 12,823 / 522
 to 12,807 / 520 for `cos(2)`. This slice claims allocation reduction only;
 series bounds, range reduction, logical work, and protocol are unchanged.
 
+## Direct asin complement squares
+
+At base commit `fe77c2e`, transformed asin formed `x*x` and then `1-x^2` as two
+canonical Rational operations. Commit `8e0f69f` forms `(d^2-n^2)/d^2` directly
+from canonical `x=n/d` and canonicalizes once. Exact regressions cover zero,
+both signs, the half and unit boundaries, and values near one.
+
+On 2026-07-13, `asin((2+sin(1))/3)` moved from 1,479,412 bytes / 4,383 blocks
+to 1,477,652 / 4,345, while the corresponding acos case moved from 1,667,222 /
+4,872 to 1,665,462 / 4,834. This slice claims deterministic allocation reduction
+only; directed bounds, logical work, resource accounting, and protocol are unchanged.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
