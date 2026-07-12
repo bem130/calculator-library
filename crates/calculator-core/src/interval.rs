@@ -367,8 +367,25 @@ pub(crate) fn asin(
         let (lower, upper) = asin_rational_bounds(&lower, precision_bits)?;
         return from_rational_bounds(&lower, &upper, precision_bits);
     }
-    let lower = asin_rational_bound(&lower, precision_bits, BoundDirection::Lower)?;
-    let upper = asin_rational_bound(&upper, precision_bits, BoundDirection::Upper)?;
+    let shared_pi = if compare_absolute_rational_to_half(&lower) == Ordering::Greater
+        || compare_absolute_rational_to_half(&upper) == Ordering::Greater
+    {
+        Some(pi_bounds(precision_bits)?)
+    } else {
+        None
+    };
+    let lower = asin_rational_bound_with_pi(
+        &lower,
+        precision_bits,
+        BoundDirection::Lower,
+        shared_pi.as_ref(),
+    )?;
+    let upper = asin_rational_bound_with_pi(
+        &upper,
+        precision_bits,
+        BoundDirection::Upper,
+        shared_pi.as_ref(),
+    )?;
     from_rational_bounds(&lower, &upper, precision_bits)
 }
 
@@ -444,7 +461,11 @@ fn is_negative_one_rational(value: &Rational) -> bool {
 
 fn compare_nonnegative_rational_to_half(value: &Rational) -> Ordering {
     debug_assert!(!value.is_negative());
-    (&value.numerator.inner * 2_u8).cmp(&value.denominator.inner.inner)
+    compare_absolute_rational_to_half(value)
+}
+
+fn compare_absolute_rational_to_half(value: &Rational) -> Ordering {
+    (value.numerator.inner.magnitude() * 2_u8).cmp(value.denominator.inner.inner.magnitude())
 }
 
 pub(crate) fn tan_rational(
@@ -1385,19 +1406,33 @@ fn asin_rational_bounds(
     asin_positive_rational_bounds(value, precision_bits)
 }
 
+#[cfg(test)]
 fn asin_rational_bound(
     value: &Rational,
     precision_bits: u32,
     direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    asin_rational_bound_with_pi(value, precision_bits, direction, None)
+}
+
+fn asin_rational_bound_with_pi(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+    shared_pi: Option<&(Rational, Rational)>,
 ) -> Result<Rational, IntervalError> {
     if value.is_negative() {
         let positive_direction = match direction {
             BoundDirection::Lower => BoundDirection::Upper,
             BoundDirection::Upper => BoundDirection::Lower,
         };
-        return Ok(
-            asin_rational_bound(&value.negate(), precision_bits, positive_direction)?.negate(),
-        );
+        return Ok(asin_rational_bound_with_pi(
+            &value.negate(),
+            precision_bits,
+            positive_direction,
+            shared_pi,
+        )?
+        .negate());
     }
     if value.is_zero() {
         return Ok(Rational::zero());
@@ -1416,7 +1451,16 @@ fn asin_rational_bound(
         BoundDirection::Upper => BoundDirection::Lower,
     };
     let atan_bound = atan_rational_bound(&ratio, precision_bits, atan_direction)?;
-    Ok(halve_rational(&pi_bound(precision_bits, direction)?)?.subtract(&atan_bound))
+    let owned_pi_bound;
+    let selected_pi = match (shared_pi, direction) {
+        (Some((pi_lower, _)), BoundDirection::Lower) => pi_lower,
+        (Some((_, pi_upper)), BoundDirection::Upper) => pi_upper,
+        (None, _) => {
+            owned_pi_bound = pi_bound(precision_bits, direction)?;
+            &owned_pi_bound
+        }
+    };
+    Ok(halve_rational(selected_pi)?.subtract(&atan_bound))
 }
 
 fn asin_positive_rational_bounds(
@@ -1630,7 +1674,7 @@ fn acos_rational_bound_with_pi(
         BoundDirection::Lower => BoundDirection::Upper,
         BoundDirection::Upper => BoundDirection::Lower,
     };
-    let asin_bound = asin_rational_bound(value, precision_bits, asin_direction)?;
+    let asin_bound = asin_rational_bound_with_pi(value, precision_bits, asin_direction, Some(pi))?;
     let pi_bound = match direction {
         BoundDirection::Lower => &pi.0,
         BoundDirection::Upper => &pi.1,
@@ -2914,6 +2958,46 @@ mod tests {
                     upper,
                 );
             }
+        }
+    }
+
+    #[test]
+    fn shared_inverse_sine_pi_matches_independent_directed_bounds() {
+        let pi = pi_bounds(128).unwrap();
+        for value in [
+            rational(-1, 1),
+            rational(-2, 3),
+            rational(-1, 3),
+            Rational::zero(),
+            rational(1, 3),
+            rational(2, 3),
+            Rational::one(),
+        ] {
+            for direction in [BoundDirection::Lower, BoundDirection::Upper] {
+                assert_eq!(
+                    asin_rational_bound_with_pi(&value, 128, direction, Some(&pi)).unwrap(),
+                    asin_rational_bound(&value, 128, direction).unwrap(),
+                );
+            }
+        }
+
+        for (lower, upper) in [
+            (rational(1, 3), rational(2, 3)),
+            (rational(-2, 3), rational(-1, 3)),
+            (rational(-2, 3), rational(2, 3)),
+        ] {
+            let input = from_rational_bounds(&lower, &upper, 128).unwrap();
+            let input_lower = dyadic_to_rational(&input.lower).unwrap();
+            let input_upper = dyadic_to_rational(&input.upper).unwrap();
+            assert_eq!(
+                asin(&input, 128).unwrap(),
+                from_rational_bounds(
+                    &asin_rational_bound(&input_lower, 128, BoundDirection::Lower).unwrap(),
+                    &asin_rational_bound(&input_upper, 128, BoundDirection::Upper).unwrap(),
+                    128,
+                )
+                .unwrap(),
+            );
         }
     }
 
