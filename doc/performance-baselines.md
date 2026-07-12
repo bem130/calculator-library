@@ -686,19 +686,18 @@ On 2026-07-12 with `rustc 1.97.0`, controlled measurements were:
 
 | Case | Bytes | Blocks | Native median |
 | --- | ---: | ---: | ---: |
-| `sin(2)` | 23,259 / 12,883 | 881 / 518 | 36.780 / 21.823 µs |
-| `cos(2)` | 23,239 / 12,863 | 887 / 524 | 31.017 / 24.001 µs |
-| `tan(2)` | 25,507 / 15,131 | 913 / 550 | 32.776 / 20.108 µs |
+| `sin(2)` | 23,259 / 12,883 | 881 / 518 | 36.780 / 24.736 µs |
+| `cos(2)` | 23,239 / 12,863 | 887 / 524 | 31.017 / 22.250 µs |
+| `tan(2)` | 25,507 / 15,131 | 913 / 550 | 32.776 / 22.574 µs |
 
 All three affected logical-work boundaries remained 200,133 units. The
 three-iteration/one-warmup Wasm/npm snapshots used base artifact
 `fca976e3afaaebb715dfda4f2a0021cbf7ab9d0db70a0d2cb6abb33181a60fda`
 (785,129 bytes) and implementation artifact
-`9fccc881f8552ee8213999b3a3151221647934a623c21a7814d6edc01c2665cb`
-(785,094 bytes). Public facade times moved from 0.624/0.448/0.544 ms to
-0.320/0.290/0.375 ms for sin/cos/tan respectively, with unchanged payloads of
-1,766/1,772/1,766 bytes. These low-sample values are integration snapshots, not
-statistically powered claims.
+`3f19032672f54a3e90b261835eafde326554f9b35c5463471b71a5f141152dcd`
+(785,204 bytes). Public facade payloads remained 1,766/1,772/1,766 bytes for
+sin/cos/tan. The three-iteration timings moved with host-wide load, so they are
+retained only as integration snapshots without a Wasm speed claim.
 
 Reproduce with the allocation, Criterion, logical-work, and Wasm commands above,
 using the `sin_two`, `cos_two`, and `tan_two` case names.
