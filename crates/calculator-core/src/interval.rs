@@ -1449,10 +1449,16 @@ fn asin_positive_rational_bounds(
 fn one_minus_rational_square(value: &Rational) -> Result<Rational, IntervalError> {
     let numerator_squared = &value.numerator.inner * &value.numerator.inner;
     let denominator_squared = &value.denominator.inner.inner * &value.denominator.inner.inner;
-    rational_from_parts(
-        &denominator_squared - numerator_squared,
-        denominator_squared,
-    )
+    let numerator = &denominator_squared - numerator_squared;
+    if numerator.is_zero() {
+        return Ok(Rational::zero());
+    }
+    Ok(Rational {
+        numerator: Integer::from_bigint(numerator),
+        denominator: PositiveInteger {
+            inner: Integer::from_bigint(denominator_squared),
+        },
+    })
 }
 
 fn asin_unit_rational_bounds(
