@@ -2837,6 +2837,22 @@ mod tests {
     }
 
     #[test]
+    fn inverse_sine_above_half_preserves_directed_odd_bounds() {
+        for positive in [rational(501, 1_000), rational(2, 3)] {
+            let (positive_lower, positive_upper) = asin_rational_bounds(&positive, 128).unwrap();
+            assert_eq!(
+                compare_rationals(&positive_lower, &positive_upper),
+                Ordering::Less
+            );
+
+            let (negative_lower, negative_upper) =
+                asin_rational_bounds(&positive.negate(), 128).unwrap();
+            assert_eq!(negative_lower, positive_upper.negate());
+            assert_eq!(negative_upper, positive_lower.negate());
+        }
+    }
+
+    #[test]
     fn primitive_positive_scaling_matches_general_multiplication() {
         for value in [rational(-7, 3), Rational::zero(), rational(7, 3)] {
             for factor in [1_u32, 4, 16] {
