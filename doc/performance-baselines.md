@@ -744,6 +744,17 @@ from 676,274 bytes / 2,303 blocks to 675,954 / 2,287, and `atan(2)` moved from
 This slice claims deterministic allocation reduction only; public protocol and
 directed bounds are unchanged.
 
+## Primitive Machin coefficients
+
+At base commit `f22ca1c`, Machin's pi enclosure built Rational values for
+coefficients 16 and 4 and used general multiplication. Commit `de973da` applies
+the positive primitive factors to the numerator before one canonicalization.
+Exact signed/zero/fraction regressions match the former multiplication. On
+2026-07-12 with `rustc 1.97.0`, public `atan(2)` allocation moved from 81,594
+bytes / 1,775 blocks to 81,274 / 1,759. Logical work remained 5 units. This
+slice claims deterministic allocation reduction only; directed bounds and the
+public protocol are unchanged.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
