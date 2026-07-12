@@ -581,3 +581,24 @@ The direct Rational path remains in use through magnitude 64. Same-run normal
 controls measured 33.596 µs for `exp(2)` and 44.637 µs for `exp(-2)`; one public
 calculation allocated 20,913 bytes / 788 blocks and 21,838 bytes / 839 blocks.
 `exp(1)` remained on its existing path at 20,157 bytes / 762 blocks.
+
+## Sign-directed interval multiplication
+
+At base commit `6e24224`, interval multiplication constructed all four endpoint
+products even when both operand signs made the extrema monotone. The general-power
+path `2^sqrt(2)` multiplies the positive intervals for `ln(2)` and `sqrt(2)`, so
+two products, the candidate scan, and result clones were unnecessary. The signed
+path selects the two extrema directly for every nonnegative/nonpositive sign
+combination and retains the four-candidate definition for zero-crossing intervals.
+
+One public calculation before/after allocated 289,094 / 288,190 bytes and
+4,138 / 4,090 blocks for direct general power. The cumulative
+`sqrt(2)*ln(2)` path moved from 129,386 / 5,076 to 128,266 / 5,010, and
+`exp(sqrt(2)*ln(2))` moved from 323,262 / 5,672 to 322,142 / 5,606. Peak live
+memory stayed within 24 bytes of the corresponding baseline, as expected because
+the removed endpoint products were short-lived. Ten-sample timing medians on this
+shared host varied from 567 to 645 µs around the change; a subsequent 20-sample
+warm run measured 580 µs for general power and detected no significant change for
+the cumulative log product. Allocation counts, exact endpoint regression cases,
+and enclosure equality are therefore the evidence for this slice; the timing
+samples are not treated as a speedup claim.
