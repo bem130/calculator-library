@@ -2120,6 +2120,65 @@ mod tests {
                     .unwrap();
             assert_eq!(multiply(&left, &right).unwrap(), expected);
         }
+
+        let intervals = [
+            CertifiedInterval {
+                lower: exact_dyadic(-3, -1),
+                upper: exact_dyadic(-1, -2),
+            },
+            CertifiedInterval {
+                lower: exact_dyadic(-1, 0),
+                upper: exact_dyadic(0, 0),
+            },
+            CertifiedInterval {
+                lower: exact_dyadic(0, 0),
+                upper: exact_dyadic(0, 0),
+            },
+            CertifiedInterval {
+                lower: exact_dyadic(0, 0),
+                upper: exact_dyadic(3, -3),
+            },
+            CertifiedInterval {
+                lower: exact_dyadic(1, -2),
+                upper: exact_dyadic(5, -1),
+            },
+            CertifiedInterval {
+                lower: exact_dyadic(-3, -2),
+                upper: exact_dyadic(7, -3),
+            },
+        ];
+        for left in &intervals {
+            for right in &intervals {
+                assert_eq!(
+                    multiply(left, right).unwrap(),
+                    multiply_all_endpoint_candidates(left, right),
+                );
+            }
+        }
+    }
+
+    fn exact_dyadic(coefficient: i64, exponent_two: i64) -> ExactDyadic {
+        ExactDyadic {
+            coefficient: Integer::from(coefficient),
+            exponent_two: Integer::from(exponent_two),
+        }
+    }
+
+    fn multiply_all_endpoint_candidates(
+        left: &CertifiedInterval,
+        right: &CertifiedInterval,
+    ) -> CertifiedInterval {
+        let mut candidates = [
+            multiply_dyadic(&left.lower, &right.lower),
+            multiply_dyadic(&left.lower, &right.upper),
+            multiply_dyadic(&left.upper, &right.lower),
+            multiply_dyadic(&left.upper, &right.upper),
+        ];
+        candidates.sort_by(|left, right| compare_dyadic(left, right).unwrap());
+        CertifiedInterval {
+            lower: candidates[0].clone(),
+            upper: candidates[3].clone(),
+        }
     }
 
     #[test]

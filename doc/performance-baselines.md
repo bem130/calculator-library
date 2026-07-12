@@ -602,3 +602,21 @@ warm run measured 580 µs for general power and detected no significant change f
 the cumulative log product. Allocation counts, exact endpoint regression cases,
 and enclosure equality are therefore the evidence for this slice; the timing
 samples are not treated as a speedup claim.
+
+These measurements were taken at implementation commit `e77540e` on 2026-07-12
+with `rustc 1.97.0`. Reproduce the one-iteration allocation comparisons and the
+focused Criterion samples with:
+
+```sh
+for case in approximate_general_power approximate_power_log_product \
+  approximate_exp_power_log_product
+do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/general_power --sample-size 20
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/power_log_product --sample-size 20
+```
