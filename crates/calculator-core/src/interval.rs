@@ -1700,14 +1700,20 @@ fn cos_unit_rational_bounds(
     value: &Rational,
     precision_bits: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
-    let value = if value.is_negative() {
-        value.negate()
+    let positive_storage;
+    let positive = if value.is_negative() {
+        positive_storage = value.negate();
+        &positive_storage
     } else {
-        value.clone()
+        value
     };
-    debug_assert!(compare_rationals(&value, &Rational::one()) != Ordering::Greater);
+    debug_assert!(compare_rationals(positive, &Rational::one()) != Ordering::Greater);
     let term_count = trigonometric_series_terms(precision_bits)?;
-    trigonometric_series_common_denominator_bounds(&value, term_count, TrigonometricSeries::Cosine)
+    trigonometric_series_common_denominator_bounds(
+        positive,
+        term_count,
+        TrigonometricSeries::Cosine,
+    )
 }
 
 #[derive(Clone, Copy)]
