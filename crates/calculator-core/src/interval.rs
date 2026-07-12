@@ -918,30 +918,50 @@ fn log_reduced_rational_bounds(
     let numerator = value.subtract(&Rational::one());
     let denominator = value.add(&Rational::one());
     let z = divide_rational(&numerator, &denominator)?;
-    let z_squared = z.multiply(&z);
     let term_count = log_series_terms(precision_bits)?;
-    let mut sum = Rational::zero();
-    let mut term_power = z.clone();
-    for k in 0..=term_count {
-        let denominator = k
+    log_series_common_denominator_bounds(&z, term_count)
+}
+
+fn log_series_common_denominator_bounds(
+    z: &Rational,
+    term_count: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    let value_numerator = &z.numerator.inner;
+    let value_denominator = &z.denominator.inner.inner;
+    let numerator_squared = value_numerator * value_numerator;
+    let denominator_squared = value_denominator * value_denominator;
+    let mut sum_numerator = value_numerator.clone();
+    let mut term_numerator = value_numerator.clone();
+    let mut odd_product = BigInt::one();
+    let mut common_denominator = value_denominator.clone();
+
+    for k in 1..=term_count {
+        let odd_denominator = k
             .checked_mul(2)
             .and_then(|value| value.checked_add(1))
             .ok_or(IntervalError::ExponentTooLarge)?;
-        sum = sum.add(&divide_rational(
-            &term_power,
-            &rational_integer(i64::from(denominator)),
-        )?);
-        term_power = term_power.multiply(&z_squared);
+        term_numerator *= &numerator_squared;
+        let denominator_factor = &denominator_squared * odd_denominator;
+        sum_numerator *= &denominator_factor;
+        sum_numerator += &term_numerator * &odd_product;
+        common_denominator *= denominator_factor;
+        odd_product *= odd_denominator;
     }
 
-    let next_denominator = term_count
+    let next_odd_denominator = term_count
         .checked_add(1)
         .and_then(|value| value.checked_mul(2))
         .and_then(|value| value.checked_add(1))
         .ok_or(IntervalError::ExponentTooLarge)?;
-    let next = divide_rational(&term_power, &rational_integer(i64::from(next_denominator)))?;
-    let lower = scale_rational(&sum, 2);
-    let upper = lower.add(&scale_rational(&next, 4));
+    let next_term_numerator = term_numerator * numerator_squared;
+    let next_denominator_factor = denominator_squared * next_odd_denominator;
+    let lower = rational_from_parts(&sum_numerator * 2_u8, common_denominator.clone())?;
+    let upper_numerator =
+        sum_numerator * &next_denominator_factor * 2_u8 + next_term_numerator * odd_product * 4_u8;
+    let upper = rational_from_parts(
+        upper_numerator,
+        common_denominator * next_denominator_factor,
+    )?;
     Ok((lower, upper))
 }
 
@@ -2385,6 +2405,35 @@ mod tests {
             log_series_terms(u32::MAX),
             Err(IntervalError::ExponentTooLarge)
         );
+    }
+
+    #[test]
+    fn common_denominator_log_series_matches_rational_recurrence() {
+        for z in [rational(1, 7), rational(3, 10), rational(1, 3)] {
+            for term_count in [0, 1, 5, 20] {
+                let z_squared = z.multiply(&z);
+                let mut sum = Rational::zero();
+                let mut term_power = z.clone();
+                for k in 0..=term_count {
+                    sum = sum.add(
+                        &divide_rational(&term_power, &rational_integer(i64::from(2 * k + 1)))
+                            .unwrap(),
+                    );
+                    term_power = term_power.multiply(&z_squared);
+                }
+                let next = divide_rational(
+                    &term_power,
+                    &rational_integer(i64::from(2 * term_count + 3)),
+                )
+                .unwrap();
+                let expected_lower = scale_rational(&sum, 2);
+                let expected_upper = expected_lower.add(&scale_rational(&next, 4));
+                assert_eq!(
+                    log_series_common_denominator_bounds(&z, term_count).unwrap(),
+                    (expected_lower, expected_upper),
+                );
+            }
+        }
     }
 
     #[test]
