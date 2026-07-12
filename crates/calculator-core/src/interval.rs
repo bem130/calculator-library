@@ -1274,17 +1274,21 @@ fn sin_cos_rational(
     if divisor == 1 {
         return Ok((factor.sine, factor.cosine));
     }
-    let mut result = factor.clone();
-    let mut remaining = divisor - 1;
+    let mut result = None;
+    let mut remaining = divisor;
     while remaining > 0 {
         if remaining & 1 == 1 {
-            result = multiply_trig_pairs(&result, &factor, precision_bits)?;
+            result = Some(match result {
+                Some(result) => multiply_trig_pairs(&result, &factor, precision_bits)?,
+                None => factor.clone(),
+            });
         }
         remaining >>= 1;
         if remaining > 0 {
             factor = multiply_trig_pairs(&factor, &factor, precision_bits)?;
         }
     }
+    let result = result.ok_or(IntervalError::InvalidBounds)?;
     Ok((result.sine, result.cosine))
 }
 
@@ -2633,8 +2637,10 @@ mod tests {
         for value in [
             rational(-4, 1),
             rational(-3, 1),
+            rational(-2, 1),
             rational(2, 1),
             rational(3, 1),
+            rational(4, 1),
         ] {
             let precision_bits = 128;
             let divisor = ceil_absolute_rational_to_u32(&value).unwrap();
