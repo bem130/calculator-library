@@ -702,6 +702,23 @@ retained only as integration snapshots without a Wasm speed claim.
 Reproduce with the allocation, Criterion, logical-work, and Wasm commands above,
 using the `sin_two`, `cos_two`, and `tan_two` case names.
 
+## Borrowed unit trigonometric reduction
+
+At base commit `26e6c0f`, the paired trigonometric evaluator divided canonical
+unit-range inputs by the integer one through general Rational division. Commit
+`509c3b9` borrows the input directly when the computed divisor is one; larger
+range-reduction divisors are unchanged. Exact regressions cover negative, zero,
+fractional, and boundary-one inputs.
+
+On 2026-07-12 with `rustc 1.97.0`, one public `tan(1)` calculation moved from
+11,527 bytes / 405 blocks to 11,439 bytes / 397 blocks. Twenty-sample timing
+moved with host load and did not establish a speedup, so this slice claims only
+the deterministic allocation reduction. Logical work remained 200,133 units.
+The Wasm/npm integration snapshot used artifact
+`44ab9f128810398de343bc8ec9298370548f99ea8a5a95d0de7d29e9866d86b8`
+(785,232 bytes) and retained the 1,760-byte `tan(1)` payload without a timing
+claim.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
