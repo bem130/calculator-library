@@ -790,6 +790,27 @@ magnitudes directly. Exact regressions cover -2 through 2. On 2026-07-12 with
 blocks to 655,306 / 1,845. This slice claims deterministic allocation reduction
 only; logical work, directed bounds, and protocol are unchanged.
 
+## Structural inverse-sine half threshold
+
+At base commit `81508c4`, the positive asin path constructed canonical Rational
+`1/2` once to select the unit series and again for the unit helper assertion.
+Commit `7cff422` compares twice the canonical nonnegative numerator with the
+positive denominator instead. Regression values cover zero, exact one half,
+nearby fractions on both sides, and values approaching one.
+
+On 2026-07-13 with `rustc 1.97.0`, deterministic one-calculation allocations
+changed as follows:
+
+| Case | Bytes | Blocks |
+| --- | ---: | ---: |
+| `asin(1/3)` | 485,884 / 485,588 | 1,339 / 1,305 |
+| `acos(1/3)` | 655,306 / 655,010 | 1,845 / 1,811 |
+
+Logical work remained 31 units for both cases. This slice claims allocation
+reduction only; series selection, directed bounds, domain behavior, and public
+protocol are unchanged. Reproduce with allocation cases `approximate_asin_third`
+and `approximate_acos_third`, followed by `logical_work_baseline`.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
