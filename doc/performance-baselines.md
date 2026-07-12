@@ -1043,6 +1043,23 @@ Public protocol and resource accounting are unchanged.
 Reproduce with allocation/criterion case `asin_non_degenerate_transform`,
 `logical_work_baseline`, and the package Wasm build/benchmark commands.
 
+## Directed inverse-cosine endpoints
+
+At base commit `7756f8f`, non-degenerate acos selected antitone input endpoints
+correctly but built paired asin bounds inside each endpoint. Commit `11303b1`
+combines the shared pi enclosure with only the opposite directed asin bound.
+Minus one, zero, and plus one remain direct shared-pi special cases, avoiding
+independent pi cancellation. Unit and transformed values of both signs match the
+old shared paired bounds exactly.
+
+The public case `acos((2+sin(1))/3)` moved from 4,035,718 bytes / 9,834 blocks to
+1,667,222 / 4,872. Separate 20-sample Criterion runs measured native medians of
+approximately 157.32 ms and 75.84 ms, about a 52% reduction. Logical work remained
+200,447 units. Directed enclosure, resource accounting, and protocol are unchanged.
+
+Reproduce with allocation/criterion case `acos_non_degenerate_transform` and
+`logical_work_baseline`.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
