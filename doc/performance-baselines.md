@@ -676,11 +676,11 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
 ## Primitive transcendental series-bound operands
 
 At base commit `026ce83`, the term-count and tail helpers for exponential,
-logarithm, Euler-number enclosure, and reciprocal arctangent converted bounded
+logarithm, trigonometric series, Euler-number enclosure, and reciprocal arctangent converted bounded
 indices and fixed factors to owned BigInts before multiplying arbitrary-precision
-factorials, powers, or denominators. Commit `e13da03` uses num-bigint's exact
-primitive scalar multiplication while retaining every checked index calculation
-and stopping inequality.
+factorials, powers, or denominators. Commits `e13da03` and `385b018` use
+num-bigint's exact primitive scalar multiplication while retaining every checked
+index calculation and stopping inequality.
 
 On 2026-07-12 with `rustc 1.97.0`, deterministic one-calculation allocations were:
 
