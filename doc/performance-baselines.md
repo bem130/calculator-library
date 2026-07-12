@@ -672,3 +672,55 @@ corepack pnpm --dir packages/calculator run build:wasm
 CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
+
+## Primitive exponential recurrence indices
+
+At base commit `5506090`, the common-denominator exponential recurrence converted
+every `u32` term index to an owned BigInt before multiplying it into the dyadic
+input denominator. The upper tail did the same for `N+1` and the constant two.
+These operands are bounded primitives; only the growing numerator and denominator
+state requires arbitrary precision. Commit `7590b24` passes the primitive values
+directly to num-bigint multiplication without changing the recurrence or tail.
+
+On 2026-07-12 with `rustc 1.97.0`, one public calculation produced these
+deterministic before/after allocation totals:
+
+| Case | Bytes | Blocks |
+| --- | ---: | ---: |
+| `exp(1)` | 19,773 / 18,621 | 738 / 702 |
+| `exp(2)` | 20,545 / 19,393 | 762 / 726 |
+| `2^sqrt(2)` | 287,486 / 285,246 | 4,054 / 3,984 |
+| `exp(sqrt(2)*ln(2))` | 321,438 / 319,198 | 5,570 / 5,500 |
+| `exp(-10000)` | 659,152 / 656,720 | 4,540 / 4,464 |
+
+Twenty-sample Criterion runs detected no significant change for `exp(1)` or
+`exp(-10000)` and classified general-power movement within the configured noise
+threshold, so this slice claims allocation reduction rather than timing speedup.
+Logical-work boundaries remained 231, 401216, 400447, 586, 582, 400234, and 932.
+A three-iteration/one-warmup Wasm/npm snapshot used artifact
+`73be1fb55a894b6c2b26bc8265f29256da90e179a4a9deefa461863dcfddca55`
+(784,484 bytes); approximate evaluation measured 7.14 ms/iteration and retained
+the unchanged 1,812-byte payload.
+
+Reproduce with:
+
+```sh
+for case in approximate_exp_one approximate_exp_two approximate_general_power \
+  approximate_exp_power_log_product approximate_exp_negative_10000
+do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/exp_one --sample-size 20
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/general_power --sample-size 20
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/exp_negative_10000 --sample-size 20
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
