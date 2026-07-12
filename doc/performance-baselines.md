@@ -1018,6 +1018,31 @@ Reproduce with allocation case `approximate_asin_non_degenerate_unit`, Criterion
 case `approximate_components/asin_non_degenerate_unit`, and
 `logical_work_baseline`.
 
+## Directed transformed inverse-sine endpoints
+
+At base commit `3a4d9dd`, transformed asin endpoints built paired square-root,
+atan, and pi bounds. Commit `34460c9` uses sqrt upper / atan upper / pi lower for
+a requested lower bound and the opposite endpoints for an upper bound, following
+`asin(x)=pi/2-atan(sqrt(1-x^2)/x)`. Negative inputs retain odd direction reversal.
+Directed and paired regressions cover precisions 1, 64, and 128, the half boundary,
+both signs, values near one, and exact endpoints.
+
+The public case `asin((2+sin(1))/3)` moved from 3,690,444 bytes / 9,274 blocks to
+1,479,412 / 4,383. Separate 20-sample Criterion runs measured native medians of
+approximately 110.20 ms and 43.09 ms, about a 61% reduction. Logical work remained
+200,447 units.
+
+Wasm/npm benchmark definition v10 returned the same 1,788-byte payload. A
+single-iteration boundary snapshot moved from 579.65 ms at base artifact
+`fa966b812590848e37f0e1b0412b83fb0b9a76a7823b57c463250a51058960ac`
+(790,855 bytes) to 268.87 ms at implementation artifact
+`a0925e73604fa13cc32c5953cadb8747df1c8919a00e86ae3de37c29a6b04d0e`
+(791,625 bytes). This is a smoke snapshot, not a powered Wasm timing claim.
+Public protocol and resource accounting are unchanged.
+
+Reproduce with allocation/criterion case `asin_non_degenerate_transform`,
+`logical_work_baseline`, and the package Wasm build/benchmark commands.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
