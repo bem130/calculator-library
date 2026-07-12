@@ -451,6 +451,11 @@ fn is_negative_one_rational(value: &Rational) -> bool {
         && value.numerator.inner.magnitude() == value.denominator.inner.inner.magnitude()
 }
 
+fn compare_nonnegative_rational_to_half(value: &Rational) -> Ordering {
+    debug_assert!(!value.is_negative());
+    (&value.numerator.inner * 2_u8).cmp(&value.denominator.inner.inner)
+}
+
 pub(crate) fn tan_rational(
     value: &Rational,
     precision_bits: u32,
@@ -1173,8 +1178,7 @@ fn asin_positive_rational_bounds(
     debug_assert!(!value.is_zero());
     debug_assert!(compare_rationals(value, &Rational::one()) == Ordering::Less);
 
-    let half = halve_rational(&Rational::one())?;
-    if compare_rationals(value, &half) != Ordering::Greater {
+    if compare_nonnegative_rational_to_half(value) != Ordering::Greater {
         return asin_unit_rational_bounds(value, precision_bits);
     }
 
@@ -1198,8 +1202,7 @@ fn asin_unit_rational_bounds(
     precision_bits: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
     debug_assert!(!value.is_negative());
-    let half = halve_rational(&Rational::one())?;
-    debug_assert!(compare_rationals(value, &half) != Ordering::Greater);
+    debug_assert!(compare_nonnegative_rational_to_half(value) != Ordering::Greater);
     let term_count = series_terms(precision_bits)?;
     asin_common_denominator_bounds(value, term_count)
 }
@@ -2811,6 +2814,25 @@ mod tests {
         ] {
             assert_eq!(is_negative_one_rational(&value), value == rational(-1, 1));
             assert_eq!(is_positive_one_rational(&value), value == Rational::one());
+        }
+    }
+
+    #[test]
+    fn structural_half_comparison_matches_exact_rationals() {
+        let half = rational(1, 2);
+        for value in [
+            Rational::zero(),
+            rational(1, 3),
+            rational(499, 1_000),
+            half.clone(),
+            rational(501, 1_000),
+            rational(2, 3),
+            rational(9_999, 10_000),
+        ] {
+            assert_eq!(
+                compare_nonnegative_rational_to_half(&value),
+                compare_rationals(&value, &half),
+            );
         }
     }
 
