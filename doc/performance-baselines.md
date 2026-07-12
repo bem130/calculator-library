@@ -673,6 +673,55 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Primitive transcendental series-bound operands
+
+At base commit `026ce83`, the term-count and tail helpers for exponential,
+logarithm, Euler-number enclosure, and reciprocal arctangent converted bounded
+indices and fixed factors to owned BigInts before multiplying arbitrary-precision
+factorials, powers, or denominators. Commit `e13da03` uses num-bigint's exact
+primitive scalar multiplication while retaining every checked index calculation
+and stopping inequality.
+
+On 2026-07-12 with `rustc 1.97.0`, deterministic one-calculation allocations were:
+
+| Case | Bytes | Blocks |
+| --- | ---: | ---: |
+| `exp(1)` | 18,213 / 17,125 | 667 / 633 |
+| `ln(2)` | 39,597 / 37,133 | 1,751 / 1,674 |
+| `sin(1)` control | 35,999 / 35,999 | 1,745 / 1,745 |
+| `2^sqrt(2)` | 246,798 / 242,158 | 3,916 / 3,771 |
+
+Native timing moved with host-wide load and did not establish a speedup; this
+slice claims only the deterministic allocation reduction. Logical-work boundaries
+remained 231, 401216, 400447, 586, 582, 400234, and 932. The three-iteration,
+one-warmup Wasm/npm boundary snapshot used artifact
+`84035e4f45bdb139dbac3142c67b1c840f27157c52a65f5f8e5351966a432179`
+(784,422 bytes), measured the approximate case at 8.55 ms/iteration, and retained
+the unchanged 1,812-byte payload.
+
+Reproduce with:
+
+```sh
+for case in approximate_exp_one approximate_log_two approximate_sin_one \
+  approximate_general_power
+do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/exp_one --sample-size 20
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/log_two --sample-size 20
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/general_power --sample-size 20
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
+
 ## Exponential recurrence product and buffer reuse
 
 At base commit `3180b15`, each exponential-series iteration computed
