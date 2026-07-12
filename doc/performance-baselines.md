@@ -1081,6 +1081,15 @@ to 1,477,652 / 4,345, while the corresponding acos case moved from 1,667,222 /
 4,872 to 1,665,462 / 4,834. This slice claims deterministic allocation reduction
 only; directed bounds, logical work, resource accounting, and protocol are unchanged.
 
+## Canonical complement-square construction
+
+At base commit `a358b8e`, direct complement-square parts still passed through a
+general GCD. Commit `f868f5b` uses `gcd(n,d)=1` to prove
+`gcd(d^2-n^2,d^2)=1`, directly constructs nonzero canonical Rationals, and keeps
+the ±1 result as canonical zero. Transformed asin moved from 1,477,652 bytes /
+4,345 blocks to 1,477,108 / 4,333; transformed acos moved from 1,665,462 / 4,834
+to 1,664,918 / 4,822. This slice claims deterministic allocation reduction only.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
