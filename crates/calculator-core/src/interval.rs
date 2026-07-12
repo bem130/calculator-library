@@ -655,8 +655,8 @@ fn exp_rational_bounds(
     if value.is_negative() {
         let (positive_lower, positive_upper) =
             exp_nonnegative_rational_bounds(&value.negate(), precision_bits)?;
-        let lower = divide_rational(&Rational::one(), &positive_upper)?;
-        let upper = divide_rational(&Rational::one(), &positive_lower)?;
+        let lower = reciprocal_positive_rational(&positive_upper)?;
+        let upper = reciprocal_positive_rational(&positive_lower)?;
         return Ok((lower, upper));
     }
     exp_nonnegative_rational_bounds(value, precision_bits)
@@ -683,9 +683,21 @@ fn exp_rational_bound(
         };
         let positive =
             exp_nonnegative_rational_bound(&value.negate(), precision_bits, reciprocal_direction)?;
-        return divide_rational(&Rational::one(), &positive);
+        return reciprocal_positive_rational(&positive);
     }
     exp_nonnegative_rational_bound(value, precision_bits, direction)
+}
+
+fn reciprocal_positive_rational(value: &Rational) -> Result<Rational, IntervalError> {
+    if value.numerator.inner.sign() != Sign::Plus {
+        return Err(IntervalError::DivisionByIntervalContainingZero);
+    }
+    Ok(Rational {
+        numerator: value.denominator.inner.clone(),
+        denominator: PositiveInteger {
+            inner: value.numerator.clone(),
+        },
+    })
 }
 
 fn exp_nonnegative_rational_bound(
@@ -2356,6 +2368,22 @@ mod tests {
                     128
                 )
                 .unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn positive_rational_reciprocal_matches_general_division() {
+        for value in [rational(1, 3), rational(7, 5), rational(12345, 6789)] {
+            assert_eq!(
+                reciprocal_positive_rational(&value).unwrap(),
+                divide_rational(&Rational::one(), &value).unwrap(),
+            );
+        }
+        for value in [Rational::zero(), rational(-1, 3)] {
+            assert_eq!(
+                reciprocal_positive_rational(&value),
+                Err(IntervalError::DivisionByIntervalContainingZero),
             );
         }
     }
