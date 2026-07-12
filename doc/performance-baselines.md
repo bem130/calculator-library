@@ -673,6 +673,28 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Structural reciprocal for negative exponential bounds
+
+At base commit `e8fe092`, negative direct-range exponential endpoints calculated
+a positive canonical Rational bound and then passed `1 / bound` through general
+Rational division and GCD normalization. Commit `72b2352` swaps the already
+coprime positive numerator and denominator directly, preserving reciprocal bound
+direction and rejecting nonpositive helper inputs.
+
+On 2026-07-12 with `rustc 1.97.0`, one `exp(-2)` public calculation moved from
+18,822 bytes / 708 blocks to 18,502 bytes / 696 blocks. Positive `exp(2)` remained
+17,897 / 657. Binary-scaled `exp(-10000)` remained 565,504 / 2,166 because its
+dyadic exponent-shift path does not use the direct Rational reciprocal. Logical
+work remained unchanged. A three-iteration/one-warmup Wasm snapshot used artifact
+`4ed8ae956c3415be1e2c84de675e63f60a28ec0c45acd7e7e121f14c3d58d296`
+(784,630 bytes), with unchanged representative payloads; timing is retained only
+as a boundary snapshot.
+
+Reproduce with the allocation runner cases `approximate_exp_negative_two`,
+`approximate_exp_negative_10000`, `approximate_exp_two`, and
+`approximate_exp_positive_10000`, followed by the documented logical-work and
+Wasm benchmark commands above.
+
 ## Common-denominator logarithm recurrence
 
 At base commit `e42c235`, reduced logarithm evaluation represented every
