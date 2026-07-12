@@ -2409,7 +2409,12 @@ mod tests {
 
     #[test]
     fn common_denominator_log_series_matches_rational_recurrence() {
-        for z in [rational(1, 7), rational(3, 10), rational(1, 3)] {
+        for z in [
+            Rational::zero(),
+            rational(1, 7),
+            rational(3, 10),
+            rational(1, 3),
+        ] {
             for term_count in [0, 1, 5, 20] {
                 let z_squared = z.multiply(&z);
                 let mut sum = Rational::zero();

@@ -692,8 +692,8 @@ were:
 | `sqrt(2)*ln(2)` | 125,194 / 109,202 | 4,905 / 4,037 | not sampled |
 | `exp(sqrt(2)*ln(2))` | 276,110 / 260,118 | 5,287 / 4,419 | not sampled |
 
-Criterion reported approximately 80% improvement for `ln(2)` and 41% for general
-power. Logical-work boundaries remained 231, 401216, 400447, 586, 582, 400234,
+The paired median estimates show approximately 78% improvement for `ln(2)` and
+23% for general power. Logical-work boundaries remained 231, 401216, 400447, 586, 582, 400234,
 and 932. A three-iteration/one-warmup Wasm/npm boundary snapshot used artifact
 `f9c6c7a6ebbe09bd65540a45cdff59aeb9d38352b25c7c5604dec804167b63bb`
 (784,578 bytes), measured approximate evaluation at 6.28 ms/iteration, and kept
