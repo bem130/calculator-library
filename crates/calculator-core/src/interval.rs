@@ -1278,36 +1278,8 @@ fn sin_unit_rational_bounds(
         return Ok((upper.negate(), lower.negate()));
     }
     debug_assert!(compare_rationals(value, &Rational::one()) != Ordering::Greater);
-    let value_squared = value.multiply(value);
     let term_count = trigonometric_series_terms(precision_bits)?;
-    let mut sum = Rational::zero();
-    let mut term = value.clone();
-    for n in 0..=term_count {
-        if n.is_multiple_of(2) {
-            sum = sum.add(&term);
-        } else {
-            sum = sum.subtract(&term);
-        }
-        let denominator = n
-            .checked_mul(2)
-            .and_then(|value| value.checked_add(2))
-            .and_then(|value| value.checked_mul(value.checked_add(1)?))
-            .ok_or(IntervalError::ExponentTooLarge)?;
-        term = divide_rational(
-            &term.multiply(&value_squared),
-            &rational_integer(i64::from(denominator)),
-        )?;
-    }
-
-    let next_index = term_count
-        .checked_add(1)
-        .ok_or(IntervalError::ExponentTooLarge)?;
-    let adjacent = if next_index.is_multiple_of(2) {
-        sum.add(&term)
-    } else {
-        sum.subtract(&term)
-    };
-    ordered_rational_bounds(sum, adjacent)
+    trigonometric_series_common_denominator_bounds(value, term_count, TrigonometricSeries::Sine)
 }
 
 fn cos_unit_rational_bounds(
@@ -1320,36 +1292,84 @@ fn cos_unit_rational_bounds(
         value.clone()
     };
     debug_assert!(compare_rationals(&value, &Rational::one()) != Ordering::Greater);
-    let value_squared = value.multiply(&value);
     let term_count = trigonometric_series_terms(precision_bits)?;
-    let mut sum = Rational::zero();
-    let mut term = Rational::one();
-    for n in 0..=term_count {
-        if n.is_multiple_of(2) {
-            sum = sum.add(&term);
-        } else {
-            sum = sum.subtract(&term);
-        }
-        let denominator = n
-            .checked_mul(2)
-            .and_then(|value| value.checked_add(1))
-            .and_then(|value| value.checked_mul(value.checked_add(1)?))
-            .ok_or(IntervalError::ExponentTooLarge)?;
-        term = divide_rational(
-            &term.multiply(&value_squared),
-            &rational_integer(i64::from(denominator)),
-        )?;
-    }
+    trigonometric_series_common_denominator_bounds(&value, term_count, TrigonometricSeries::Cosine)
+}
 
+#[derive(Clone, Copy)]
+enum TrigonometricSeries {
+    Sine,
+    Cosine,
+}
+
+fn trigonometric_series_common_denominator_bounds(
+    value: &Rational,
+    term_count: u32,
+    series: TrigonometricSeries,
+) -> Result<(Rational, Rational), IntervalError> {
+    let value_numerator = &value.numerator.inner;
+    let value_denominator = &value.denominator.inner.inner;
+    let numerator_squared = value_numerator * value_numerator;
+    let denominator_squared = value_denominator * value_denominator;
+    let (mut sum_numerator, mut term_numerator, mut common_denominator) = match series {
+        TrigonometricSeries::Sine => (
+            value_numerator.clone(),
+            value_numerator.clone(),
+            value_denominator.clone(),
+        ),
+        TrigonometricSeries::Cosine => (BigInt::one(), BigInt::one(), BigInt::one()),
+    };
+    for index in 1..=term_count {
+        let denominator_factor =
+            trigonometric_term_denominator_factor(index, series, &denominator_squared)?;
+        term_numerator *= &numerator_squared;
+        sum_numerator *= &denominator_factor;
+        if index.is_multiple_of(2) {
+            sum_numerator += &term_numerator;
+        } else {
+            sum_numerator -= &term_numerator;
+        }
+        common_denominator *= denominator_factor;
+    }
     let next_index = term_count
         .checked_add(1)
         .ok_or(IntervalError::ExponentTooLarge)?;
-    let adjacent = if next_index.is_multiple_of(2) {
-        sum.add(&term)
+    let next_denominator_factor =
+        trigonometric_term_denominator_factor(next_index, series, &denominator_squared)?;
+    term_numerator *= numerator_squared;
+    let sum = rational_from_parts(sum_numerator.clone(), common_denominator.clone())?;
+    sum_numerator *= &next_denominator_factor;
+    if next_index.is_multiple_of(2) {
+        sum_numerator += term_numerator;
     } else {
-        sum.subtract(&term)
-    };
+        sum_numerator -= term_numerator;
+    }
+    let adjacent =
+        rational_from_parts(sum_numerator, common_denominator * next_denominator_factor)?;
     ordered_rational_bounds(sum, adjacent)
+}
+
+fn trigonometric_term_denominator_factor(
+    index: u32,
+    series: TrigonometricSeries,
+    denominator_squared: &BigInt,
+) -> Result<BigInt, IntervalError> {
+    let doubled = index
+        .checked_mul(2)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let first = match series {
+        TrigonometricSeries::Sine => doubled,
+        TrigonometricSeries::Cosine => doubled
+            .checked_sub(1)
+            .ok_or(IntervalError::ExponentTooLarge)?,
+    };
+    let second = match series {
+        TrigonometricSeries::Sine => doubled
+            .checked_add(1)
+            .ok_or(IntervalError::ExponentTooLarge)?,
+        TrigonometricSeries::Cosine => doubled,
+    };
+    Ok((denominator_squared * first) * second)
 }
 
 fn ordered_rational_bounds(
@@ -2463,6 +2483,57 @@ mod tests {
                     expected,
                     "value={value:?}, term_count={term_count}",
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn common_denominator_trigonometric_series_match_rational_recurrences() {
+        for value in [
+            Rational::zero(),
+            rational(1, 7),
+            rational(1, 2),
+            Rational::one(),
+        ] {
+            for term_count in [0_u32, 1, 5, 20] {
+                for series in [TrigonometricSeries::Sine, TrigonometricSeries::Cosine] {
+                    let value_squared = value.multiply(&value);
+                    let mut sum = Rational::zero();
+                    let mut term = match series {
+                        TrigonometricSeries::Sine => value.clone(),
+                        TrigonometricSeries::Cosine => Rational::one(),
+                    };
+                    for index in 0..=term_count {
+                        if index.is_multiple_of(2) {
+                            sum = sum.add(&term);
+                        } else {
+                            sum = sum.subtract(&term);
+                        }
+                        let next_index = index + 1;
+                        let doubled = next_index * 2;
+                        let factor = match series {
+                            TrigonometricSeries::Sine => doubled * (doubled + 1),
+                            TrigonometricSeries::Cosine => (doubled - 1) * doubled,
+                        };
+                        term = divide_rational(
+                            &term.multiply(&value_squared),
+                            &rational_integer(i64::from(factor)),
+                        )
+                        .unwrap();
+                    }
+                    let next_index = term_count + 1;
+                    let adjacent = if next_index.is_multiple_of(2) {
+                        sum.add(&term)
+                    } else {
+                        sum.subtract(&term)
+                    };
+                    assert_eq!(
+                        trigonometric_series_common_denominator_bounds(&value, term_count, series,)
+                            .unwrap(),
+                        ordered_rational_bounds(sum, adjacent).unwrap(),
+                        "value={value:?}, term_count={term_count}",
+                    );
+                }
             }
         }
     }
