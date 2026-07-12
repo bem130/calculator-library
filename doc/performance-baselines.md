@@ -673,7 +673,7 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
-## Euler constant factorial denominator
+## Euler's number factorial denominator
 
 At base commit `32a84f4`, the constant `e` enclosure constructed every `1/n!`
 as a Rational and canonicalized the partial sum after every addition. This is a

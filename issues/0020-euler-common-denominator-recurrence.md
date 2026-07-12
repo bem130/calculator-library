@@ -1,4 +1,4 @@
-# Issue 20: Euler定数級数を共通分母recurrenceで評価する
+# Issue 20: 自然対数の底eの級数を共通分母recurrenceで評価する
 
 定数 `e` の保証区間は `sum(1/n!)` の各項をRational化し、部分和へ加えるたびに
 GCD正規化している。指数関数 `exp(1)` のTaylor recurrenceとは別経路なので、直近の
