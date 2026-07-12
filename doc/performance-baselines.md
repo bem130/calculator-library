@@ -673,6 +673,60 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Direct unit-range trigonometric projection
+
+At base commit `8112e5d`, `sin_rational` and `cos_rational` always evaluated both
+series and passed them through the angle-addition pair, even for `|x| <= 1`, then
+discarded one component. Commit `d4c1619` constructs the requested unit-range
+component directly from its directed Rational bounds. Inputs outside the unit
+range and tangent retain the paired range-reduction path. An exact regression
+matches direct and paired dyadic intervals for negative, zero, fractional, and
+boundary-one inputs.
+
+On 2026-07-12 with `rustc 1.97.0`, controlled public-path measurements were:
+
+| Case | Bytes | Blocks | Native median |
+| --- | ---: | ---: | ---: |
+| `sin(1)` | 20,007 / 8,367 | 755 / 322 | 67.962 / 9.1042 µs |
+| `cos(1)` | 19,893 / 8,149 | 749 / 317 | 60.761 / 10.251 µs |
+| `tan(1)` | 21,903 / 21,903 | 768 / 768 | 30.391 / 31.704 µs |
+
+The affected logical-work boundaries remained 200,133 units. Tangent's code and
+deterministic allocation path are unchanged; repeated native timing samples
+moved around the baseline by a few percent, so no tangent timing change is
+claimed.
+
+A three-iteration/one-warmup Wasm/npm comparison used base artifact
+`78c594a84576e1fa9f5f416fbf6106362e33508af77a3ff481e6c386ff62065d`
+(784,595 bytes) and implementation artifact
+`5b56dbe91a5857d9815cd959c70246120b6e69b51e31bfd4a7b9bcba4f91454c`
+(785,045 bytes). The public facade snapshots moved from 0.590 to 0.318 ms for
+`sin(1)` and from 0.422 to 0.237 ms for `cos(1)`, while tangent remained on its
+paired path. Payloads remained 1,766 bytes for sin/cos and 1,760 bytes for tan.
+These low-sample values are integration snapshots, not statistically powered
+claims.
+
+Reproduce with:
+
+```sh
+for case in approximate_sin_one approximate_cos_one approximate_tan_one
+do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+for case in sin_one cos_one tan_one
+do
+  cargo bench -p calculator-core --bench representative_paths --features std \
+    -- "approximate_components/$case" --sample-size 20
+done
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
+
 ## Inverse-sine common-denominator recurrence
 
 At base commit `41b5531`, the positive inverse-sine series represented every
