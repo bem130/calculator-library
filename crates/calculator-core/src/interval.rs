@@ -1166,33 +1166,60 @@ fn asin_unit_rational_bounds(
     debug_assert!(!value.is_negative());
     let half = halve_rational(&Rational::one())?;
     debug_assert!(compare_rationals(value, &half) != Ordering::Greater);
-    let value_squared = value.multiply(value);
     let term_count = series_terms(precision_bits)?;
-    let mut sum = Rational::zero();
-    let mut term = value.clone();
-    for n in 0..=term_count {
-        sum = sum.add(&term);
-        let odd = n
-            .checked_mul(2)
-            .and_then(|value| value.checked_add(1))
-            .ok_or(IntervalError::ExponentTooLarge)?;
-        let numerator = odd
-            .checked_mul(odd)
-            .ok_or(IntervalError::ExponentTooLarge)?;
-        let denominator = n
-            .checked_add(1)
-            .and_then(|value| value.checked_mul(2))
-            .and_then(|value| value.checked_mul(odd.checked_add(2)?))
-            .ok_or(IntervalError::ExponentTooLarge)?;
-        term = divide_rational(
-            &term
-                .multiply(&value_squared)
-                .multiply(&rational_integer(i64::from(numerator))),
-            &rational_integer(i64::from(denominator)),
-        )?;
+    asin_common_denominator_bounds(value, term_count)
+}
+
+fn asin_common_denominator_bounds(
+    value: &Rational,
+    term_count: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    let value_numerator = &value.numerator.inner;
+    let value_denominator = &value.denominator.inner.inner;
+    let numerator_squared = value_numerator * value_numerator;
+    let denominator_squared = value_denominator * value_denominator;
+    let mut sum_numerator = value_numerator.clone();
+    let mut term_numerator = value_numerator.clone();
+    let mut common_denominator = value_denominator.clone();
+    for index in 1..=term_count {
+        let (numerator_factor, denominator_factor) =
+            asin_term_factors(index, &numerator_squared, &denominator_squared)?;
+        term_numerator *= numerator_factor;
+        sum_numerator *= &denominator_factor;
+        sum_numerator += &term_numerator;
+        common_denominator *= denominator_factor;
     }
-    // For 0 <= x <= 1/2, later positive terms shrink by at least 1/4.
-    Ok((sum.clone(), sum.add(&scale_rational(&term, 2))))
+    let next_index = term_count
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let (next_numerator_factor, next_denominator_factor) =
+        asin_term_factors(next_index, &numerator_squared, &denominator_squared)?;
+    term_numerator *= next_numerator_factor;
+    let lower = rational_from_parts(sum_numerator.clone(), common_denominator.clone())?;
+    sum_numerator *= &next_denominator_factor;
+    sum_numerator += term_numerator * 2_u8;
+    let upper = rational_from_parts(sum_numerator, common_denominator * next_denominator_factor)?;
+    Ok((lower, upper))
+}
+
+fn asin_term_factors(
+    index: u32,
+    numerator_squared: &BigInt,
+    denominator_squared: &BigInt,
+) -> Result<(BigInt, BigInt), IntervalError> {
+    let doubled = index
+        .checked_mul(2)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let odd = doubled
+        .checked_sub(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let next_odd = doubled
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    Ok((
+        (numerator_squared * odd) * odd,
+        (denominator_squared * doubled) * next_odd,
+    ))
 }
 
 fn acos_rational_bounds(
@@ -2563,6 +2590,40 @@ mod tests {
                 (sum, upper),
                 "term_count={term_count}",
             );
+        }
+    }
+
+    #[test]
+    fn common_denominator_asin_series_matches_rational_recurrence() {
+        for value in [
+            Rational::zero(),
+            rational(1, 7),
+            rational(1, 3),
+            rational(1, 2),
+        ] {
+            for term_count in [0_u32, 1, 5, 20] {
+                let value_squared = value.multiply(&value);
+                let mut sum = Rational::zero();
+                let mut term = value.clone();
+                for index in 0..=term_count {
+                    sum = sum.add(&term);
+                    let odd = index * 2 + 1;
+                    let numerator = odd * odd;
+                    let denominator = (index + 1) * 2 * (odd + 2);
+                    term = divide_rational(
+                        &term
+                            .multiply(&value_squared)
+                            .multiply(&rational_integer(i64::from(numerator))),
+                        &rational_integer(i64::from(denominator)),
+                    )
+                    .unwrap();
+                }
+                assert_eq!(
+                    asin_common_denominator_bounds(&value, term_count).unwrap(),
+                    (sum.clone(), sum.add(&scale_rational(&term, 2))),
+                    "value={value:?}, term_count={term_count}",
+                );
+            }
         }
     }
 
