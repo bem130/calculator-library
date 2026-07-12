@@ -56,6 +56,11 @@ const APPROXIMATE_COMPONENTS: &[(&str, &str, ExpectedExact)] = &[
     ("cos_two", "cos(2)", ExpectedExact::GeneralSymbolic),
     ("tan_two", "tan(2)", ExpectedExact::GeneralSymbolic),
     ("atan_two", "atan(2)", ExpectedExact::GeneralSymbolic),
+    (
+        "atan_non_degenerate",
+        "atan(2+sin(1))",
+        ExpectedExact::GeneralSymbolic,
+    ),
     ("atan_half", "atan(1/2)", ExpectedExact::GeneralSymbolic),
     ("asin_third", "asin(1/3)", ExpectedExact::GeneralSymbolic),
     ("acos_third", "acos(1/3)", ExpectedExact::GeneralSymbolic),

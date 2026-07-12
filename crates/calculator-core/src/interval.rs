@@ -353,8 +353,8 @@ pub(crate) fn atan(
         let (lower, upper) = atan_rational_bounds(&lower, precision_bits)?;
         return from_rational_bounds(&lower, &upper, precision_bits);
     }
-    let (lower, _) = atan_rational_bounds(&lower, precision_bits)?;
-    let (_, upper) = atan_rational_bounds(&upper, precision_bits)?;
+    let lower = atan_rational_bound(&lower, precision_bits, BoundDirection::Lower)?;
+    let upper = atan_rational_bound(&upper, precision_bits, BoundDirection::Upper)?;
     from_rational_bounds(&lower, &upper, precision_bits)
 }
 
@@ -1137,6 +1137,60 @@ fn atan_rational_bounds(
     atan_nonnegative_rational_bounds(value, precision_bits)
 }
 
+fn atan_rational_bound(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    if value.is_negative() {
+        let positive_direction = match direction {
+            BoundDirection::Lower => BoundDirection::Upper,
+            BoundDirection::Upper => BoundDirection::Lower,
+        };
+        return Ok(atan_nonnegative_rational_bound(
+            &value.negate(),
+            precision_bits,
+            positive_direction,
+        )?
+        .negate());
+    }
+    atan_nonnegative_rational_bound(value, precision_bits, direction)
+}
+
+fn atan_nonnegative_rational_bound(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    debug_assert!(!value.is_negative());
+    if value.is_zero() {
+        return Ok(Rational::zero());
+    }
+    if !is_unit_rational(value) {
+        let reciprocal = reciprocal_nonzero_rational(value)?;
+        let reciprocal_direction = match direction {
+            BoundDirection::Lower => BoundDirection::Upper,
+            BoundDirection::Upper => BoundDirection::Lower,
+        };
+        let reciprocal_bound =
+            atan_unit_rational_bound(&reciprocal, precision_bits, reciprocal_direction)?;
+        return Ok(
+            halve_rational(&pi_bound(precision_bits, direction)?)?.subtract(&reciprocal_bound)
+        );
+    }
+    atan_unit_rational_bound(value, precision_bits, direction)
+}
+
+fn atan_unit_rational_bound(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    debug_assert!(!value.is_negative());
+    debug_assert!(is_unit_rational(value));
+    atan_series_common_denominator_bound(value, series_terms(precision_bits)?, direction)
+}
+
 fn atan_nonnegative_rational_bounds(
     value: &Rational,
     precision_bits: u32,
@@ -1224,6 +1278,66 @@ fn atan_series_common_denominator_bounds(
     } else {
         Ok((adjacent, sum))
     }
+}
+
+fn atan_series_common_denominator_bound(
+    value: &Rational,
+    term_count: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    if value.is_zero() {
+        return Ok(Rational::zero());
+    }
+    let value_numerator = &value.numerator.inner;
+    let value_denominator = &value.denominator.inner.inner;
+    let numerator_squared = value_numerator * value_numerator;
+    let denominator_squared = value_denominator * value_denominator;
+    let mut sum_numerator = value_numerator.clone();
+    let mut term_numerator = value_numerator.clone();
+    let mut odd_product = BigInt::one();
+    let mut common_denominator = value_denominator.clone();
+    for k in 1..=term_count {
+        let odd_denominator = k
+            .checked_mul(2)
+            .and_then(|value| value.checked_add(1))
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        term_numerator *= &numerator_squared;
+        let denominator_factor = &denominator_squared * odd_denominator;
+        sum_numerator *= &denominator_factor;
+        let correction = &term_numerator * &odd_product;
+        if k.is_multiple_of(2) {
+            sum_numerator += correction;
+        } else {
+            sum_numerator -= correction;
+        }
+        common_denominator *= denominator_factor;
+        odd_product *= odd_denominator;
+    }
+    let next_index = term_count
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let sum_is_lower = next_index.is_multiple_of(2);
+    let use_sum = match direction {
+        BoundDirection::Lower => sum_is_lower,
+        BoundDirection::Upper => !sum_is_lower,
+    };
+    if use_sum {
+        return rational_from_parts(sum_numerator, common_denominator);
+    }
+    let next_odd_denominator = next_index
+        .checked_mul(2)
+        .and_then(|value| value.checked_add(1))
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let next_term_numerator = term_numerator * numerator_squared;
+    let next_denominator_factor = denominator_squared * next_odd_denominator;
+    sum_numerator *= &next_denominator_factor;
+    let next_correction = next_term_numerator * odd_product;
+    if next_index.is_multiple_of(2) {
+        sum_numerator += next_correction;
+    } else {
+        sum_numerator -= next_correction;
+    }
+    rational_from_parts(sum_numerator, common_denominator * next_denominator_factor)
 }
 
 fn inverse_sine_cosine_domain_bounds(
@@ -2095,6 +2209,18 @@ fn pi_bounds(precision_bits: u32) -> Result<(Rational, Rational), IntervalError>
     Ok((lower, upper))
 }
 
+fn pi_bound(precision_bits: u32, direction: BoundDirection) -> Result<Rational, IntervalError> {
+    let term_count = series_terms(precision_bits)?;
+    let opposite = match direction {
+        BoundDirection::Lower => BoundDirection::Upper,
+        BoundDirection::Upper => BoundDirection::Lower,
+    };
+    let atan_1_5 = arctan_reciprocal_bound(5, term_count, direction)?;
+    let atan_1_239 = arctan_reciprocal_bound(239, term_count, opposite)?;
+    Ok(scale_rational_by_positive_u32(&atan_1_5, 16)?
+        .subtract(&scale_rational_by_positive_u32(&atan_1_239, 4)?))
+}
+
 fn arctan_reciprocal_bounds(
     reciprocal_denominator: u32,
     term_count: u32,
@@ -2105,6 +2231,19 @@ fn arctan_reciprocal_bounds(
     )
     .map_err(|_| IntervalError::DivisionByIntervalContainingZero)?;
     atan_series_common_denominator_bounds(&value, term_count)
+}
+
+fn arctan_reciprocal_bound(
+    reciprocal_denominator: u32,
+    term_count: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    let value = Rational::new(
+        Integer::one(),
+        Integer::from(i64::from(reciprocal_denominator)),
+    )
+    .map_err(|_| IntervalError::DivisionByIntervalContainingZero)?;
+    atan_series_common_denominator_bound(&value, term_count, direction)
 }
 
 fn series_terms(precision_bits: u32) -> Result<u32, IntervalError> {
@@ -2580,6 +2719,40 @@ mod tests {
                     upper,
                 );
             }
+        }
+    }
+
+    #[test]
+    fn directed_arctangent_bounds_match_paired_bounds() {
+        for precision_bits in [1, 64, 128] {
+            for value in [
+                rational(-3, 1),
+                rational(-1, 1),
+                rational(-1, 3),
+                Rational::zero(),
+                rational(1, 3),
+                Rational::one(),
+                rational(3, 1),
+            ] {
+                let (lower, upper) = atan_rational_bounds(&value, precision_bits).unwrap();
+                assert_eq!(
+                    atan_rational_bound(&value, precision_bits, BoundDirection::Lower).unwrap(),
+                    lower,
+                );
+                assert_eq!(
+                    atan_rational_bound(&value, precision_bits, BoundDirection::Upper).unwrap(),
+                    upper,
+                );
+            }
+            let (pi_lower, pi_upper) = pi_bounds(precision_bits).unwrap();
+            assert_eq!(
+                pi_bound(precision_bits, BoundDirection::Lower).unwrap(),
+                pi_lower,
+            );
+            assert_eq!(
+                pi_bound(precision_bits, BoundDirection::Upper).unwrap(),
+                pi_upper,
+            );
         }
     }
 

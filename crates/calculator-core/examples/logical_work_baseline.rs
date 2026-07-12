@@ -17,6 +17,7 @@ fn main() {
         ("log_non_degenerate", "ln(2+sin(1))"),
         ("atan_half", "atan(1/2)"),
         ("atan_two", "atan(2)"),
+        ("atan_non_degenerate", "atan(2+sin(1))"),
         ("asin_third", "asin(1/3)"),
         ("acos_third", "acos(1/3)"),
         ("sin_one", "sin(1)"),
