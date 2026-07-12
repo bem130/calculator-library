@@ -2386,12 +2386,10 @@ mod tests {
             reciprocal_nonzero_rational(&rational(-1, 3)).unwrap(),
             rational(-3, 1),
         );
-        for value in [Rational::zero()] {
-            assert_eq!(
-                reciprocal_nonzero_rational(&value),
-                Err(IntervalError::DivisionByIntervalContainingZero),
-            );
-        }
+        assert_eq!(
+            reciprocal_nonzero_rational(&Rational::zero()),
+            Err(IntervalError::DivisionByIntervalContainingZero),
+        );
     }
 
     #[test]
