@@ -1268,7 +1268,7 @@ fn sin_cos_rational(
     let reduced = if divisor == 1 {
         value
     } else {
-        reduced_storage = divide_rational(value, &rational_integer(i64::from(divisor)))?;
+        reduced_storage = divide_rational_by_positive_u32(value, divisor)?;
         &reduced_storage
     };
     let (sin_lower, sin_upper) = sin_unit_rational_bounds(reduced, precision_bits)?;
@@ -1768,6 +1768,19 @@ fn pow_positive_rational(value: &Rational, exponent: u32) -> Result<Rational, In
 fn divide_rational(left: &Rational, right: &Rational) -> Result<Rational, IntervalError> {
     left.divide(right)
         .map_err(|_| IntervalError::DivisionByIntervalContainingZero)
+}
+
+fn divide_rational_by_positive_u32(
+    value: &Rational,
+    divisor: u32,
+) -> Result<Rational, IntervalError> {
+    if divisor == 0 {
+        return Err(IntervalError::DivisionByIntervalContainingZero);
+    }
+    rational_from_parts(
+        value.numerator.inner.clone(),
+        &value.denominator.inner.inner * divisor,
+    )
 }
 
 fn halve_rational(value: &Rational) -> Result<Rational, IntervalError> {
@@ -2650,6 +2663,27 @@ mod tests {
             assert_eq!(divide_rational(&value, &Rational::one()).unwrap(), value,);
             assert_eq!(ceil_absolute_rational_to_u32(&value).unwrap(), 1);
         }
+    }
+
+    #[test]
+    fn scalar_rational_reduction_matches_general_division() {
+        for value in [
+            rational(-7, 3),
+            rational(-2, 1),
+            rational(2, 1),
+            rational(7, 3),
+        ] {
+            for divisor in [1_u32, 2, 3, 17] {
+                assert_eq!(
+                    divide_rational_by_positive_u32(&value, divisor).unwrap(),
+                    divide_rational(&value, &rational_integer(i64::from(divisor))).unwrap(),
+                );
+            }
+        }
+        assert_eq!(
+            divide_rational_by_positive_u32(&Rational::one(), 0),
+            Err(IntervalError::DivisionByIntervalContainingZero),
+        );
     }
 
     #[test]
