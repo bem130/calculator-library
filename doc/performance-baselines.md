@@ -733,6 +733,17 @@ On 2026-07-12 with `rustc 1.97.0`, deterministic allocations moved from
 This slice claims the structural allocation reduction only; directed bounds,
 logical work, and public protocol are unchanged.
 
+## Primitive interval Rational halving
+
+At base commit `20518b9`, interval halving built Rational two and called general
+division. Commit `fb411da` reuses the positive primitive-scalar divisor path.
+Exact signed, zero, integer, and fractional regressions match the former
+division. On 2026-07-12 with `rustc 1.97.0`, public `acos(1/3)` allocation moved
+from 676,274 bytes / 2,303 blocks to 675,954 / 2,287, and `atan(2)` moved from
+81,754 / 1,783 to 81,594 / 1,775. Logical-work boundaries remained 31 units.
+This slice claims deterministic allocation reduction only; public protocol and
+directed bounds are unchanged.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
