@@ -694,15 +694,22 @@ deterministic before/after allocation totals:
 Twenty-sample Criterion runs changed `atan(1/2)` from a 609.91 µs median to
 62.214 µs and `atan(2)` from 4.615 ms to 956.04 µs. The larger-input path also
 uses the optimized recurrence for both pi terms, accounting for its remaining
-cost above the direct unit-range case. Logical-work boundaries remained 231,
-401216, 400447, 586, 582, 400234, and 932 because this internal representation
-change does not alter evaluator accounting.
+cost above the direct unit-range case. The affected-path logical-work boundaries
+remained 31 units for `atan(1/2)` and 5 units for `atan(2)` before and after the
+change. The other runner boundaries remained 231, 401216, 400447, 586, 582,
+400234, and 932 because this internal representation change does not alter
+evaluator accounting.
 
 A three-iteration/one-warmup Wasm/npm boundary snapshot used artifact
 `ae837ff837a7d3241d7807b2b7d8fb978835cebf4d6da148af70acc1c7eddbb7`
-(784,287 bytes). The aggregate approximate case measured 6.40 ms/iteration and
-retained its 1,812-byte payload. This low-sample Wasm result is an integration
-snapshot, not a statistically powered timing claim.
+(784,287 bytes), compared with base artifact
+`0d0c3b58324ae82d92d1a6eb4177252c46385ce5fa277d977ef398c8a7c7dede`
+(784,623 bytes). Across three iterations, the public facade's `atan(1/2)` path
+changed from 2.77 ms to 0.596 ms per iteration and `atan(2)` from 28.2 ms to
+4.75 ms. Their serialized payloads remained 1,772 and 1,762 bytes respectively,
+and the benchmark validates their exact symbolic output before recording a
+sample. These low-sample Wasm results are integration snapshots, not
+statistically powered timing claims.
 
 Reproduce with:
 

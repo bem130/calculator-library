@@ -43,7 +43,7 @@ results.push(measure("session_dispatch_sequence", dispatchSessionSequence));
 
 process.stdout.write(`${JSON.stringify({
     schemaVersion: 1,
-    benchmarkDefinition: "representative-paths-v2",
+    benchmarkDefinition: "representative-paths-v3",
     artifact: {
         wasmSha256: createHash("sha256").update(wasmBytes).digest("hex"),
         wasmBytes: wasmBytes.byteLength,
