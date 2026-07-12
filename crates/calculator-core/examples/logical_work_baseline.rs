@@ -21,6 +21,9 @@ fn main() {
         ("sin_one", "sin(1)"),
         ("cos_one", "cos(1)"),
         ("tan_one", "tan(1)"),
+        ("sin_two", "sin(2)"),
+        ("cos_two", "cos(2)"),
+        ("tan_two", "tan(2)"),
         ("algebraic", "((2^(1/3)-2^(1/3))+2)^(1/3)"),
         ("wide_add_256", wide.as_str()),
     ];
