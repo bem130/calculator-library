@@ -1194,6 +1194,27 @@ check, example production build, and browser E2E passed for the implementation.
 CLI stdout was byte-identical, SHA-256
 `721cd6720b8af23ec51372d6fb543fdd6d7ee15f1a964bbfdef080013e3dbb19`.
 
+## Directed atan endpoints for exact transformed asin
+
+At base commit `b04cb36`, exact transformed asin evaluated paired atan bounds for
+both sqrt-derived ratios and discarded one side of each pair. Commit `962f761`
+uses atan lower for the lower ratio and atan upper for the upper ratio, matching
+the subtraction directions exactly. Shared-vs-independent regressions cover both
+signs, series/transform values, zero, and unit endpoints.
+
+On 2026-07-13 with `rustc 1.97.0`, `acos(3/4)` moved from 810,709 bytes / 3,897
+blocks to 756,117 / 3,863. Logical work remained 31 units. Separate 10-sample
+Criterion midpoint estimates moved from 8.81 ms to 7.43 ms, about 16%.
+
+Wasm/npm definition v12 retained the 1,772-byte payload. One-iteration boundary
+smokes moved from 94.87 ms at base artifact
+`3c7210041401c36c10085e905fdea68846ca6ddfc9e6d8b41e1d31fdc77a1cd1`
+(793,501 bytes) to 51.10 ms at implementation artifact
+`6c1b637bfea87ed28ee835cc7dfbe11109b3bb62802599955f814aef6728e539`
+(793,396 bytes). This is not a powered Wasm timing claim. Directed enclosures,
+resource accounting, and protocol are unchanged. CLI stdout remained byte-identical,
+SHA-256 `721cd6720b8af23ec51372d6fb543fdd6d7ee15f1a964bbfdef080013e3dbb19`.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
