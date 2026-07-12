@@ -1021,35 +1021,61 @@ fn atan_unit_rational_bounds(
 ) -> Result<(Rational, Rational), IntervalError> {
     debug_assert!(!value.is_negative());
     debug_assert!(compare_rationals(value, &Rational::one()) != Ordering::Greater);
-    let value_squared = value.multiply(value);
     let term_count = series_terms(precision_bits)?;
-    let mut sum = Rational::zero();
-    let mut term_power = value.clone();
-    for k in 0..=term_count {
-        let denominator = k
+    atan_series_common_denominator_bounds(value, term_count)
+}
+
+fn atan_series_common_denominator_bounds(
+    value: &Rational,
+    term_count: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    if value.is_zero() {
+        return Ok((Rational::zero(), Rational::zero()));
+    }
+    let value_numerator = &value.numerator.inner;
+    let value_denominator = &value.denominator.inner.inner;
+    let numerator_squared = value_numerator * value_numerator;
+    let denominator_squared = value_denominator * value_denominator;
+    let mut sum_numerator = value_numerator.clone();
+    let mut term_numerator = value_numerator.clone();
+    let mut odd_product = BigInt::one();
+    let mut common_denominator = value_denominator.clone();
+    for k in 1..=term_count {
+        let odd_denominator = k
             .checked_mul(2)
             .and_then(|value| value.checked_add(1))
             .ok_or(IntervalError::ExponentTooLarge)?;
-        let term = divide_rational(&term_power, &rational_integer(i64::from(denominator)))?;
+        term_numerator *= &numerator_squared;
+        let denominator_factor = &denominator_squared * odd_denominator;
+        sum_numerator *= &denominator_factor;
+        let correction = &term_numerator * &odd_product;
         if k.is_multiple_of(2) {
-            sum = sum.add(&term);
+            sum_numerator += correction;
         } else {
-            sum = sum.subtract(&term);
+            sum_numerator -= correction;
         }
-        term_power = term_power.multiply(&value_squared);
+        common_denominator *= denominator_factor;
+        odd_product *= odd_denominator;
     }
-
-    let next_denominator = term_count
+    let next_index = term_count
         .checked_add(1)
-        .and_then(|value| value.checked_mul(2))
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let next_odd_denominator = next_index
+        .checked_mul(2)
         .and_then(|value| value.checked_add(1))
         .ok_or(IntervalError::ExponentTooLarge)?;
-    let next = divide_rational(&term_power, &rational_integer(i64::from(next_denominator)))?;
-    let adjacent = if (term_count + 1).is_multiple_of(2) {
-        sum.add(&next)
+    let next_term_numerator = term_numerator * numerator_squared;
+    let next_denominator_factor = denominator_squared * next_odd_denominator;
+    let sum = rational_from_parts(sum_numerator.clone(), common_denominator.clone())?;
+    sum_numerator *= &next_denominator_factor;
+    let next_correction = next_term_numerator * odd_product;
+    if next_index.is_multiple_of(2) {
+        sum_numerator += next_correction;
     } else {
-        sum.subtract(&next)
-    };
+        sum_numerator -= next_correction;
+    }
+    let adjacent =
+        rational_from_parts(sum_numerator, common_denominator * next_denominator_factor)?;
     if compare_rationals(&sum, &adjacent) == Ordering::Less {
         Ok((sum, adjacent))
     } else {
@@ -1834,40 +1860,12 @@ fn arctan_reciprocal_bounds(
     reciprocal_denominator: u32,
     term_count: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
-    let denominator_base = BigInt::from(reciprocal_denominator);
-    let mut sum = Rational::zero();
-    for k in 0..=term_count {
-        let term = arctan_reciprocal_term(&denominator_base, k)?;
-        if k % 2 == 0 {
-            sum = sum.add(&term);
-        } else {
-            sum = sum.subtract(&term);
-        }
-    }
-
-    let next = arctan_reciprocal_term(&denominator_base, term_count + 1)?;
-    let adjacent = if (term_count + 1).is_multiple_of(2) {
-        sum.add(&next)
-    } else {
-        sum.subtract(&next)
-    };
-    if compare_rationals(&sum, &adjacent) == Ordering::Less {
-        Ok((sum, adjacent))
-    } else {
-        Ok((adjacent, sum))
-    }
-}
-
-fn arctan_reciprocal_term(
-    denominator_base: &BigInt,
-    term_index: u32,
-) -> Result<Rational, IntervalError> {
-    let power = term_index
-        .checked_mul(2)
-        .and_then(|value| value.checked_add(1))
-        .ok_or(IntervalError::ExponentTooLarge)?;
-    let denominator = denominator_base.pow(power) * power;
-    rational_from_parts(BigInt::one(), denominator)
+    let value = Rational::new(
+        Integer::one(),
+        Integer::from(i64::from(reciprocal_denominator)),
+    )
+    .map_err(|_| IntervalError::DivisionByIntervalContainingZero)?;
+    atan_series_common_denominator_bounds(&value, term_count)
 }
 
 fn series_terms(precision_bits: u32) -> Result<u32, IntervalError> {
@@ -2416,6 +2414,57 @@ mod tests {
             actual.1,
             halve_rational(&pi.1).unwrap().subtract(&half_bounds.0)
         );
+    }
+
+    #[test]
+    fn common_denominator_atan_series_matches_rational_recurrence() {
+        for value in [
+            Rational::zero(),
+            rational(1, 7),
+            rational(1, 2),
+            Rational::one(),
+        ] {
+            for term_count in [0_u32, 1, 5, 20] {
+                let value_squared = value.multiply(&value);
+                let mut sum = Rational::zero();
+                let mut term_power = value.clone();
+                for k in 0..=term_count {
+                    let odd_denominator = k * 2 + 1;
+                    let term = divide_rational(
+                        &term_power,
+                        &Rational::from_integer(Integer::from(i64::from(odd_denominator))),
+                    )
+                    .unwrap();
+                    if k.is_multiple_of(2) {
+                        sum = sum.add(&term);
+                    } else {
+                        sum = sum.subtract(&term);
+                    }
+                    term_power = term_power.multiply(&value_squared);
+                }
+                let next_index = term_count + 1;
+                let next_term = divide_rational(
+                    &term_power,
+                    &Rational::from_integer(Integer::from(i64::from(next_index * 2 + 1))),
+                )
+                .unwrap();
+                let adjacent = if next_index.is_multiple_of(2) {
+                    sum.add(&next_term)
+                } else {
+                    sum.subtract(&next_term)
+                };
+                let expected = if compare_rationals(&sum, &adjacent) == Ordering::Less {
+                    (sum, adjacent)
+                } else {
+                    (adjacent, sum)
+                };
+                assert_eq!(
+                    atan_series_common_denominator_bounds(&value, term_count).unwrap(),
+                    expected,
+                    "value={value:?}, term_count={term_count}",
+                );
+            }
+        }
     }
 
     #[test]
