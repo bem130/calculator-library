@@ -27,6 +27,7 @@ const cases = [
     ["atan_two", "atan(2)", "atan(2)"],
     ["atan_non_degenerate", "atan(2+sin(1))", "atan(sin(1)+2)"],
     ["asin_third", "asin(1/3)", "asin(1/3)"],
+    ["asin_non_degenerate_transform", "asin((2+sin(1))/3)", "asin(1/3*sin(1)+2/3)"],
     ["acos_third", "acos(1/3)", "acos(1/3)"],
     ["sin_one", "sin(1)", "sin(1)"],
     ["cos_one", "cos(1)", "cos(1)"],
@@ -54,7 +55,7 @@ results.push(measure("session_dispatch_sequence", dispatchSessionSequence));
 
 process.stdout.write(`${JSON.stringify({
     schemaVersion: 1,
-    benchmarkDefinition: "representative-paths-v9",
+    benchmarkDefinition: "representative-paths-v10",
     artifact: {
         wasmSha256: createHash("sha256").update(wasmBytes).digest("hex"),
         wasmBytes: wasmBytes.byteLength,

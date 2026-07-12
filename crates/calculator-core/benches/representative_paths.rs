@@ -68,6 +68,11 @@ const APPROXIMATE_COMPONENTS: &[(&str, &str, ExpectedExact)] = &[
         "asin(sin(1)/3)",
         ExpectedExact::GeneralSymbolic,
     ),
+    (
+        "asin_non_degenerate_transform",
+        "asin((2+sin(1))/3)",
+        ExpectedExact::GeneralSymbolic,
+    ),
     ("acos_third", "acos(1/3)", ExpectedExact::GeneralSymbolic),
     ("sqrt_two", "sqrt(2)", ExpectedExact::Radical),
     (

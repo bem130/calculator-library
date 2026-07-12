@@ -1403,11 +1403,18 @@ fn asin_rational_bound(
     if compare_nonnegative_rational_to_half(value) != Ordering::Greater {
         return asin_common_denominator_bound(value, series_terms(precision_bits)?, direction);
     }
-    let (lower, upper) = asin_rational_bounds(value, precision_bits)?;
-    Ok(match direction {
-        BoundDirection::Lower => lower,
-        BoundDirection::Upper => upper,
-    })
+    let one_minus_square = Rational::one().subtract(&value.multiply(value));
+    let numerator = match direction {
+        BoundDirection::Lower => sqrt_rational_upper(&one_minus_square, precision_bits)?,
+        BoundDirection::Upper => sqrt_rational_lower(&one_minus_square, precision_bits)?,
+    };
+    let ratio = divide_rational(&dyadic_to_rational(&numerator)?, value)?;
+    let atan_direction = match direction {
+        BoundDirection::Lower => BoundDirection::Upper,
+        BoundDirection::Upper => BoundDirection::Lower,
+    };
+    let atan_bound = atan_rational_bound(&ratio, precision_bits, atan_direction)?;
+    Ok(halve_rational(&pi_bound(precision_bits, direction)?)?.subtract(&atan_bound))
 }
 
 fn asin_positive_rational_bounds(
@@ -2821,12 +2828,18 @@ mod tests {
     fn directed_inverse_sine_unit_bounds_match_paired_bounds() {
         for precision_bits in [1, 64, 128] {
             for value in [
+                rational(-1, 1),
+                rational(-999, 1_000),
+                rational(-2, 3),
                 rational(-1, 2),
                 rational(-1, 3),
                 Rational::zero(),
                 rational(1, 3),
                 rational(1, 2),
+                rational(501, 1_000),
                 rational(2, 3),
+                rational(999, 1_000),
+                Rational::one(),
             ] {
                 let (lower, upper) = asin_rational_bounds(&value, precision_bits).unwrap();
                 assert_eq!(
