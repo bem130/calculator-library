@@ -36,6 +36,8 @@ fn main() {
         "approximate_cos_one" => Some(String::from("cos(1)")),
         "approximate_atan_two" => Some(String::from("atan(2)")),
         "approximate_atan_half" => Some(String::from("atan(1/2)")),
+        "approximate_asin_third" => Some(String::from("asin(1/3)")),
+        "approximate_acos_third" => Some(String::from("acos(1/3)")),
         "approximate_sqrt_two" => Some(String::from("sqrt(2)")),
         "approximate_power_log_product" => Some(String::from("sqrt(2)*ln(2)")),
         "approximate_exp_power_log_product" => Some(String::from("exp(sqrt(2)*ln(2))")),

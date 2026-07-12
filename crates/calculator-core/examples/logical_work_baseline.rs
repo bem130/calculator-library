@@ -16,6 +16,8 @@ fn main() {
         ("exp_positive_10000", "exp(10000)"),
         ("atan_half", "atan(1/2)"),
         ("atan_two", "atan(2)"),
+        ("asin_third", "asin(1/3)"),
+        ("acos_third", "acos(1/3)"),
         ("sin_one", "sin(1)"),
         ("cos_one", "cos(1)"),
         ("algebraic", "((2^(1/3)-2^(1/3))+2)^(1/3)"),
