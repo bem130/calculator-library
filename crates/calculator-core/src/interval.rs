@@ -1418,25 +1418,48 @@ fn asin_rational_bounds(
     value: &Rational,
     precision_bits: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
+    asin_rational_bounds_with_pi(value, precision_bits, None)
+}
+
+fn asin_rational_bounds_with_pi(
+    value: &Rational,
+    precision_bits: u32,
+    shared_pi: Option<&(Rational, Rational)>,
+) -> Result<(Rational, Rational), IntervalError> {
     if is_negative_one_rational(value) {
-        let (pi_lower, pi_upper) = pi_bounds(precision_bits)?;
+        let owned_pi;
+        let (pi_lower, pi_upper) = match shared_pi {
+            Some(pi) => pi,
+            None => {
+                owned_pi = pi_bounds(precision_bits)?;
+                &owned_pi
+            }
+        };
         return Ok((
-            halve_rational(&pi_upper)?.negate(),
-            halve_rational(&pi_lower)?.negate(),
+            halve_rational(pi_upper)?.negate(),
+            halve_rational(pi_lower)?.negate(),
         ));
     }
     if is_positive_one_rational(value) {
-        let (pi_lower, pi_upper) = pi_bounds(precision_bits)?;
-        return Ok((halve_rational(&pi_lower)?, halve_rational(&pi_upper)?));
+        let owned_pi;
+        let (pi_lower, pi_upper) = match shared_pi {
+            Some(pi) => pi,
+            None => {
+                owned_pi = pi_bounds(precision_bits)?;
+                &owned_pi
+            }
+        };
+        return Ok((halve_rational(pi_lower)?, halve_rational(pi_upper)?));
     }
     if value.is_zero() {
         return Ok((Rational::zero(), Rational::zero()));
     }
     if value.is_negative() {
-        let (lower, upper) = asin_positive_rational_bounds(&value.negate(), precision_bits)?;
+        let (lower, upper) =
+            asin_positive_rational_bounds_with_pi(&value.negate(), precision_bits, shared_pi)?;
         return Ok((upper.negate(), lower.negate()));
     }
-    asin_positive_rational_bounds(value, precision_bits)
+    asin_positive_rational_bounds_with_pi(value, precision_bits, shared_pi)
 }
 
 #[cfg(test)]
@@ -1496,9 +1519,10 @@ fn asin_rational_bound_with_pi(
     Ok(halve_rational(selected_pi)?.subtract(&atan_bound))
 }
 
-fn asin_positive_rational_bounds(
+fn asin_positive_rational_bounds_with_pi(
     value: &Rational,
     precision_bits: u32,
+    shared_pi: Option<&(Rational, Rational)>,
 ) -> Result<(Rational, Rational), IntervalError> {
     debug_assert!(!value.is_negative());
     debug_assert!(!value.is_zero());
@@ -1516,10 +1540,17 @@ fn asin_positive_rational_bounds(
         atan_rational_bounds(&ratio_lower, precision_bits)?.0,
         atan_rational_bounds(&ratio_upper, precision_bits)?.1,
     );
-    let (pi_lower, pi_upper) = pi_bounds(precision_bits)?;
+    let owned_pi;
+    let pi = match shared_pi {
+        Some(pi) => pi,
+        None => {
+            owned_pi = pi_bounds(precision_bits)?;
+            &owned_pi
+        }
+    };
     Ok((
-        halve_rational(&pi_lower)?.subtract(&atan_upper),
-        halve_rational(&pi_upper)?.subtract(&atan_lower),
+        halve_rational(&pi.0)?.subtract(&atan_upper),
+        halve_rational(&pi.1)?.subtract(&atan_lower),
     ))
 }
 
@@ -1667,18 +1698,18 @@ fn acos_rational_bounds_with_pi(
         return Ok((halve_rational(pi_lower)?, halve_rational(pi_upper)?));
     }
 
-    let (asin_lower, asin_upper) = asin_rational_bounds(value, precision_bits)?;
     let owned_pi;
-    let (pi_lower, pi_upper) = match shared_pi {
+    let pi = match shared_pi {
         Some(pi) => pi,
         None => {
             owned_pi = pi_bounds(precision_bits)?;
             &owned_pi
         }
     };
+    let (asin_lower, asin_upper) = asin_rational_bounds_with_pi(value, precision_bits, Some(pi))?;
     Ok((
-        halve_rational(pi_lower)?.subtract(&asin_upper),
-        halve_rational(pi_upper)?.subtract(&asin_lower),
+        halve_rational(&pi.0)?.subtract(&asin_upper),
+        halve_rational(&pi.1)?.subtract(&asin_lower),
     ))
 }
 
@@ -3149,10 +3180,16 @@ mod tests {
         let pi = pi_bounds(128).unwrap();
         for value in [
             rational(-1, 1),
+            rational(-2, 3),
             Rational::zero(),
             rational(1, 3),
+            rational(2, 3),
             Rational::one(),
         ] {
+            assert_eq!(
+                asin_rational_bounds_with_pi(&value, 128, Some(&pi)).unwrap(),
+                asin_rational_bounds(&value, 128).unwrap(),
+            );
             assert_eq!(
                 acos_rational_bounds_with_pi(&value, 128, Some(&pi)).unwrap(),
                 acos_rational_bounds(&value, 128).unwrap(),
