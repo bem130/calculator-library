@@ -14,6 +14,7 @@ fn main() {
         ("euler", "e"),
         ("exp_negative_10000", "exp(-10000)"),
         ("exp_positive_10000", "exp(10000)"),
+        ("log_non_degenerate", "ln(2+sin(1))"),
         ("atan_half", "atan(1/2)"),
         ("atan_two", "atan(2)"),
         ("asin_third", "asin(1/3)"),

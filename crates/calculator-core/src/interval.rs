@@ -332,26 +332,15 @@ pub(crate) fn log(
     if lower.is_negative() || lower.is_zero() {
         return Err(IntervalError::UnsupportedExpression);
     }
-    let (lower, upper) =
-        monotone_rational_bounds(&lower, &upper, precision_bits, log_rational_bounds)?;
+    let (lower, upper) = if lower == upper {
+        log_rational_bounds(&lower, precision_bits)?
+    } else {
+        (
+            log_rational_bound(&lower, precision_bits, BoundDirection::Lower)?,
+            log_rational_bound(&upper, precision_bits, BoundDirection::Upper)?,
+        )
+    };
     from_rational_bounds(&lower, &upper, precision_bits)
-}
-
-fn monotone_rational_bounds<F>(
-    lower: &Rational,
-    upper: &Rational,
-    precision_bits: u32,
-    mut bounds: F,
-) -> Result<(Rational, Rational), IntervalError>
-where
-    F: FnMut(&Rational, u32) -> Result<(Rational, Rational), IntervalError>,
-{
-    if lower == upper {
-        return bounds(lower, precision_bits);
-    }
-    let (lower, _) = bounds(lower, precision_bits)?;
-    let (_, upper) = bounds(upper, precision_bits)?;
-    Ok((lower, upper))
 }
 
 pub(crate) fn atan(
@@ -943,6 +932,34 @@ fn log_rational_bounds(
     }
 }
 
+fn log_rational_bound(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    if value.is_negative() || value.is_zero() {
+        return Err(IntervalError::Domain(
+            DomainErrorKind::LogarithmOfNonPositive,
+        ));
+    }
+    let (reduced, exponent_two) = reduce_log_argument_to_unit_range(value)?;
+    let reduced_bound = log_reduced_rational_bound(&reduced, precision_bits, direction)?;
+    if exponent_two == 0 {
+        return Ok(reduced_bound);
+    }
+    let log_two_direction = if exponent_two > 0 {
+        direction
+    } else {
+        match direction {
+            BoundDirection::Lower => BoundDirection::Upper,
+            BoundDirection::Upper => BoundDirection::Lower,
+        }
+    };
+    let log_two_bound =
+        log_reduced_rational_bound(&rational_integer(2), precision_bits, log_two_direction)?;
+    Ok(reduced_bound.add(&scale_rational(&log_two_bound, exponent_two)))
+}
+
 fn reduce_log_argument_to_unit_range(value: &Rational) -> Result<(Rational, i64), IntervalError> {
     let mut reduced = value.clone();
     let mut exponent_two = 0_i64;
@@ -995,6 +1012,21 @@ fn log_reduced_rational_bounds(
     log_series_common_denominator_bounds(&z, term_count)
 }
 
+fn log_reduced_rational_bound(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    debug_assert!(compare_positive_rational_to_one(value) != Ordering::Less);
+    debug_assert!(compare_positive_rational_to_two(value) != Ordering::Greater);
+    if is_positive_one_rational(value) {
+        return Ok(Rational::zero());
+    }
+    let z = log_series_argument(value)?;
+    let term_count = log_series_terms(precision_bits)?;
+    log_series_common_denominator_bound(&z, term_count, direction)
+}
+
 fn log_series_argument(value: &Rational) -> Result<Rational, IntervalError> {
     let numerator = &value.numerator.inner - &value.denominator.inner.inner;
     let denominator = &value.numerator.inner + &value.denominator.inner.inner;
@@ -1005,6 +1037,62 @@ fn log_series_common_denominator_bounds(
     z: &Rational,
     term_count: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
+    log_series_state(z, term_count)?.into_bounds()
+}
+
+fn log_series_common_denominator_bound(
+    z: &Rational,
+    term_count: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    let state = log_series_state(z, term_count)?;
+    match direction {
+        BoundDirection::Lower => state.into_lower(),
+        BoundDirection::Upper => state.into_upper(),
+    }
+}
+
+struct LogSeriesState {
+    sum_numerator: BigInt,
+    term_numerator: BigInt,
+    odd_product: BigInt,
+    common_denominator: BigInt,
+    numerator_squared: BigInt,
+    denominator_squared: BigInt,
+    term_count: u32,
+}
+
+impl LogSeriesState {
+    fn into_lower(self) -> Result<Rational, IntervalError> {
+        rational_from_parts(self.sum_numerator * 2_u8, self.common_denominator)
+    }
+
+    fn into_upper(self) -> Result<Rational, IntervalError> {
+        let next_odd_denominator = self
+            .term_count
+            .checked_add(1)
+            .and_then(|value| value.checked_mul(2))
+            .and_then(|value| value.checked_add(1))
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        let next_term_numerator = self.term_numerator * self.numerator_squared;
+        let next_denominator_factor = self.denominator_squared * next_odd_denominator;
+        let upper_numerator = self.sum_numerator * &next_denominator_factor * 2_u8
+            + next_term_numerator * self.odd_product * 4_u8;
+        rational_from_parts(
+            upper_numerator,
+            self.common_denominator * next_denominator_factor,
+        )
+    }
+
+    fn into_bounds(self) -> Result<(Rational, Rational), IntervalError> {
+        let lower =
+            rational_from_parts(&self.sum_numerator * 2_u8, self.common_denominator.clone())?;
+        let upper = self.into_upper()?;
+        Ok((lower, upper))
+    }
+}
+
+fn log_series_state(z: &Rational, term_count: u32) -> Result<LogSeriesState, IntervalError> {
     let value_numerator = &z.numerator.inner;
     let value_denominator = &z.denominator.inner.inner;
     let numerator_squared = value_numerator * value_numerator;
@@ -1027,21 +1115,15 @@ fn log_series_common_denominator_bounds(
         odd_product *= odd_denominator;
     }
 
-    let next_odd_denominator = term_count
-        .checked_add(1)
-        .and_then(|value| value.checked_mul(2))
-        .and_then(|value| value.checked_add(1))
-        .ok_or(IntervalError::ExponentTooLarge)?;
-    let next_term_numerator = term_numerator * numerator_squared;
-    let next_denominator_factor = denominator_squared * next_odd_denominator;
-    let lower = rational_from_parts(&sum_numerator * 2_u8, common_denominator.clone())?;
-    let upper_numerator =
-        sum_numerator * &next_denominator_factor * 2_u8 + next_term_numerator * odd_product * 4_u8;
-    let upper = rational_from_parts(
-        upper_numerator,
-        common_denominator * next_denominator_factor,
-    )?;
-    Ok((lower, upper))
+    Ok(LogSeriesState {
+        sum_numerator,
+        term_numerator,
+        odd_product,
+        common_denominator,
+        numerator_squared,
+        denominator_squared,
+        term_count,
+    })
 }
 
 fn atan_rational_bounds(
@@ -2474,25 +2556,31 @@ mod tests {
             log(&from_rational(&two, precision_bits), precision_bits).unwrap(),
             from_rational_bounds(&log_lower, &log_upper, precision_bits).unwrap()
         );
+    }
 
-        let calls = Cell::new(0_u32);
-        let point_bounds = monotone_rational_bounds(&two, &two, precision_bits, |value, _| {
-            calls.set(calls.get() + 1);
-            Ok((value.clone(), value.add(&rational(1, 1))))
-        })
-        .unwrap();
-        assert_eq!(calls.get(), 1);
-        assert_eq!(point_bounds, (two.clone(), rational(3, 1)));
-
-        calls.set(0);
-        let three = rational(3, 1);
-        let interval_bounds = monotone_rational_bounds(&two, &three, precision_bits, |value, _| {
-            calls.set(calls.get() + 1);
-            Ok((value.clone(), value.add(&rational(1, 1))))
-        })
-        .unwrap();
-        assert_eq!(calls.get(), 2);
-        assert_eq!(interval_bounds, (two, rational(4, 1)));
+    #[test]
+    fn directed_logarithm_bounds_match_paired_bounds() {
+        for precision_bits in [1, 64, 128] {
+            for value in [
+                rational(1, 3),
+                rational(3, 4),
+                Rational::one(),
+                rational(3, 2),
+                rational(2, 1),
+                rational(3, 1),
+                rational(8, 1),
+            ] {
+                let (lower, upper) = log_rational_bounds(&value, precision_bits).unwrap();
+                assert_eq!(
+                    log_rational_bound(&value, precision_bits, BoundDirection::Lower).unwrap(),
+                    lower,
+                );
+                assert_eq!(
+                    log_rational_bound(&value, precision_bits, BoundDirection::Upper).unwrap(),
+                    upper,
+                );
+            }
+        }
     }
 
     #[test]

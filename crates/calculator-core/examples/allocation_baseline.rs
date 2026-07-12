@@ -31,6 +31,7 @@ fn main() {
         "approximate_exp_negative_10000" => Some(String::from("exp(-10000)")),
         "approximate_exp_positive_10000" => Some(String::from("exp(10000)")),
         "approximate_log_two" => Some(String::from("ln(2)")),
+        "approximate_log_non_degenerate" => Some(String::from("ln(2+sin(1))")),
         "approximate_general_power" => Some(String::from("2^sqrt(2)")),
         "approximate_sin_one" => Some(String::from("sin(1)")),
         "approximate_cos_one" => Some(String::from("cos(1)")),

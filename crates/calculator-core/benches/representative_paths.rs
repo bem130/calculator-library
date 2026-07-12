@@ -43,6 +43,11 @@ const APPROXIMATE_COMPONENTS: &[(&str, &str, ExpectedExact)] = &[
         ExpectedExact::GeneralSymbolic,
     ),
     ("log_two", "ln(2)", ExpectedExact::GeneralSymbolic),
+    (
+        "log_non_degenerate",
+        "ln(2+sin(1))",
+        ExpectedExact::GeneralSymbolic,
+    ),
     ("general_power", "2^sqrt(2)", ExpectedExact::GeneralSymbolic),
     ("sin_one", "sin(1)", ExpectedExact::GeneralSymbolic),
     ("cos_one", "cos(1)", ExpectedExact::GeneralSymbolic),
