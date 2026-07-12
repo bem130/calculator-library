@@ -87,6 +87,7 @@ range-reduced logの級数変数`z=(x-1)/(x+1)`はcanonical `x=n/d`から`(n-d)/
 logの`[1,2)` range reductionはcanonical正Rationalのpartsを1・2境界と構造比較し、各stepの2倍・半減をprimitive scalar helperで行う。Rational境界/operandの構築と汎用乗除算dispatchを除き、step上限、binary exponent、log2合成、logical-work契約を維持する。
 非退化intervalのlogはlower endpointからlower bound、upper endpointからupper boundだけを構築する。共通分母級数stateはexact pointではpaired boundsを共有し、directed endpointでは不要なlower canonicalizationまたはupper tailを作らない。正負binary exponentのlog2方向選択、range reduction、tail、logical-work契約を維持する。
 非退化intervalのatanはlower endpointからlower bound、upper endpointからupper boundだけを構築する。unit交代級数は次項符号からsum/adjacentの必要側だけをcanonical化し、reciprocal域では反対方向のunit boundと同方向のMachin π boundを組み合わせる。exact pointのpaired共有、負値の奇関数方向、logical-work契約を維持する。
+非退化intervalの両atan endpointがreciprocal域なら、入力非依存の同一π enclosureを一度構築して共有する。unit/reciprocal混在intervalは片側directed πを維持し、endpoint固有reciprocal atan、負値方向、logical-work契約を変更しない。
 非退化intervalの`|x|<=1/2` asinはlower endpointの部分和またはupper endpointのtail付き値だけをcanonical化する。負値は反対方向の正値boundをnegateし、exact pointはpaired共有、変換域は既存paired fallbackを維持する。
 `1/2<|x|<=1`のasin変換域は要求方向に応じて`sqrt(1-x^2)`の片側endpoint、反対方向のdirected atan、同方向のdirected πだけを構築する。負値の奇関数方向、±1 endpoint、domainとlogical-work契約を維持する。
 非退化intervalのasin変換域は入力非依存の同一π enclosureを上下endpointで共有し、acosの既存shared πも内部のdirected asinまで渡す。endpoint固有のsqrt/atan、series-only interval、負値方向、logical-work契約を維持する。

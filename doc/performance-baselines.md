@@ -999,6 +999,31 @@ Reproduce with allocation case `approximate_atan_non_degenerate`, Criterion case
 `approximate_components/atan_non_degenerate`, `logical_work_baseline`, and the
 package Wasm build/benchmark commands.
 
+## Shared reciprocal arctangent pi enclosure
+
+At base commit `76fbc8f`, both reciprocal-domain endpoints of a non-degenerate
+atan interval independently ran the two Machin recurrences for their directed pi
+bounds. Commit `8cee3af` builds one paired pi enclosure only when both endpoints
+are outside the unit interval and shares it across them. Unit-only and mixed
+unit/reciprocal intervals retain the previous directed path. Exact regressions
+cover both signs, a zero-crossing reciprocal endpoint pair, and the mixed path.
+
+On 2026-07-13 with `rustc 1.97.0`, deterministic allocation for
+`atan(2+sin(1))` moved from 714,058 bytes / 2,249 blocks to 710,074 / 1,983.
+Logical work remained 200,225 units. Separate 10-sample Criterion snapshots had
+overlapping estimates (base 13.50--17.24 ms, implementation 14.10--15.94 ms) on
+the contended shared host, so this slice makes no native timing claim. The
+algorithm removes two of four input-independent Machin recurrence traversals;
+endpoint-specific reciprocal atan work is unchanged.
+
+Wasm/npm benchmark definition v11 retained the 1,776-byte payload. One-iteration
+smokes moved from 151.49 ms at base artifact
+`c5536723ac8fecfae0b5dc4bcc09b6acf170d81eefcaa54bb387afebfdab4ae2`
+(793,359 bytes) to 88.61 ms at implementation artifact
+`aed5ef521c7fd69606d8651ae0020997b2726573892c77a95dd6c46290d6995f`
+(793,711 bytes). This is boundary smoke data, not a powered timing claim.
+Directed bounds, resource accounting, and public protocol are unchanged.
+
 ## Directed unit inverse-sine endpoints
 
 At base commit `671dc62`, non-degenerate asin endpoints built paired positive
