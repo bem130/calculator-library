@@ -1274,11 +1274,8 @@ fn sin_cos_rational(
     if divisor == 1 {
         return Ok((factor.sine, factor.cosine));
     }
-    let mut result = TrigPair {
-        cosine: from_rational(&Rational::one(), precision_bits),
-        sine: from_rational(&Rational::zero(), precision_bits),
-    };
-    let mut remaining = divisor;
+    let mut result = factor.clone();
+    let mut remaining = divisor - 1;
     while remaining > 0 {
         if remaining & 1 == 1 {
             result = multiply_trig_pairs(&result, &factor, precision_bits)?;
@@ -1291,6 +1288,7 @@ fn sin_cos_rational(
     Ok((result.sine, result.cosine))
 }
 
+#[derive(Clone)]
 struct TrigPair {
     cosine: CertifiedInterval,
     sine: CertifiedInterval,
@@ -2627,6 +2625,46 @@ mod tests {
             };
             let composed = multiply_trig_pairs(&identity, &factor, precision_bits).unwrap();
             assert_eq!(direct, (composed.sine, composed.cosine));
+        }
+    }
+
+    #[test]
+    fn range_trigonometric_composition_matches_identity_seed() {
+        for value in [
+            rational(-4, 1),
+            rational(-3, 1),
+            rational(2, 1),
+            rational(3, 1),
+        ] {
+            let precision_bits = 128;
+            let divisor = ceil_absolute_rational_to_u32(&value).unwrap();
+            let reduced = divide_rational(&value, &rational_integer(i64::from(divisor))).unwrap();
+            let (sin_lower, sin_upper) =
+                sin_unit_rational_bounds(&reduced, precision_bits).unwrap();
+            let (cos_lower, cos_upper) =
+                cos_unit_rational_bounds(&reduced, precision_bits).unwrap();
+            let mut factor = TrigPair {
+                cosine: from_rational_bounds(&cos_lower, &cos_upper, precision_bits).unwrap(),
+                sine: from_rational_bounds(&sin_lower, &sin_upper, precision_bits).unwrap(),
+            };
+            let mut expected = TrigPair {
+                cosine: from_rational(&Rational::one(), precision_bits),
+                sine: from_rational(&Rational::zero(), precision_bits),
+            };
+            let mut remaining = divisor;
+            while remaining > 0 {
+                if remaining & 1 == 1 {
+                    expected = multiply_trig_pairs(&expected, &factor, precision_bits).unwrap();
+                }
+                remaining >>= 1;
+                if remaining > 0 {
+                    factor = multiply_trig_pairs(&factor, &factor, precision_bits).unwrap();
+                }
+            }
+            assert_eq!(
+                sin_cos_rational(&value, precision_bits).unwrap(),
+                (expected.sine, expected.cosine),
+            );
         }
     }
 
