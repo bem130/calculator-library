@@ -971,14 +971,18 @@ fn log_reduced_rational_bounds(
 ) -> Result<(Rational, Rational), IntervalError> {
     debug_assert!(compare_rationals(value, &Rational::one()) != Ordering::Less);
     debug_assert!(compare_rationals(value, &rational_integer(2)) != Ordering::Greater);
-    if value == &Rational::one() {
+    if is_positive_one_rational(value) {
         return Ok((Rational::zero(), Rational::zero()));
     }
-    let numerator = value.subtract(&Rational::one());
-    let denominator = value.add(&Rational::one());
-    let z = divide_rational(&numerator, &denominator)?;
+    let z = log_series_argument(value)?;
     let term_count = log_series_terms(precision_bits)?;
     log_series_common_denominator_bounds(&z, term_count)
+}
+
+fn log_series_argument(value: &Rational) -> Result<Rational, IntervalError> {
+    let numerator = &value.numerator.inner - &value.denominator.inner.inner;
+    let denominator = &value.numerator.inner + &value.denominator.inner.inner;
+    rational_from_parts(numerator, denominator)
 }
 
 fn log_series_common_denominator_bounds(
@@ -3060,6 +3064,24 @@ mod tests {
                     (expected_lower, expected_upper),
                 );
             }
+        }
+    }
+
+    #[test]
+    fn direct_log_series_argument_matches_rational_operations() {
+        for value in [
+            Rational::one(),
+            rational(4, 3),
+            rational(3, 2),
+            rational(5, 3),
+            rational(2, 1),
+        ] {
+            let expected = divide_rational(
+                &value.subtract(&Rational::one()),
+                &value.add(&Rational::one()),
+            )
+            .unwrap();
+            assert_eq!(log_series_argument(&value).unwrap(), expected);
         }
     }
 
