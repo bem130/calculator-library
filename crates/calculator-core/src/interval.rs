@@ -1851,19 +1851,26 @@ fn sqrt_rational_upper(
 
 fn e_bounds(precision_bits: u32) -> Result<(Rational, Rational), IntervalError> {
     let term_count = series_terms(precision_bits)?;
-    let mut sum = Rational::zero();
-    let mut factorial = BigInt::one();
-    for n in 0..=term_count {
-        if n > 0 {
-            factorial *= n;
-        }
-        sum = sum.add(&rational_from_parts(BigInt::one(), factorial.clone())?);
-    }
+    e_common_denominator_bounds(term_count)
+}
 
-    let next_factorial = factorial * (term_count + 1_u32);
-    let tail_bound = rational_from_parts(BigInt::from(2_u8), next_factorial)?;
-    let upper = sum.add(&tail_bound);
-    Ok((sum, upper))
+fn e_common_denominator_bounds(term_count: u32) -> Result<(Rational, Rational), IntervalError> {
+    let mut sum_numerator = BigInt::one();
+    let mut factorial = BigInt::one();
+    for index in 1..=term_count {
+        sum_numerator *= index;
+        sum_numerator += 1_u8;
+        factorial *= index;
+    }
+    let lower = rational_from_parts(sum_numerator.clone(), factorial.clone())?;
+    let next_index = term_count
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    sum_numerator *= next_index;
+    sum_numerator += 2_u8;
+    factorial *= next_index;
+    let upper = rational_from_parts(sum_numerator, factorial)?;
+    Ok((lower, upper))
 }
 
 fn pi_bounds(precision_bits: u32) -> Result<(Rational, Rational), IntervalError> {
@@ -2535,6 +2542,27 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn common_denominator_euler_series_matches_rational_recurrence() {
+        for term_count in [0_u32, 1, 5, 20, 64] {
+            let mut sum = Rational::zero();
+            let mut factorial = BigInt::one();
+            for index in 0..=term_count {
+                if index > 0 {
+                    factorial *= index;
+                }
+                sum = sum.add(&rational_from_parts(BigInt::one(), factorial.clone()).unwrap());
+            }
+            let next_factorial = factorial * (term_count + 1);
+            let upper = sum.add(&rational_from_parts(BigInt::from(2_u8), next_factorial).unwrap());
+            assert_eq!(
+                e_common_denominator_bounds(term_count).unwrap(),
+                (sum, upper),
+                "term_count={term_count}",
+            );
         }
     }
 
