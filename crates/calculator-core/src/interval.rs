@@ -655,8 +655,8 @@ fn exp_rational_bounds(
     if value.is_negative() {
         let (positive_lower, positive_upper) =
             exp_nonnegative_rational_bounds(&value.negate(), precision_bits)?;
-        let lower = reciprocal_positive_rational(&positive_upper)?;
-        let upper = reciprocal_positive_rational(&positive_lower)?;
+        let lower = reciprocal_nonzero_rational(&positive_upper)?;
+        let upper = reciprocal_nonzero_rational(&positive_lower)?;
         return Ok((lower, upper));
     }
     exp_nonnegative_rational_bounds(value, precision_bits)
@@ -683,20 +683,26 @@ fn exp_rational_bound(
         };
         let positive =
             exp_nonnegative_rational_bound(&value.negate(), precision_bits, reciprocal_direction)?;
-        return reciprocal_positive_rational(&positive);
+        return reciprocal_nonzero_rational(&positive);
     }
     exp_nonnegative_rational_bound(value, precision_bits, direction)
 }
 
-fn reciprocal_positive_rational(value: &Rational) -> Result<Rational, IntervalError> {
-    if value.numerator.inner.sign() != Sign::Plus {
+fn reciprocal_nonzero_rational(value: &Rational) -> Result<Rational, IntervalError> {
+    if value.is_zero() {
         return Err(IntervalError::DivisionByIntervalContainingZero);
     }
+    let (numerator, denominator) = if value.is_negative() {
+        (
+            Integer::from_bigint(-value.denominator.inner.inner.clone()),
+            Integer::from_bigint(-value.numerator.inner.clone()),
+        )
+    } else {
+        (value.denominator.inner.clone(), value.numerator.clone())
+    };
     Ok(Rational {
-        numerator: value.denominator.inner.clone(),
-        denominator: PositiveInteger {
-            inner: value.numerator.clone(),
-        },
+        numerator,
+        denominator: PositiveInteger { inner: denominator },
     })
 }
 
@@ -997,7 +1003,7 @@ fn atan_nonnegative_rational_bounds(
         return Ok((Rational::zero(), Rational::zero()));
     }
     if compare_rationals(value, &Rational::one()) == Ordering::Greater {
-        let reciprocal = divide_rational(&Rational::one(), value)?;
+        let reciprocal = reciprocal_nonzero_rational(value)?;
         let (reciprocal_lower, reciprocal_upper) =
             atan_unit_rational_bounds(&reciprocal, precision_bits)?;
         let (pi_lower, pi_upper) = pi_bounds(precision_bits)?;
@@ -1707,12 +1713,8 @@ fn reciprocal_interval(
 ) -> Result<CertifiedInterval, IntervalError> {
     let lower = dyadic_to_rational(&interval.lower)?;
     let upper = dyadic_to_rational(&interval.upper)?;
-    let reciprocal_lower = Rational::one()
-        .divide(&upper)
-        .map_err(|_| IntervalError::DivisionByIntervalContainingZero)?;
-    let reciprocal_upper = Rational::one()
-        .divide(&lower)
-        .map_err(|_| IntervalError::DivisionByIntervalContainingZero)?;
+    let reciprocal_lower = reciprocal_nonzero_rational(&upper)?;
+    let reciprocal_upper = reciprocal_nonzero_rational(&lower)?;
     from_rational_bounds(&reciprocal_lower, &reciprocal_upper, precision_bits)
 }
 
@@ -2373,16 +2375,20 @@ mod tests {
     }
 
     #[test]
-    fn positive_rational_reciprocal_matches_general_division() {
+    fn canonical_rational_reciprocal_matches_general_division() {
         for value in [rational(1, 3), rational(7, 5), rational(12345, 6789)] {
             assert_eq!(
-                reciprocal_positive_rational(&value).unwrap(),
+                reciprocal_nonzero_rational(&value).unwrap(),
                 divide_rational(&Rational::one(), &value).unwrap(),
             );
         }
-        for value in [Rational::zero(), rational(-1, 3)] {
+        assert_eq!(
+            reciprocal_nonzero_rational(&rational(-1, 3)).unwrap(),
+            rational(-3, 1),
+        );
+        for value in [Rational::zero()] {
             assert_eq!(
-                reciprocal_positive_rational(&value),
+                reciprocal_nonzero_rational(&value),
                 Err(IntervalError::DivisionByIntervalContainingZero),
             );
         }
