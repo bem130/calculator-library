@@ -620,3 +620,55 @@ cargo bench -p calculator-core --bench representative_paths --features std \
 cargo bench -p calculator-core --bench representative_paths --features std \
   -- approximate_components/power_log_product --sample-size 20
 ```
+
+## Structural dyadic-to-rational conversion
+
+At base commit `3c04716`, every ExactDyadic-to-Rational boundary called the
+general Rational constructor. For a canonical dyadic with a negative exponent,
+the coefficient is odd and the denominator is a power of two, so coprimality is
+already structural; for a nonnegative exponent the result is an integer. The
+specialized conversion now constructs those forms directly. It still removes
+canceling factors of two from noncanonical negative-exponent inputs before direct
+construction, and regression tests compare positive, negative, zero, integral,
+fractional, and noncanonical cases with the general constructor.
+
+At implementation commit `a3ecd5b` on 2026-07-12 with `rustc 1.97.0`, one public
+calculation allocated the following before/after totals:
+
+| Case | Allocated bytes |
+| --- | ---: |
+| `exp(1)` | 20,157 / 19,821 |
+| `ln(2)` | 39,949 / 39,661 |
+| `2^sqrt(2)` | 288,190 / 287,582 |
+| `sin(1)` | 37,039 / 36,063 |
+| `sqrt(2)` | 60,249 / 59,585 |
+| `sqrt(2)*ln(2)` | 128,266 / 127,738 |
+| `exp(sqrt(2)*ln(2))` | 322,142 / 321,534 |
+
+The shared host slowed all component timings together during the focused run;
+subsequent 20-sample runs detected no significant change for `exp(1)` or general
+power. This slice therefore claims the deterministic allocation reduction, not a
+timing speedup. Logical-work boundaries remained 231, 401216, 400447, 586, 582,
+400234, and 932 for the stored representative cases. A three-iteration/one-warmup
+Wasm/npm snapshot used artifact
+`a4782844b7a2adc22aa1a6356d07154f607aa9bd549849a7f50003ecf928867c`
+(784,565 bytes); the approximate case measured 8.96 ms/iteration with an
+unchanged 1,812-byte serialized payload.
+
+Reproduce the deterministic and boundary measurements with:
+
+```sh
+for case in approximate_exp_one approximate_log_two approximate_general_power \
+  approximate_sin_one approximate_sqrt_two approximate_power_log_product \
+  approximate_exp_power_log_product
+do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
