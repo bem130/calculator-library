@@ -24,6 +24,7 @@ fn main() {
         )),
         "exact_symbolic" => Some(String::from("(exp(1)+sin(1))*cos(1)-exp(1)*cos(1)")),
         "approximate" => Some(String::from("sin(1)+ln(2)+2^sqrt(2)")),
+        "approximate_euler" => Some(String::from("e")),
         "approximate_exp_one" => Some(String::from("exp(1)")),
         "approximate_exp_two" => Some(String::from("exp(2)")),
         "approximate_exp_negative_two" => Some(String::from("exp(-2)")),

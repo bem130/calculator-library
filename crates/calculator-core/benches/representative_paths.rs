@@ -24,6 +24,7 @@ enum ExpectedExact {
 }
 
 const APPROXIMATE_COMPONENTS: &[(&str, &str, ExpectedExact)] = &[
+    ("euler", "e", ExpectedExact::GeneralSymbolic),
     ("exp_one", "exp(1)", ExpectedExact::GeneralSymbolic),
     ("exp_two", "exp(2)", ExpectedExact::GeneralSymbolic),
     (
