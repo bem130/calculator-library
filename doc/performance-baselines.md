@@ -1106,6 +1106,28 @@ are unchanged.
 
 ## Direct unit-range trigonometric pair
 
+## Shared transformed inverse-sine pi enclosure
+
+At base commit `f3cdf78`, each transformed asin endpoint independently ran the
+two Machin arctangent recurrences needed for its directed pi bound. Commit
+`e612f15` builds one paired pi enclosure when either endpoint is in the transform
+region and shares it across both endpoints. The existing acos shared enclosure
+now also reaches its internal directed asin. Series-only intervals do not build
+pi. Exact regressions cover both signs, unit and half-region values, and intervals
+with one or both transformed endpoints.
+
+On 2026-07-13 with `rustc 1.97.0`, deterministic one-calculation allocations for
+`asin((2+sin(1))/3)` moved from 1,477,108 bytes / 4,333 blocks to 1,473,156 /
+4,068. `acos((2+sin(1))/3)` moved from 1,664,918 / 4,822 to 1,641,118 / 4,162.
+Logical work remained 200,447 units for both. Criterion was executed for both
+revisions, but concurrent host load changed materially between runs, so those
+absolute samples are not used as a timing claim. The algorithm removes two of
+four input-independent Machin recurrence traversals per non-degenerate transform
+interval; endpoint-specific sqrt and atan work is unchanged. Directed bounds,
+resource accounting, and protocol are unchanged.
+
+## Direct unit-range trigonometric pair
+
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
 identity pair and composed it with the series pair even when the range-reduction
 divisor was one. That composition constructed four interval products, one
