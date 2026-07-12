@@ -673,6 +673,53 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Common-denominator logarithm recurrence
+
+At base commit `e42c235`, reduced logarithm evaluation represented every
+`z^(2k+1)/(2k+1)` as a canonical Rational, multiplied the next power, divided by
+the odd index, and canonicalized the growing sum on every iteration. Commit
+`31d6973` maintains the power numerator, product of odd denominators, sum numerator,
+and common denominator as BigInts, then canonicalizes only the final lower and
+upper bounds. The existing geometric tail and term-count inequality are unchanged.
+
+On 2026-07-12 with `rustc 1.97.0`, controlled base/implementation measurements
+were:
+
+| Case | Bytes | Blocks | Native median |
+| --- | ---: | ---: | ---: |
+| `ln(2)` | 37,133 / 21,141 | 1,674 / 806 | 295.11 / 65.70 µs |
+| `2^sqrt(2)` | 242,158 / 226,166 | 3,771 / 2,903 | 970.26 / 748.22 µs |
+| `sqrt(2)*ln(2)` | 125,194 / 109,202 | 4,905 / 4,037 | not sampled |
+| `exp(sqrt(2)*ln(2))` | 276,110 / 260,118 | 5,287 / 4,419 | not sampled |
+
+Criterion reported approximately 80% improvement for `ln(2)` and 41% for general
+power. Logical-work boundaries remained 231, 401216, 400447, 586, 582, 400234,
+and 932. A three-iteration/one-warmup Wasm/npm boundary snapshot used artifact
+`f9c6c7a6ebbe09bd65540a45cdff59aeb9d38352b25c7c5604dec804167b63bb`
+(784,578 bytes), measured approximate evaluation at 6.28 ms/iteration, and kept
+the 1,812-byte payload.
+
+Reproduce with:
+
+```sh
+for case in approximate_log_two approximate_general_power \
+  approximate_power_log_product approximate_exp_power_log_product
+do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/log_two --sample-size 20
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/general_power --sample-size 20
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
+
 ## Primitive transcendental series-bound operands
 
 At base commit `026ce83`, the term-count and tail helpers for exponential,

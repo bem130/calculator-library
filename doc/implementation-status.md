@@ -62,6 +62,7 @@ ExactDyadicからRationalへの変換は、負の2冪指数と奇数係数から
 expの共通分母Taylor recurrenceは、項番号`n`、tail index、tail係数2を所有BigIntへ変換せず、num-bigintのprimitive整数operandとして既存BigIntへ直接乗算する。増大する部分和・項・共通分母だけを多倍長で保持し、recurrence、項数、tail保証、directed boundsは変更しない。
 同recurrenceの部分和は所有BigIntへ分母factorをin-place乗算してから次項を加える。`term*a`は部分和補正と次iterationのtermで同じ値なので一度だけ構築して所有権を移し、従来の重複多倍長乗算を除く。upper tailも所有積へ補正項をin-place加算する。
 exp/log/e/trig/atanの項数・tail境界補助は、checked `u32` indexと固定`u8`係数を所有BigIntへ変換せずprimitive scalarとしてBigIntへ乗算する。比較対象のfactorial・3冪・逆数分母だけを多倍長で保持し、最小項数を定める不等式は変更しない。
+reduced logの正項級数は`z=a/b`に対し、`b^(2k+1)`と既出奇数分母の積を共通分母として部分和・現在冪・奇数積をBigInt recurrenceで更新する。loop内のRational乗算・除算・加算ごとのGCDを除き、lowerと最初の未加算項を含むupperだけを最終canonical化する。
 
 ## Deliberately Not Contract
 
