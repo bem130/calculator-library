@@ -36,7 +36,7 @@ jobs:
         run: cargo install wasm-pack --locked
 
       - name: Install pinned Binaryen
-        run: tools/install-binaryen.sh
+        run: bash tools/install-binaryen.sh
 
       - name: Install cargo-deny
         run: cargo install cargo-deny --locked
