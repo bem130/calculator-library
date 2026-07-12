@@ -823,8 +823,8 @@ impl ExpSeriesState<'_> {
 
     fn upper(&self) -> Result<Rational, IntervalError> {
         let next_denominator_factor = self.value_denominator * self.tail_index;
-        let upper_numerator = &self.sum_numerator * &next_denominator_factor
-            + (&self.term_numerator * self.value_numerator * 2_u8);
+        let mut upper_numerator = &self.sum_numerator * &next_denominator_factor;
+        upper_numerator += &self.term_numerator * self.value_numerator * 2_u8;
         let upper_denominator = &self.common_denominator * next_denominator_factor;
         rational_from_parts(upper_numerator, upper_denominator)
     }
@@ -838,8 +838,10 @@ fn exp_series_state(value: &Rational, term_count: u32, tail_index: u32) -> ExpSe
     let mut common_denominator = BigInt::one();
     for next_n in 1..=term_count {
         let denominator_factor = value_denominator * next_n;
-        sum_numerator = &sum_numerator * &denominator_factor + &term_numerator * value_numerator;
-        term_numerator *= value_numerator;
+        let next_term_numerator = &term_numerator * value_numerator;
+        sum_numerator *= &denominator_factor;
+        sum_numerator += &next_term_numerator;
+        term_numerator = next_term_numerator;
         common_denominator *= denominator_factor;
     }
     ExpSeriesState {
