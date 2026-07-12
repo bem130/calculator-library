@@ -15,6 +15,8 @@ fn main() {
         ("exp_positive_10000", "exp(10000)"),
         ("atan_half", "atan(1/2)"),
         ("atan_two", "atan(2)"),
+        ("sin_one", "sin(1)"),
+        ("cos_one", "cos(1)"),
         ("algebraic", "((2^(1/3)-2^(1/3))+2)^(1/3)"),
         ("wide_add_256", wide.as_str()),
     ];

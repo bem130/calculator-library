@@ -32,6 +32,7 @@ fn main() {
         "approximate_log_two" => Some(String::from("ln(2)")),
         "approximate_general_power" => Some(String::from("2^sqrt(2)")),
         "approximate_sin_one" => Some(String::from("sin(1)")),
+        "approximate_cos_one" => Some(String::from("cos(1)")),
         "approximate_atan_two" => Some(String::from("atan(2)")),
         "approximate_atan_half" => Some(String::from("atan(1/2)")),
         "approximate_sqrt_two" => Some(String::from("sqrt(2)")),
