@@ -1171,6 +1171,23 @@ reviewed artifact, confirming unchanged npm presentation and example-ui display.
 
 ## Direct unit-range trigonometric pair
 
+## Shared exact transformed-acos pi enclosure
+
+At base commit `35956af`, an exact dyadic transformed acos point built one pi
+enclosure inside asin and another for the outer `pi/2-asin(x)`. Commit `ed2bd8e`
+passes the outer paired enclosure through the paired asin transform. Regressions
+cover both signs, series/transform values, zero, and unit endpoints.
+
+On 2026-07-13 with `rustc 1.97.0`, one `acos(3/4)` calculation moved from
+830,525 bytes / 4,291 blocks to 810,709 / 3,897. Logical work remained 31 units.
+Separate 10-sample Criterion runs moved the native midpoint estimate from
+10.04 ms to 7.71 ms, about 23%.
+The benchmark uses dyadic `3/4`; non-dyadic `2/3` enters the already optimized
+non-degenerate enclosure path and is not evidence for this exact-point slice.
+Directed bounds, resource accounting, and protocol are unchanged.
+
+## Direct unit-range trigonometric pair
+
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
 identity pair and composed it with the series pair even when the range-reduction
 divisor was one. That composition constructed four interval products, one

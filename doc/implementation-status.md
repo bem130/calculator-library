@@ -92,6 +92,7 @@ logの`[1,2)` range reductionはcanonical正Rationalのpartsを1・2境界と構
 `1/2<|x|<=1`のasin変換域は要求方向に応じて`sqrt(1-x^2)`の片側endpoint、反対方向のdirected atan、同方向のdirected πだけを構築する。負値の奇関数方向、±1 endpoint、domainとlogical-work契約を維持する。
 非退化intervalのasin変換域は入力非依存の同一π enclosureを上下endpointで共有し、acosの既存shared πも内部のdirected asinまで渡す。endpoint固有のsqrt/atan、series-only interval、負値方向、logical-work契約を維持する。
 非退化acosは反単調な入力endpointを選んだ後、shared πの要求方向と反対方向のdirected asinだけを構築する。±1・zeroのspecial endpointはshared πから直接返し、exact point、domain、logical-work契約を維持する。
+exact dyadicのacos変換域は外側の`pi/2-asin(x)`用paired πを内部asin変換へ渡し、同一π enclosureの再計算を除く。special endpoint、正負方向、logical-work契約を維持する。
 unit cosine級数は負入力だけをowned negateし、非負canonical Rationalは借用する。偶関数正規化のために正入力までcloneする処理を除き、tailとlogical-work契約を維持する。
 asin変換域の`1-x^2`はcanonical `x=n/d`から`(d^2-n^2)/d^2`を直接構築し、一度だけcanonical化する。`x*x`とRational減算の二段正規化を除き、sqrt domainとdirected boundsを維持する。
 同complement squareは`gcd(n,d)=1`から非zeroの分子・分母が既約であることを利用し、汎用GCDを通さずcanonical Rationalを直接構築する。±1のzeroだけ`0/1`へ正規化する。
