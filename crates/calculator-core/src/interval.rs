@@ -1941,8 +1941,10 @@ fn pi_bounds(precision_bits: u32) -> Result<(Rational, Rational), IntervalError>
     let (atan_1_5_lower, atan_1_5_upper) = arctan_reciprocal_bounds(5, term_count)?;
     let (atan_1_239_lower, atan_1_239_upper) = arctan_reciprocal_bounds(239, term_count)?;
 
-    let lower = scale_rational(&atan_1_5_lower, 16).subtract(&scale_rational(&atan_1_239_upper, 4));
-    let upper = scale_rational(&atan_1_5_upper, 16).subtract(&scale_rational(&atan_1_239_lower, 4));
+    let lower = scale_rational_by_positive_u32(&atan_1_5_lower, 16)?
+        .subtract(&scale_rational_by_positive_u32(&atan_1_239_upper, 4)?);
+    let upper = scale_rational_by_positive_u32(&atan_1_5_upper, 16)?
+        .subtract(&scale_rational_by_positive_u32(&atan_1_239_lower, 4)?);
     Ok((lower, upper))
 }
 
@@ -2035,6 +2037,16 @@ fn rational_integer(value: i64) -> Rational {
 
 fn scale_rational(value: &Rational, factor: i64) -> Rational {
     value.multiply(&rational_integer(factor))
+}
+
+fn scale_rational_by_positive_u32(
+    value: &Rational,
+    factor: u32,
+) -> Result<Rational, IntervalError> {
+    rational_from_parts(
+        &value.numerator.inner * factor,
+        value.denominator.inner.inner.clone(),
+    )
 }
 
 fn rational_from_parts(numerator: BigInt, denominator: BigInt) -> Result<Rational, IntervalError> {
@@ -2699,6 +2711,18 @@ mod tests {
                 halve_rational(&value).unwrap(),
                 divide_rational(&value, &rational_integer(2)).unwrap(),
             );
+        }
+    }
+
+    #[test]
+    fn primitive_positive_scaling_matches_general_multiplication() {
+        for value in [rational(-7, 3), Rational::zero(), rational(7, 3)] {
+            for factor in [1_u32, 4, 16] {
+                assert_eq!(
+                    scale_rational_by_positive_u32(&value, factor).unwrap(),
+                    scale_rational(&value, i64::from(factor)),
+                );
+            }
         }
     }
 
