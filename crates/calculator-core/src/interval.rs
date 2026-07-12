@@ -1784,7 +1784,7 @@ fn divide_rational_by_positive_u32(
 }
 
 fn halve_rational(value: &Rational) -> Result<Rational, IntervalError> {
-    divide_rational(value, &rational_integer(2))
+    divide_rational_by_positive_u32(value, 2)
 }
 
 fn negate_dyadic(value: &ExactDyadic) -> ExactDyadic {
@@ -2684,6 +2684,22 @@ mod tests {
             divide_rational_by_positive_u32(&Rational::one(), 0),
             Err(IntervalError::DivisionByIntervalContainingZero),
         );
+    }
+
+    #[test]
+    fn structural_rational_halving_matches_general_division() {
+        for value in [
+            rational(-7, 3),
+            rational(-2, 1),
+            Rational::zero(),
+            rational(2, 1),
+            rational(7, 3),
+        ] {
+            assert_eq!(
+                halve_rational(&value).unwrap(),
+                divide_rational(&value, &rational_integer(2)).unwrap(),
+            );
+        }
     }
 
     #[test]
