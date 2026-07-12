@@ -404,6 +404,10 @@ pub(crate) fn sin_rational(
     value: &Rational,
     precision_bits: u32,
 ) -> Result<CertifiedInterval, IntervalError> {
+    if is_unit_rational(value) {
+        let (lower, upper) = sin_unit_rational_bounds(value, precision_bits)?;
+        return from_rational_bounds(&lower, &upper, precision_bits);
+    }
     let (sine, _) = sin_cos_rational(value, precision_bits)?;
     Ok(sine)
 }
@@ -412,8 +416,16 @@ pub(crate) fn cos_rational(
     value: &Rational,
     precision_bits: u32,
 ) -> Result<CertifiedInterval, IntervalError> {
+    if is_unit_rational(value) {
+        let (lower, upper) = cos_unit_rational_bounds(value, precision_bits)?;
+        return from_rational_bounds(&lower, &upper, precision_bits);
+    }
     let (_, cosine) = sin_cos_rational(value, precision_bits)?;
     Ok(cosine)
+}
+
+fn is_unit_rational(value: &Rational) -> bool {
+    value.numerator.inner.magnitude() <= value.denominator.inner.inner.magnitude()
 }
 
 pub(crate) fn tan_rational(
@@ -2570,6 +2582,23 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn unit_trigonometric_projections_match_paired_evaluation() {
+        for value in [
+            rational(-1, 1),
+            rational(-1, 3),
+            Rational::zero(),
+            rational(1, 3),
+            Rational::one(),
+        ] {
+            let (paired_sine, paired_cosine) = sin_cos_rational(&value, 128).unwrap();
+            assert_eq!(sin_rational(&value, 128).unwrap(), paired_sine);
+            assert_eq!(cos_rational(&value, 128).unwrap(), paired_cosine);
+        }
+        assert!(!is_unit_rational(&rational(-4, 3)));
+        assert!(!is_unit_rational(&rational(4, 3)));
     }
 
     #[test]
