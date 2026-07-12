@@ -835,6 +835,30 @@ public protocol are unchanged. Reproduce with allocation cases
 `approximate_atan_half` and `approximate_atan_two`, followed by
 `logical_work_baseline`.
 
+## Structural inverse-trigonometric domain units
+
+At base commit `6511317`, the shared asin/acos interval-domain layer constructed
+Rational `-1` and `1`, then performed four general comparisons for every input.
+Commit `da75d7b` classifies each canonical endpoint by numerator magnitude versus
+its positive denominator and uses its sign to distinguish intervals wholly
+outside the domain from intervals that only overlap it. Regressions cover both
+fully-outside sides, both partial-overlap sides, and the inclusive `[-1, 1]`
+boundary.
+
+On 2026-07-13 with `rustc 1.97.0`, deterministic one-calculation allocations
+changed as follows:
+
+| Case | Bytes | Blocks |
+| --- | ---: | ---: |
+| `asin(1/3)` | 485,588 / 485,388 | 1,305 / 1,293 |
+| `acos(1/3)` | 655,010 / 654,810 | 1,811 / 1,799 |
+
+Logical work remained 31 units for both cases. This slice claims deterministic
+allocation reduction only; typed domain/unsupported classification, directed
+bounds, and public protocol are unchanged. Reproduce with allocation cases
+`approximate_asin_third` and `approximate_acos_third`, followed by
+`logical_work_baseline`.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the

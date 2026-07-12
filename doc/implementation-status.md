@@ -81,6 +81,7 @@ atan/asin/acosのexact dyadic pointは、同じRational endpointのpaired bounds
 asin/acos endpointの±1特殊値判定はcanonical Rationalの符号と分子絶対値・正分母を構造比較する。±1定数Rationalの反復構築を除き、domainと方向付きboundを維持する。
 asinの正値series選択はcanonical nonnegative Rationalの分子を2倍して正分母と比較し、`value <= 1/2`を判定する。分岐とunit helper assertionのためだけに`1/2` Rationalを構築・GCD正規化する処理を除き、境界選択とlogical-work契約を維持する。
 nonnegative atanのunit-series/reciprocal選択は、canonical Rationalの分子絶対値と正分母を比較する既存unit predicateを使う。分岐とunit helper assertionのためだけのRational `1`構築を除き、reciprocal identity、π変換、directed boundsとlogical-work契約を維持する。
+asin/acosのinterval domain分類は上下端のunit predicateと符号から、完全に±1外側のtyped domain error、一部だけ外側のunsupported、範囲内を区別する。全入力で±1 Rationalを構築して4回汎用比較する処理を除き、境界包含と公開error契約を維持する。
 
 ## Deliberately Not Contract
 
