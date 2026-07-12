@@ -83,6 +83,7 @@ asinの正値series選択はcanonical nonnegative Rationalの分子を2倍して
 nonnegative atanのunit-series/reciprocal選択は、canonical Rationalの分子絶対値と正分母を比較する既存unit predicateを使う。分岐とunit helper assertionのためだけのRational `1`構築を除き、reciprocal identity、π変換、directed boundsとlogical-work契約を維持する。
 asin/acosのinterval domain分類は上下端のunit predicateと符号から、完全に±1外側のtyped domain error、一部だけ外側のunsupported、範囲内を区別する。全入力で±1 Rationalを構築して4回汎用比較する処理を除き、境界包含と公開error契約を維持する。
 expの正値range reductionはceilで得た正のprimitive divisorを既存Rational分母へ直接掛けて一度だけcanonical化する。整数Rationalの構築と汎用division dispatchをpaired/direct endpoint経路から除き、reduction=1のdirected boundは入力をcloneせず借用する。整数冪、負expのreciprocal方向、logical-work契約を維持する。
+range-reduced logの級数変数`z=(x-1)/(x+1)`はcanonical `x=n/d`から`(n-d)/(n+d)`を構築し、最後に一度だけcanonical化する。Rational加減算と除算の3段階正規化を除き、`log(1)=0` fast path、正項級数tail、logical-work契約を維持する。
 
 ## Deliberately Not Contract
 

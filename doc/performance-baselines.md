@@ -884,6 +884,32 @@ protocol are unchanged. Reproduce with allocation cases `approximate_exp_two`,
 `approximate_general_power`, and `approximate_exp_power_log_product`, followed
 by `logical_work_baseline`.
 
+## Direct logarithm Mobius transform
+
+At base commit `14964d1`, reduced logarithm evaluation formed
+`z=(x-1)/(x+1)` through Rational subtraction, addition, and division, each with
+general canonicalization. Commit `d56e033` uses canonical `x=n/d` to form
+`(n-d)/(n+d)` and canonicalizes only that final Rational. Exact regressions cover
+the endpoints one and two, noninteger inputs, and `5/3`, whose direct parts need
+additional reduction to `1/4`.
+
+On 2026-07-13 with `rustc 1.97.0`, deterministic one-calculation allocations
+changed as follows:
+
+| Case | Bytes | Blocks |
+| --- | ---: | ---: |
+| `ln(2)` | 21,141 / 20,917 | 806 / 778 |
+| `2^sqrt(2)` | 226,038 / 225,814 | 2,899 / 2,871 |
+| `sqrt(2)*ln(2)` | 109,202 / 108,978 | 4,037 / 4,009 |
+| `exp(sqrt(2)*ln(2))` | 259,990 / 259,766 | 4,415 / 4,387 |
+
+Logical-work baseline values remained unchanged. This slice claims deterministic
+allocation reduction only; range reduction, series tail, directed bounds, and
+public protocol are unchanged. Reproduce with allocation cases
+`approximate_log_two`, `approximate_general_power`,
+`approximate_power_log_product`, and `approximate_exp_power_log_product`, followed
+by `logical_work_baseline`.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
