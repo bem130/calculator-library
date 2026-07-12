@@ -947,22 +947,38 @@ fn reduce_log_argument_to_unit_range(value: &Rational) -> Result<(Rational, i64)
     let mut reduced = value.clone();
     let mut exponent_two = 0_i64;
     let mut steps = 0_u32;
-    let two = rational_integer(2);
-    while compare_rationals(&reduced, &two) != Ordering::Less {
+    while compare_positive_rational_to_two(&reduced) != Ordering::Less {
         guard_log_range_reduction_step(&mut steps)?;
-        reduced = divide_rational(&reduced, &two)?;
+        reduced = halve_rational(&reduced)?;
         exponent_two = exponent_two
             .checked_add(1)
             .ok_or(IntervalError::ExponentTooLarge)?;
     }
-    while compare_rationals(&reduced, &Rational::one()) == Ordering::Less {
+    while compare_positive_rational_to_one(&reduced) == Ordering::Less {
         guard_log_range_reduction_step(&mut steps)?;
-        reduced = reduced.multiply(&two);
+        reduced = scale_rational_by_positive_u32(&reduced, 2)?;
         exponent_two = exponent_two
             .checked_sub(1)
             .ok_or(IntervalError::ExponentTooLarge)?;
     }
     Ok((reduced, exponent_two))
+}
+
+fn compare_positive_rational_to_one(value: &Rational) -> Ordering {
+    debug_assert!(!value.is_negative() && !value.is_zero());
+    value
+        .numerator
+        .inner
+        .magnitude()
+        .cmp(value.denominator.inner.inner.magnitude())
+}
+
+fn compare_positive_rational_to_two(value: &Rational) -> Ordering {
+    debug_assert!(!value.is_negative() && !value.is_zero());
+    value
+        .numerator
+        .inner
+        .cmp(&(&value.denominator.inner.inner * 2_u8))
 }
 
 fn log_reduced_rational_bounds(
@@ -3082,6 +3098,59 @@ mod tests {
             )
             .unwrap();
             assert_eq!(log_series_argument(&value).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn scalar_log_range_reduction_matches_rational_operations() {
+        let two = rational_integer(2);
+        for value in [
+            rational(3, 16),
+            rational(3, 4),
+            Rational::one(),
+            rational(3, 2),
+            rational(2, 1),
+            rational(3, 1),
+            rational(8, 1),
+        ] {
+            let mut expected = value.clone();
+            let mut expected_exponent = 0_i64;
+            while compare_rationals(&expected, &two) != Ordering::Less {
+                expected = divide_rational(&expected, &two).unwrap();
+                expected_exponent += 1;
+            }
+            while compare_rationals(&expected, &Rational::one()) == Ordering::Less {
+                expected = expected.multiply(&two);
+                expected_exponent -= 1;
+            }
+            assert_eq!(
+                reduce_log_argument_to_unit_range(&value).unwrap(),
+                (expected, expected_exponent),
+            );
+        }
+    }
+
+    #[test]
+    fn structural_log_range_comparisons_match_rational_constants() {
+        let one = Rational::one();
+        let two = rational_integer(2);
+        for value in [
+            rational(1, 8),
+            rational(3, 4),
+            Rational::one(),
+            rational(3, 2),
+            rational(2, 1),
+            rational(9, 4),
+            rational(8, 1),
+        ] {
+            assert_eq!(
+                compare_positive_rational_to_one(&value),
+                compare_rationals(&value, &one),
+            );
+            assert_eq!(
+                compare_positive_rational_to_two(&value),
+                compare_rationals(&value, &two),
+            );
         }
     }
 
