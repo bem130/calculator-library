@@ -1090,6 +1090,20 @@ the ±1 result as canonical zero. Transformed asin moved from 1,477,652 bytes /
 4,345 blocks to 1,477,108 / 4,333; transformed acos moved from 1,665,462 / 4,834
 to 1,664,918 / 4,822. This slice claims deterministic allocation reduction only.
 
+## Signed primitive binary-log scaling
+
+At base commit `625998a`, log composition and large-exp residuals converted their
+bounded `i64` binary exponent to a Rational before general multiplication.
+Commit `d697a7b` multiplies the canonical numerator by the signed primitive and
+canonicalizes once. Exact regression includes zero, both signs, and `i64::MIN`.
+
+Each affected public calculation removed 80 bytes / 4 blocks: `ln(2)` moved from
+20,829 / 770 to 20,749 / 766, non-degenerate log from 351,468 / 1,787 to
+351,388 / 1,783, `exp(-10000)` from 564,880 / 2,106 to 564,800 / 2,102, and
+`exp(10000)` from 536,736 / 2,023 to 536,656 / 2,019. This slice claims
+deterministic allocation reduction only; directions, logical work, and protocol
+are unchanged.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
