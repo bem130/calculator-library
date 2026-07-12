@@ -3228,15 +3228,23 @@ mod tests {
                     former,
                 );
                 let negative = positive.negate();
+                let former_negative = (former.1.negate(), former.0.negate());
                 assert_eq!(
                     asin_rational_bounds_with_pi(&negative, precision_bits, Some(&pi)).unwrap(),
-                    (former.1.negate(), former.0.negate()),
+                    former_negative,
                 );
                 assert_eq!(
                     acos_rational_bounds_with_pi(&positive, precision_bits, Some(&pi)).unwrap(),
                     (
                         halve_rational(&pi.0).unwrap().subtract(&former.1),
                         halve_rational(&pi.1).unwrap().subtract(&former.0),
+                    ),
+                );
+                assert_eq!(
+                    acos_rational_bounds_with_pi(&negative, precision_bits, Some(&pi)).unwrap(),
+                    (
+                        halve_rational(&pi.0).unwrap().subtract(&former_negative.1),
+                        halve_rational(&pi.1).unwrap().subtract(&former_negative.0),
                     ),
                 );
             }
