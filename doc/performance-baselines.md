@@ -673,6 +673,53 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Inverse-sine common-denominator recurrence
+
+At base commit `41b5531`, the positive inverse-sine series represented every
+term as a Rational and canonicalized its coefficient multiplication, division,
+and partial-sum addition. Commit `5253462` carries the odd power, coefficient
+products, partial sum, and common denominator as BigInts, then canonicalizes
+only the lower bound and the upper bound containing the unchanged twice-next-term
+tail. An exact regression compares zero through one half and multiple term-count
+parities with the former Rational definition.
+
+On 2026-07-12 with `rustc 1.97.0`, controlled public-path measurements were:
+
+| Case | Bytes | Blocks | Native median |
+| --- | ---: | ---: | ---: |
+| `asin(1/3)` | 5,117,548 / 486,300 | 6,356 / 1,363 | 72.396 / 1.7049 ms |
+| `acos(1/3)` | 5,307,522 / 676,274 | 7,296 / 2,303 | 67.772 / 5.6749 ms |
+
+The affected logical-work boundary remained 31 units for both paths. A
+three-iteration/one-warmup Wasm/npm comparison used base artifact
+`9b77e4250dd5d88926ab17667754a31a2e25f76f80b54acfd5de9b7c6111a3d3`
+(784,060 bytes) and implementation artifact
+`78c594a84576e1fa9f5f416fbf6106362e33508af77a3ff481e6c386ff62065d`
+(784,595 bytes). The public facade changed from 462 to 11.3 ms per `asin(1/3)`
+iteration and from 491 to 35.7 ms per `acos(1/3)` iteration while retaining the
+1,772- and 1,766-byte payloads. These low-sample Wasm values are integration
+snapshots rather than statistically powered claims.
+
+Reproduce with:
+
+```sh
+for case in approximate_asin_third approximate_acos_third
+do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/asin_third --sample-size 20
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/acos_third --sample-size 20
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
+
 ## Euler's number factorial denominator
 
 At base commit `32a84f4`, the constant `e` enclosure constructed every `1/n!`

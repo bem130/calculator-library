@@ -68,6 +68,7 @@ canonical非零Rationalの構造的逆数を符号付き値へ一般化し、int
 atanの交代級数は`z=a/b`に対し、`b^(2k+1)`と既出奇数分母の積を共通分母として部分和・現在冪・奇数積をBigInt recurrenceで更新する。unit-range atanとMachin公式のπ計算を同じhelperへ統合し、loop内のRational冪・除算・加減算ごとのGCDを除く。最終部分和と最初の未加算項を含む隣接boundだけをcanonical化し、旧Rational recurrenceとのexact一致、交代級数の方向、logical-work契約を維持する。
 unit-range sin/cosの交代Taylor級数は、項と部分和が各反復後に同じ累積分母を持つBigInt recurrenceを共有する。`x=a/b`の二乗と連続factorial係数で項分子・共通分母・符号付き部分和を更新し、loop内のRational乗除算・加減算ごとのGCDを除く。最終部分和と最初の未加算項による隣接boundだけをcanonical化し、旧Rational recurrenceとのexact一致、sinの奇関数性、cosの偶関数性、logical-work契約を維持する。
 定数`e`の`sum(1/n!)` enclosureは、factorialを共通分母として部分和分子を`sum*n+1`で更新する。各項をRational化して加算する反復GCDを除き、lowerと既存の`2/(N+1)!` tailを加えたupperだけをcanonical化する。指数関数`exp(1)`とは独立した定数経路であり、旧Rational定義とのexact一致、項数、tail保証、logical-work契約を維持する。
+`0 <= x <= 1/2`のasin正項級数は、`x=a/b`の奇数冪と連続係数積を項分子・共通分母のBigInt recurrenceで更新する。loop内のRational乗算・除算・部分和GCDを除き、lowerと既存の次項2倍tailを含むupperだけをcanonical化する。旧Rational定義とのexact一致、正項tail、負値の奇関数性、acosの`pi/2-asin(x)`変換、logical-work契約を維持する。
 
 ## Deliberately Not Contract
 
