@@ -970,6 +970,35 @@ Reproduce with allocation case `approximate_log_non_degenerate`, Criterion case
 Build Wasm and reproduce the boundary snapshot with three iterations and one
 warmup via the package `benchmark` script.
 
+## Directed arctangent endpoints
+
+At base commit `dd9d1ab`, a non-degenerate atan interval built paired bounds at
+both endpoints. For reciprocal-domain inputs, each discarded side also included
+paired unit-atan and Machin pi series. Commit `7f9daef` selects sum or adjacent
+from the alternating-series next-term sign before canonicalization and propagates
+the requested direction through reciprocal, pi/2 subtraction, and odd negation.
+Exact points retain the paired path. Regressions compare directed and paired
+bounds at precisions 1, 64, and 128 across zero, unit boundaries, both signs,
+and reciprocal-domain values.
+
+The public benchmark `atan(2+sin(1))` moved from 945,954 bytes / 2,643 blocks to
+714,058 / 2,249. Separate 20-sample Criterion runs measured native medians of
+approximately 30.24 ms and 11.04 ms, about a 63% reduction. Logical work remained
+200,225 units.
+
+Wasm/npm benchmark definition v9 measured the same 1,776-byte payload. Three
+iterations after one warmup moved from 147.57 ms/iteration at base artifact
+`4df7e49eb99a733625ad6d8a24ba8dff697e3248636419557c9465254aae916a`
+(787,417 bytes) to 67.40 ms/iteration at implementation artifact
+`be2d91fd29c5a03542f72518807fb58c16f7e679ccff07f0b188e4d5774b3090`
+(789,546 bytes). This low-sample boundary snapshot supports the native direction
+but is not a statistically powered Wasm timing claim. Directed bounds, resource
+accounting, and public protocol are unchanged.
+
+Reproduce with allocation case `approximate_atan_non_degenerate`, Criterion case
+`approximate_components/atan_non_degenerate`, `logical_work_baseline`, and the
+package Wasm build/benchmark commands.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the

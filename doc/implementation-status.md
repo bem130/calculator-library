@@ -86,6 +86,7 @@ expの正値range reductionはceilで得た正のprimitive divisorを既存Ratio
 range-reduced logの級数変数`z=(x-1)/(x+1)`はcanonical `x=n/d`から`(n-d)/(n+d)`を構築し、最後に一度だけcanonical化する。Rational加減算と除算の3段階正規化を除き、`log(1)=0` fast path、正項級数tail、logical-work契約を維持する。
 logの`[1,2)` range reductionはcanonical正Rationalのpartsを1・2境界と構造比較し、各stepの2倍・半減をprimitive scalar helperで行う。Rational境界/operandの構築と汎用乗除算dispatchを除き、step上限、binary exponent、log2合成、logical-work契約を維持する。
 非退化intervalのlogはlower endpointからlower bound、upper endpointからupper boundだけを構築する。共通分母級数stateはexact pointではpaired boundsを共有し、directed endpointでは不要なlower canonicalizationまたはupper tailを作らない。正負binary exponentのlog2方向選択、range reduction、tail、logical-work契約を維持する。
+非退化intervalのatanはlower endpointからlower bound、upper endpointからupper boundだけを構築する。unit交代級数は次項符号からsum/adjacentの必要側だけをcanonical化し、reciprocal域では反対方向のunit boundと同方向のMachin π boundを組み合わせる。exact pointのpaired共有、負値の奇関数方向、logical-work契約を維持する。
 
 ## Deliberately Not Contract
 
