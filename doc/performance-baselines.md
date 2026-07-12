@@ -956,8 +956,19 @@ runs at the base and implementation commits measured medians of approximately
 Directed bounds, tail guarantees, resource accounting, and public protocol are
 unchanged.
 
+The same source is part of Wasm/npm benchmark definition v8. Three iterations
+after one warmup measured 51.61 ms/iteration at the base artifact
+`cf78b3950892c354cb583f01fd1613aaf043f954176460cd6bc08a864e4a4dc0`
+(785,878 bytes) and 26.51 ms/iteration at implementation artifact
+`4df7e49eb99a733625ad6d8a24ba8dff697e3248636419557c9465254aae916a`
+(787,417 bytes). Both returned the same 1,772-byte payload. This boundary sample
+supports the native direction but is not treated as a statistically powered
+Wasm timing claim.
+
 Reproduce with allocation case `approximate_log_non_degenerate`, Criterion case
 `approximate_components/log_non_degenerate`, and `logical_work_baseline`.
+Build Wasm and reproduce the boundary snapshot with three iterations and one
+warmup via the package `benchmark` script.
 
 ## Direct unit-range trigonometric pair
 

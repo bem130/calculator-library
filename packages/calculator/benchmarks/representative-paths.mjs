@@ -19,6 +19,7 @@ const cases = [
     ["exact_rational", "12345678901234567890/7 + 98765432109876543210/11", "827160492682716049260/77"],
     ["exact_symbolic", "(exp(1)+sin(1))*cos(1)-exp(1)*cos(1)", "sin(1)*cos(1)"],
     ["approximate", "sin(1)+ln(2)+2^sqrt(2)", "2^sqrt(2)+sin(1)+ln(2)"],
+    ["log_non_degenerate", "ln(2+sin(1))", "ln(sin(1)+2)"],
     ["euler", "e", "e"],
     ["exp_negative_10000", "exp(-10000)", "exp(-10000)"],
     ["exp_positive_10000", "exp(10000)", "exp(10000)"],
@@ -52,7 +53,7 @@ results.push(measure("session_dispatch_sequence", dispatchSessionSequence));
 
 process.stdout.write(`${JSON.stringify({
     schemaVersion: 1,
-    benchmarkDefinition: "representative-paths-v7",
+    benchmarkDefinition: "representative-paths-v8",
     artifact: {
         wasmSha256: createHash("sha256").update(wasmBytes).digest("hex"),
         wasmBytes: wasmBytes.byteLength,
