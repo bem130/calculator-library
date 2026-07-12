@@ -299,10 +299,10 @@ fn exp_binary_scaled_bound(
 
     let residual = match (binary_exponent.is_negative(), direction) {
         (false, BoundDirection::Lower) | (true, BoundDirection::Upper) => {
-            value.subtract(&scale_rational(&log_two_upper, binary_exponent))
+            value.subtract(&scale_rational_by_i64(&log_two_upper, binary_exponent)?)
         }
         (false, BoundDirection::Upper) | (true, BoundDirection::Lower) => {
-            value.subtract(&scale_rational(&log_two_lower, binary_exponent))
+            value.subtract(&scale_rational_by_i64(&log_two_lower, binary_exponent)?)
         }
     };
     let bound = exp_rational_bound(&residual, working_precision, direction)?;
@@ -923,13 +923,13 @@ fn log_rational_bounds(
         log_reduced_rational_bounds(&rational_integer(2), precision_bits)?;
     if exponent_two > 0 {
         Ok((
-            lower.add(&scale_rational(&log_two_lower, exponent_two)),
-            upper.add(&scale_rational(&log_two_upper, exponent_two)),
+            lower.add(&scale_rational_by_i64(&log_two_lower, exponent_two)?),
+            upper.add(&scale_rational_by_i64(&log_two_upper, exponent_two)?),
         ))
     } else {
         Ok((
-            lower.add(&scale_rational(&log_two_upper, exponent_two)),
-            upper.add(&scale_rational(&log_two_lower, exponent_two)),
+            lower.add(&scale_rational_by_i64(&log_two_upper, exponent_two)?),
+            upper.add(&scale_rational_by_i64(&log_two_lower, exponent_two)?),
         ))
     }
 }
@@ -959,7 +959,7 @@ fn log_rational_bound(
     };
     let log_two_bound =
         log_reduced_rational_bound(&rational_integer(2), precision_bits, log_two_direction)?;
-    Ok(reduced_bound.add(&scale_rational(&log_two_bound, exponent_two)))
+    Ok(reduced_bound.add(&scale_rational_by_i64(&log_two_bound, exponent_two)?))
 }
 
 fn reduce_log_argument_to_unit_range(value: &Rational) -> Result<(Rational, i64), IntervalError> {
@@ -2459,6 +2459,13 @@ fn scale_rational_by_positive_u32(
     )
 }
 
+fn scale_rational_by_i64(value: &Rational, factor: i64) -> Result<Rational, IntervalError> {
+    rational_from_parts(
+        &value.numerator.inner * factor,
+        value.denominator.inner.inner.clone(),
+    )
+}
+
 fn rational_from_parts(numerator: BigInt, denominator: BigInt) -> Result<Rational, IntervalError> {
     Rational::new(
         Integer::from_bigint(numerator),
@@ -3386,6 +3393,22 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn signed_primitive_scaling_matches_general_multiplication() {
+        for value in [rational(-7, 3), Rational::zero(), rational(7, 3)] {
+            for factor in [-17_i64, -1, 0, 1, 17] {
+                assert_eq!(
+                    scale_rational_by_i64(&value, factor).unwrap(),
+                    scale_rational(&value, factor),
+                );
+            }
+        }
+        assert_eq!(
+            scale_rational_by_i64(&Rational::one(), i64::MIN).unwrap(),
+            scale_rational(&Rational::one(), i64::MIN),
+        );
     }
 
     #[test]
