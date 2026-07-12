@@ -2387,8 +2387,34 @@ mod tests {
             rational(-3, 1),
         );
         assert_eq!(
+            reciprocal_nonzero_rational(&rational(-7, 5)).unwrap(),
+            divide_rational(&Rational::one(), &rational(-7, 5)).unwrap(),
+        );
+        assert_eq!(
             reciprocal_nonzero_rational(&Rational::zero()),
             Err(IntervalError::DivisionByIntervalContainingZero),
+        );
+    }
+
+    #[test]
+    fn signed_interval_and_atan_reciprocals_preserve_direction() {
+        let negative = from_rational_bounds(&rational(-2, 1), &rational(-1, 1), 64).unwrap();
+        let reciprocal = reciprocal_interval(&negative, 64).unwrap();
+        assert!(contains_rational(&reciprocal, &rational(-1, 1)).unwrap());
+        assert!(contains_rational(&reciprocal, &rational(-1, 2)).unwrap());
+
+        let two = rational(2, 1);
+        let half = rational(1, 2);
+        let actual = atan_rational_bounds(&two, 96).unwrap();
+        let half_bounds = atan_unit_rational_bounds(&half, 96).unwrap();
+        let pi = pi_bounds(96).unwrap();
+        assert_eq!(
+            actual.0,
+            halve_rational(&pi.0).unwrap().subtract(&half_bounds.1)
+        );
+        assert_eq!(
+            actual.1,
+            halve_rational(&pi.1).unwrap().subtract(&half_bounds.0)
         );
     }
 
