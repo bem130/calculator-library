@@ -719,6 +719,20 @@ The Wasm/npm integration snapshot used artifact
 (785,232 bytes) and retained the 1,760-byte `tan(1)` payload without a timing
 claim.
 
+## Primitive trigonometric range divisor
+
+At base commit `68e626d`, range reduction built an integer Rational for the
+positive divisor and called general Rational division. Commit `baf9e7e` multiplies
+the existing denominator by the primitive `u32` and canonicalizes once. Exact
+regressions compare signed rationals and divisors 1, 2, 3, and 17 with the former
+division, including explicit zero rejection.
+
+On 2026-07-12 with `rustc 1.97.0`, deterministic allocations moved from
+12,883/12,863/15,131 bytes to 12,843/12,823/15,091 bytes for public
+`sin(2)`/`cos(2)`/`tan(2)` calculations. Blocks decreased by two in each case.
+This slice claims the structural allocation reduction only; directed bounds,
+logical work, and public protocol are unchanged.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
