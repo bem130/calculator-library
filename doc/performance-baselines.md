@@ -1197,7 +1197,7 @@ CLI stdout was byte-identical, SHA-256
 ## Directed atan endpoints for exact transformed asin
 
 At base commit `b04cb36`, exact transformed asin evaluated paired atan bounds for
-both sqrt-derived ratios and discarded one side of each pair. Commit `962f761`
+both sqrt-derived ratios and discarded one side of each pair. Commit `514c000`
 uses atan lower for the lower ratio and atan upper for the upper ratio, matching
 the subtraction directions exactly. Shared-vs-independent regressions cover both
 signs, series/transform values, zero, and unit endpoints.
