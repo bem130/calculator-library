@@ -45,6 +45,7 @@ const APPROXIMATE_COMPONENTS: &[(&str, &str, ExpectedExact)] = &[
     ("general_power", "2^sqrt(2)", ExpectedExact::GeneralSymbolic),
     ("sin_one", "sin(1)", ExpectedExact::GeneralSymbolic),
     ("atan_two", "atan(2)", ExpectedExact::GeneralSymbolic),
+    ("atan_half", "atan(1/2)", ExpectedExact::GeneralSymbolic),
     ("sqrt_two", "sqrt(2)", ExpectedExact::Radical),
     (
         "power_log_product",
