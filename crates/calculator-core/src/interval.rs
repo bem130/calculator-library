@@ -441,6 +441,16 @@ fn is_unit_rational(value: &Rational) -> bool {
     value.numerator.inner.magnitude() <= value.denominator.inner.inner.magnitude()
 }
 
+fn is_positive_one_rational(value: &Rational) -> bool {
+    value.numerator.inner.sign() == Sign::Plus
+        && value.numerator.inner.magnitude() == value.denominator.inner.inner.magnitude()
+}
+
+fn is_negative_one_rational(value: &Rational) -> bool {
+    value.numerator.inner.sign() == Sign::Minus
+        && value.numerator.inner.magnitude() == value.denominator.inner.inner.magnitude()
+}
+
 pub(crate) fn tan_rational(
     value: &Rational,
     precision_bits: u32,
@@ -1134,15 +1144,14 @@ fn asin_rational_bounds(
     value: &Rational,
     precision_bits: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
-    let minus_one = rational_integer(-1);
-    if compare_rationals(value, &minus_one) == Ordering::Equal {
+    if is_negative_one_rational(value) {
         let (pi_lower, pi_upper) = pi_bounds(precision_bits)?;
         return Ok((
             halve_rational(&pi_upper)?.negate(),
             halve_rational(&pi_lower)?.negate(),
         ));
     }
-    if compare_rationals(value, &Rational::one()) == Ordering::Equal {
+    if is_positive_one_rational(value) {
         let (pi_lower, pi_upper) = pi_bounds(precision_bits)?;
         return Ok((halve_rational(&pi_lower)?, halve_rational(&pi_upper)?));
     }
@@ -1259,14 +1268,13 @@ fn acos_rational_bounds_with_pi(
     precision_bits: u32,
     shared_pi: Option<&(Rational, Rational)>,
 ) -> Result<(Rational, Rational), IntervalError> {
-    let minus_one = rational_integer(-1);
-    if compare_rationals(value, &minus_one) == Ordering::Equal {
+    if is_negative_one_rational(value) {
         return match shared_pi {
             Some((pi_lower, pi_upper)) => Ok((pi_lower.clone(), pi_upper.clone())),
             None => pi_bounds(precision_bits),
         };
     }
-    if compare_rationals(value, &Rational::one()) == Ordering::Equal {
+    if is_positive_one_rational(value) {
         return Ok((Rational::zero(), Rational::zero()));
     }
     if value.is_zero() {
@@ -2789,6 +2797,20 @@ mod tests {
                 halve_rational(&value).unwrap(),
                 divide_rational(&value, &rational_integer(2)).unwrap(),
             );
+        }
+    }
+
+    #[test]
+    fn structural_unit_checks_match_exact_rationals() {
+        for value in [
+            rational(-2, 1),
+            rational(-1, 1),
+            Rational::zero(),
+            Rational::one(),
+            rational(2, 1),
+        ] {
+            assert_eq!(is_negative_one_rational(&value), value == rational(-1, 1));
+            assert_eq!(is_positive_one_rational(&value), value == Rational::one());
         }
     }
 
