@@ -1042,7 +1042,7 @@ fn atan_nonnegative_rational_bounds(
     if value.is_zero() {
         return Ok((Rational::zero(), Rational::zero()));
     }
-    if compare_rationals(value, &Rational::one()) == Ordering::Greater {
+    if !is_unit_rational(value) {
         let reciprocal = reciprocal_nonzero_rational(value)?;
         let (reciprocal_lower, reciprocal_upper) =
             atan_unit_rational_bounds(&reciprocal, precision_bits)?;
@@ -1060,7 +1060,7 @@ fn atan_unit_rational_bounds(
     precision_bits: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
     debug_assert!(!value.is_negative());
-    debug_assert!(compare_rationals(value, &Rational::one()) != Ordering::Greater);
+    debug_assert!(is_unit_rational(value));
     let term_count = series_terms(precision_bits)?;
     atan_series_common_denominator_bounds(value, term_count)
 }
@@ -2814,6 +2814,30 @@ mod tests {
         ] {
             assert_eq!(is_negative_one_rational(&value), value == rational(-1, 1));
             assert_eq!(is_positive_one_rational(&value), value == Rational::one());
+        }
+    }
+
+    #[test]
+    fn structural_unit_range_matches_absolute_rational_comparison() {
+        let one = Rational::one();
+        for value in [
+            rational(-2, 1),
+            rational(-1, 1),
+            rational(-1, 2),
+            Rational::zero(),
+            rational(1, 2),
+            Rational::one(),
+            rational(2, 1),
+        ] {
+            let magnitude = if value.is_negative() {
+                value.negate()
+            } else {
+                value.clone()
+            };
+            assert_eq!(
+                is_unit_rational(&value),
+                compare_rationals(&magnitude, &one) != Ordering::Greater,
+            );
         }
     }
 
