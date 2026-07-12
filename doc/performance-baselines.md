@@ -673,6 +673,45 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Euler constant factorial denominator
+
+At base commit `32a84f4`, the constant `e` enclosure constructed every `1/n!`
+as a Rational and canonicalized the partial sum after every addition. This is a
+separate interval path from `exp(1)`. Commit `cde8380` keeps `n!` as the shared
+denominator and updates the numerator with `sum*n+1`, canonicalizing only the
+lower bound and the upper bound containing the unchanged `2/(N+1)!` tail. An
+exact regression compares term counts from zero through 64 with the former
+Rational definition.
+
+On 2026-07-12 with `rustc 1.97.0`, one public `e` calculation moved from 34,024
+bytes / 1,242 blocks to 7,664 bytes / 259 blocks. A twenty-sample Criterion run
+changed the median from 165.23 µs to 9.5083 µs. The affected logical-work
+boundary remained 2 units.
+
+A three-iteration/one-warmup Wasm/npm comparison used base artifact
+`03fc845ca362f661f8c33c6ba5c7a4e99537779f8628f94bdd8c6bdf7dfdfbc0`
+(784,262 bytes) and implementation artifact
+`9b77e4250dd5d88926ab17667754a31a2e25f76f80b54acfd5de9b7c6111a3d3`
+(784,060 bytes). The public facade validated the exact `e` output and retained
+the 1,750-byte payload; its low-sample time moved from 1.33 ms to 0.375 ms per
+iteration and is recorded as a boundary snapshot rather than a statistically
+powered claim.
+
+Reproduce with:
+
+```sh
+CALCULATOR_ALLOCATION_ITERATIONS=1 \
+  cargo run --profile bench -p calculator-core --features std \
+    --example allocation_baseline -- approximate_euler
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/euler --sample-size 20
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
+
 ## Trigonometric common-denominator recurrence
 
 At base commit `6bbfbf6`, unit-range sine and cosine represented every Taylor
