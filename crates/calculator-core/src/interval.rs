@@ -1405,7 +1405,7 @@ fn asin_rational_bound(
     if compare_nonnegative_rational_to_half(value) != Ordering::Greater {
         return asin_common_denominator_bound(value, series_terms(precision_bits)?, direction);
     }
-    let one_minus_square = Rational::one().subtract(&value.multiply(value));
+    let one_minus_square = one_minus_rational_square(value)?;
     let numerator = match direction {
         BoundDirection::Lower => sqrt_rational_upper(&one_minus_square, precision_bits)?,
         BoundDirection::Upper => sqrt_rational_lower(&one_minus_square, precision_bits)?,
@@ -1431,7 +1431,7 @@ fn asin_positive_rational_bounds(
         return asin_unit_rational_bounds(value, precision_bits);
     }
 
-    let one_minus_square = Rational::one().subtract(&value.multiply(value));
+    let one_minus_square = one_minus_rational_square(value)?;
     let numerator = nth_root_nonnegative_rational(&one_minus_square, 2, precision_bits)?;
     let ratio_lower = divide_rational(&dyadic_to_rational(&numerator.lower)?, value)?;
     let ratio_upper = divide_rational(&dyadic_to_rational(&numerator.upper)?, value)?;
@@ -1444,6 +1444,15 @@ fn asin_positive_rational_bounds(
         halve_rational(&pi_lower)?.subtract(&atan_upper),
         halve_rational(&pi_upper)?.subtract(&atan_lower),
     ))
+}
+
+fn one_minus_rational_square(value: &Rational) -> Result<Rational, IntervalError> {
+    let numerator_squared = &value.numerator.inner * &value.numerator.inner;
+    let denominator_squared = &value.denominator.inner.inner * &value.denominator.inner.inner;
+    rational_from_parts(
+        &denominator_squared - numerator_squared,
+        denominator_squared,
+    )
 }
 
 fn asin_unit_rational_bounds(
@@ -3322,6 +3331,25 @@ mod tests {
             assert_eq!(
                 compare_nonnegative_rational_to_half(&value),
                 compare_rationals(&value, &half),
+            );
+        }
+    }
+
+    #[test]
+    fn direct_complement_square_matches_rational_operations() {
+        for value in [
+            rational(-1, 1),
+            rational(-999, 1_000),
+            rational(-1, 2),
+            Rational::zero(),
+            rational(1, 2),
+            rational(2, 3),
+            rational(999, 1_000),
+            Rational::one(),
+        ] {
+            assert_eq!(
+                one_minus_rational_square(&value).unwrap(),
+                Rational::one().subtract(&value.multiply(&value)),
             );
         }
     }
