@@ -7,7 +7,7 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 use crate::types::{
     ceil_nth_root_nonnegative, ceil_sqrt_nonnegative, floor_nth_root_nonnegative,
     floor_sqrt_nonnegative, CertifiedInterval, Constant, DomainErrorKind, ExactDyadic, Integer,
-    Rational,
+    PositiveInteger, Rational,
 };
 
 const MAX_EXP_RANGE_REDUCTION_STEPS: u32 = 4096;
@@ -1999,20 +1999,30 @@ fn compare_rationals(left: &Rational, right: &Rational) -> Ordering {
 }
 
 pub(crate) fn dyadic_to_rational(value: &ExactDyadic) -> Result<Rational, IntervalError> {
-    let exponent = &value.exponent_two.inner;
+    let normalized = normalize_dyadic(
+        value.coefficient.inner.clone(),
+        value.exponent_two.inner.clone(),
+    );
+    if normalized.coefficient.is_zero() {
+        return Ok(Rational::zero());
+    }
+    let exponent = &normalized.exponent_two.inner;
     if exponent.sign() == Sign::Minus {
         let denominator = BigInt::one()
             << exponent
                 .abs()
                 .to_u32()
                 .ok_or(IntervalError::ExponentTooLarge)?;
-        Rational::new(value.coefficient.clone(), Integer::from_bigint(denominator))
-            .map_err(|_| IntervalError::DivisionByIntervalContainingZero)
+        Ok(Rational {
+            numerator: normalized.coefficient,
+            denominator: PositiveInteger {
+                inner: Integer::from_bigint(denominator),
+            },
+        })
     } else {
-        let numerator =
-            &value.coefficient.inner << exponent.to_u32().ok_or(IntervalError::ExponentTooLarge)?;
-        Rational::new(Integer::from_bigint(numerator), Integer::one())
-            .map_err(|_| IntervalError::DivisionByIntervalContainingZero)
+        let numerator = &normalized.coefficient.inner
+            << exponent.to_u32().ok_or(IntervalError::ExponentTooLarge)?;
+        Ok(Rational::from_integer(Integer::from_bigint(numerator)))
     }
 }
 
@@ -2080,6 +2090,39 @@ mod tests {
                 );
                 assert_eq!(compare_dyadic(left, right).unwrap(), rational_order);
             }
+        }
+    }
+
+    #[test]
+    fn dyadic_conversion_matches_general_rational_canonicalization() {
+        for value in [
+            exact_dyadic(0, -100),
+            exact_dyadic(3, -5),
+            exact_dyadic(-3, -5),
+            exact_dyadic(12, -5),
+            exact_dyadic(-12, -5),
+            exact_dyadic(5, 0),
+            exact_dyadic(-5, 0),
+            exact_dyadic(12, 3),
+        ] {
+            let expected = if value.exponent_two.inner.sign() == Sign::Minus {
+                Rational::new(
+                    value.coefficient.clone(),
+                    Integer::from_bigint(
+                        BigInt::one() << value.exponent_two.inner.abs().to_u32().unwrap(),
+                    ),
+                )
+                .unwrap()
+            } else {
+                Rational::new(
+                    Integer::from_bigint(
+                        &value.coefficient.inner << value.exponent_two.inner.to_u32().unwrap(),
+                    ),
+                    Integer::one(),
+                )
+                .unwrap()
+            };
+            assert_eq!(dyadic_to_rational(&value).unwrap(), expected);
         }
     }
 
