@@ -367,8 +367,8 @@ pub(crate) fn asin(
         let (lower, upper) = asin_rational_bounds(&lower, precision_bits)?;
         return from_rational_bounds(&lower, &upper, precision_bits);
     }
-    let (lower, _) = asin_rational_bounds(&lower, precision_bits)?;
-    let (_, upper) = asin_rational_bounds(&upper, precision_bits)?;
+    let lower = asin_rational_bound(&lower, precision_bits, BoundDirection::Lower)?;
+    let upper = asin_rational_bound(&upper, precision_bits, BoundDirection::Upper)?;
     from_rational_bounds(&lower, &upper, precision_bits)
 }
 
@@ -1383,6 +1383,33 @@ fn asin_rational_bounds(
     asin_positive_rational_bounds(value, precision_bits)
 }
 
+fn asin_rational_bound(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    if value.is_negative() {
+        let positive_direction = match direction {
+            BoundDirection::Lower => BoundDirection::Upper,
+            BoundDirection::Upper => BoundDirection::Lower,
+        };
+        return Ok(
+            asin_rational_bound(&value.negate(), precision_bits, positive_direction)?.negate(),
+        );
+    }
+    if value.is_zero() {
+        return Ok(Rational::zero());
+    }
+    if compare_nonnegative_rational_to_half(value) != Ordering::Greater {
+        return asin_common_denominator_bound(value, series_terms(precision_bits)?, direction);
+    }
+    let (lower, upper) = asin_rational_bounds(value, precision_bits)?;
+    Ok(match direction {
+        BoundDirection::Lower => lower,
+        BoundDirection::Upper => upper,
+    })
+}
+
 fn asin_positive_rational_bounds(
     value: &Rational,
     precision_bits: u32,
@@ -1450,6 +1477,40 @@ fn asin_common_denominator_bounds(
     sum_numerator += term_numerator * 2_u8;
     let upper = rational_from_parts(sum_numerator, common_denominator * next_denominator_factor)?;
     Ok((lower, upper))
+}
+
+fn asin_common_denominator_bound(
+    value: &Rational,
+    term_count: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    let value_numerator = &value.numerator.inner;
+    let value_denominator = &value.denominator.inner.inner;
+    let numerator_squared = value_numerator * value_numerator;
+    let denominator_squared = value_denominator * value_denominator;
+    let mut sum_numerator = value_numerator.clone();
+    let mut term_numerator = value_numerator.clone();
+    let mut common_denominator = value_denominator.clone();
+    for index in 1..=term_count {
+        let (numerator_factor, denominator_factor) =
+            asin_term_factors(index, &numerator_squared, &denominator_squared)?;
+        term_numerator *= numerator_factor;
+        sum_numerator *= &denominator_factor;
+        sum_numerator += &term_numerator;
+        common_denominator *= denominator_factor;
+    }
+    if matches!(direction, BoundDirection::Lower) {
+        return rational_from_parts(sum_numerator, common_denominator);
+    }
+    let next_index = term_count
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let (next_numerator_factor, next_denominator_factor) =
+        asin_term_factors(next_index, &numerator_squared, &denominator_squared)?;
+    term_numerator *= next_numerator_factor;
+    sum_numerator *= &next_denominator_factor;
+    sum_numerator += term_numerator * 2_u8;
+    rational_from_parts(sum_numerator, common_denominator * next_denominator_factor)
 }
 
 fn asin_term_factors(
@@ -2753,6 +2814,30 @@ mod tests {
                 pi_bound(precision_bits, BoundDirection::Upper).unwrap(),
                 pi_upper,
             );
+        }
+    }
+
+    #[test]
+    fn directed_inverse_sine_unit_bounds_match_paired_bounds() {
+        for precision_bits in [1, 64, 128] {
+            for value in [
+                rational(-1, 2),
+                rational(-1, 3),
+                Rational::zero(),
+                rational(1, 3),
+                rational(1, 2),
+                rational(2, 3),
+            ] {
+                let (lower, upper) = asin_rational_bounds(&value, precision_bits).unwrap();
+                assert_eq!(
+                    asin_rational_bound(&value, precision_bits, BoundDirection::Lower).unwrap(),
+                    lower,
+                );
+                assert_eq!(
+                    asin_rational_bound(&value, precision_bits, BoundDirection::Upper).unwrap(),
+                    upper,
+                );
+            }
         }
     }
 
