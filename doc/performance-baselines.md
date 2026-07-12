@@ -673,6 +673,54 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Trigonometric common-denominator recurrence
+
+At base commit `6bbfbf6`, unit-range sine and cosine represented every Taylor
+term and partial sum as canonical Rationals, repeating multiplication, division,
+and GCD normalization in each iteration. Commit `5406762` keeps the current term,
+signed sum, and their shared cumulative denominator as BigInts. Only the final
+partial sum and its first omitted-term neighbor are canonicalized. An exact
+regression compares both series with the former Rational definitions across
+zero, fractions, one, and both term-count parities.
+
+On 2026-07-12 with `rustc 1.97.0`, deterministic one-calculation allocation and
+twenty-sample Criterion measurements were:
+
+| Case | Bytes | Blocks | Native median |
+| --- | ---: | ---: | ---: |
+| `sin(1)` | 33,695 / 20,007 | 1,673 / 755 | 140.69 / 67.962 µs |
+| `cos(1)` | 33,581 / 19,893 | 1,667 / 749 | 132.03 / 60.761 µs |
+
+The affected logical-work boundary remained 200,133 units for both paths. A
+three-iteration/one-warmup Wasm/npm boundary comparison used base artifact
+`ae837ff837a7d3241d7807b2b7d8fb978835cebf4d6da148af70acc1c7eddbb7`
+(784,287 bytes) and implementation artifact
+`03fc845ca362f661f8c33c6ba5c7a4e99537779f8628f94bdd8c6bdf7dfdfbc0`
+(784,262 bytes). The public facade validated `sin(1)` and `cos(1)` exact outputs
+and retained their 1,766-byte payloads. The low-sample Wasm timings moved with
+host-wide noise, so they are retained as integration snapshots without a speed
+claim.
+
+Reproduce with:
+
+```sh
+for case in approximate_sin_one approximate_cos_one
+do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/sin_one --sample-size 20
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/cos_one --sample-size 20
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
+
 ## Arctangent common-denominator recurrence
 
 At base commit `7e6e53a`, unit-range atan and the two reciprocal atan series in
