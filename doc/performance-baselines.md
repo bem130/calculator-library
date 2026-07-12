@@ -859,6 +859,31 @@ bounds, and public protocol are unchanged. Reproduce with allocation cases
 `approximate_asin_third` and `approximate_acos_third`, followed by
 `logical_work_baseline`.
 
+## Primitive exponential range reduction
+
+At base commit `61c853b`, positive exponential range reduction converted its
+positive `u32` ceiling to a Rational and used general division. Directed bounds
+also cloned the input when the divisor was one. Commit `72a8578` multiplies the
+existing denominator by the primitive divisor and canonicalizes once, while the
+unit directed path borrows its input. The paired helper regression records
+`3/2 -> 3/4`, and the scalar-division regression remains exact across signs,
+denominators, and divisors.
+
+On 2026-07-13 with `rustc 1.97.0`, deterministic one-calculation allocations
+changed as follows:
+
+| Case | Bytes | Blocks |
+| --- | ---: | ---: |
+| `exp(2)` | 17,897 / 17,857 | 657 / 655 |
+| `2^sqrt(2)` | 226,166 / 226,038 | 2,903 / 2,899 |
+| `exp(sqrt(2)*ln(2))` | 260,118 / 259,990 | 4,419 / 4,415 |
+
+This slice claims deterministic allocation reduction only. Directed bounds,
+integer powers, reciprocal direction, logical-work accounting, and public
+protocol are unchanged. Reproduce with allocation cases `approximate_exp_two`,
+`approximate_general_power`, and `approximate_exp_power_log_product`, followed
+by `logical_work_baseline`.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
