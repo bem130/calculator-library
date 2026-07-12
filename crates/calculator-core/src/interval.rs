@@ -3151,6 +3151,31 @@ mod tests {
     }
 
     #[test]
+    fn borrowed_cosine_inputs_match_owned_normalization() {
+        for value in [
+            rational(-1, 1),
+            rational(-1, 3),
+            Rational::zero(),
+            rational(1, 3),
+            Rational::one(),
+        ] {
+            let owned = if value.is_negative() {
+                value.negate()
+            } else {
+                value.clone()
+            };
+            let term_count = trigonometric_series_terms(128).unwrap();
+            let expected = trigonometric_series_common_denominator_bounds(
+                &owned,
+                term_count,
+                TrigonometricSeries::Cosine,
+            )
+            .unwrap();
+            assert_eq!(cos_unit_rational_bounds(&value, 128).unwrap(), expected);
+        }
+    }
+
+    #[test]
     fn unit_trigonometric_projections_match_paired_evaluation() {
         for value in [
             rational(-1, 1),
