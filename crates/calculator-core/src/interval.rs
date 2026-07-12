@@ -1780,7 +1780,7 @@ fn e_bounds(precision_bits: u32) -> Result<(Rational, Rational), IntervalError> 
         sum = sum.add(&rational_from_parts(BigInt::one(), factorial.clone())?);
     }
 
-    let next_factorial = factorial * BigInt::from(term_count + 1_u32);
+    let next_factorial = factorial * (term_count + 1_u32);
     let tail_bound = rational_from_parts(BigInt::from(2_u8), next_factorial)?;
     let upper = sum.add(&tail_bound);
     Ok((sum, upper))
@@ -1832,7 +1832,7 @@ fn arctan_reciprocal_term(
         .checked_mul(2)
         .and_then(|value| value.checked_add(1))
         .ok_or(IntervalError::ExponentTooLarge)?;
-    let denominator = denominator_base.pow(power) * BigInt::from(power);
+    let denominator = denominator_base.pow(power) * power;
     rational_from_parts(BigInt::one(), denominator)
 }
 
@@ -1856,13 +1856,13 @@ fn log_series_terms(precision_bits: u32) -> Result<u32, IntervalError> {
             .and_then(|value| value.checked_mul(2))
             .and_then(|value| value.checked_add(1))
             .ok_or(IntervalError::ExponentTooLarge)?;
-        if &odd_power_of_three * BigInt::from(next_denominator) >= target {
+        if &odd_power_of_three * next_denominator >= target {
             return Ok(term_count);
         }
         term_count = term_count
             .checked_add(1)
             .ok_or(IntervalError::ExponentTooLarge)?;
-        odd_power_of_three *= BigInt::from(9_u8);
+        odd_power_of_three *= 9_u8;
     }
 }
 
@@ -1877,7 +1877,7 @@ fn exp_series_terms(precision_bits: u32) -> Result<u32, IntervalError> {
         next_factor = next_factor
             .checked_add(1)
             .ok_or(IntervalError::ExponentTooLarge)?;
-        factorial *= BigInt::from(next_factor);
+        factorial *= next_factor;
     }
     next_factor
         .checked_sub(1)
