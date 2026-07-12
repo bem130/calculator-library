@@ -769,6 +769,18 @@ from 956.04 µs to 764.29 µs. Logical work remained 5 units. Non-dyadic inputs
 such as one third still produce non-degenerate dyadic intervals and intentionally
 retain endpoint-specific evaluation.
 
+## Shared acos endpoint pi bounds
+
+At base commit `11197e3`, non-degenerate acos intervals rebuilt the same pi
+enclosure inside each endpoint evaluation. Commit `909e3bd` shares pi while
+retaining endpoint-specific asin bounds and antitone selection. Exact regressions
+cover -1, zero, one third, and one with shared versus independent pi.
+
+On 2026-07-12 with `rustc 1.97.0`, public `acos(1/3)` allocation moved from
+675,954 bytes / 2,287 blocks to 655,818 / 1,877. Logical work remained 31 units.
+Timing moved with host load and did not establish a speedup, so this slice claims
+only deterministic allocation reduction. Directed bounds and protocol are unchanged.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
