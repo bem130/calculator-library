@@ -1022,7 +1022,11 @@ smokes moved from 151.49 ms at base artifact
 (793,359 bytes) to 88.61 ms at implementation artifact
 `aed5ef521c7fd69606d8651ae0020997b2726573892c77a95dd6c46290d6995f`
 (793,711 bytes). This is boundary smoke data, not a powered timing claim.
-Directed bounds, resource accounting, and public protocol are unchanged.
+CLI stdout was byte-identical at both revisions, SHA-256
+`05a06ac2362c0a7adaede5f7b766aa6cf796ecec3a67af526664a9f2cfe5e85c`.
+The package check, example production build, and browser E2E passed against the
+implementation artifact, confirming unchanged npm presentation and example-ui
+display. Directed bounds, resource accounting, and public protocol are unchanged.
 
 ## Directed unit inverse-sine endpoints
 
