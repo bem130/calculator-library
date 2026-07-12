@@ -76,6 +76,7 @@ unit-range paired trigはrange-reduction divisorが1ならcanonical入力Rationa
 divisor>1のtrig range reductionは、正のprimitive divisorを既存Rational分母へ直接掛けて一度だけcanonical化する。整数Rationalの構築と汎用division dispatchを除き、旧汎用除算とのexact一致とlogical-work契約を維持する。
 interval内のRational halvingは正のprimitive divisor 2を既存分母へ直接掛ける。定数2のRational構築と汎用division dispatchを、π/2およびasin/acos/atan変換から除き、符号・方向付きbound・logical-work契約を維持する。
 Machin公式のπ enclosureは正のprimitive係数16と4をatan boundの分子へ直接掛けて一度だけcanonical化する。整数Rationalの構築と汎用乗算dispatchを除き、旧乗算とのexact一致と方向付きboundを維持する。
+atan/asin/acosのexact dyadic pointは、同じRational endpointのpaired boundsを一度だけ構築してlower/upperへ共有する。非退化intervalは従来の単調・反単調endpoint評価を維持し、domain、方向付き保証、logical-work契約を変更しない。
 
 ## Deliberately Not Contract
 

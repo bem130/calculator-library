@@ -755,6 +755,20 @@ bytes / 1,775 blocks to 81,274 / 1,759. Logical work remained 5 units. This
 slice claims deterministic allocation reduction only; directed bounds and the
 public protocol are unchanged.
 
+## Inverse-trigonometric exact-point sharing
+
+At base commit `bb32a45`, atan, asin, and acos evaluated lower and upper Rational
+endpoints separately even when an exact dyadic point made them equal. Commit
+`d69dfbb` computes the paired bounds once for exact points; non-degenerate
+interval endpoint selection is unchanged. A regression checks atan/asin/acos at
+the exact dyadic point one half against their paired Rational definitions.
+
+On 2026-07-12 with `rustc 1.97.0`, public `atan(2)` allocation moved from 81,274
+bytes / 1,759 blocks to 49,434 / 1,149, and its twenty-sample native median moved
+from 956.04 µs to 764.29 µs. Logical work remained 5 units. Non-dyadic inputs
+such as one third still produce non-degenerate dyadic intervals and intentionally
+retain endpoint-specific evaluation.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
