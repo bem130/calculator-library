@@ -135,6 +135,34 @@ pub(crate) fn multiply(
     left: &CertifiedInterval,
     right: &CertifiedInterval,
 ) -> Result<CertifiedInterval, IntervalError> {
+    let left_nonnegative = left.lower.coefficient.sign() != Sign::Minus;
+    let left_nonpositive = left.upper.coefficient.sign() != Sign::Plus;
+    let right_nonnegative = right.lower.coefficient.sign() != Sign::Minus;
+    let right_nonpositive = right.upper.coefficient.sign() != Sign::Plus;
+    if left_nonnegative && right_nonnegative {
+        return Ok(CertifiedInterval {
+            lower: multiply_dyadic(&left.lower, &right.lower),
+            upper: multiply_dyadic(&left.upper, &right.upper),
+        });
+    }
+    if left_nonpositive && right_nonpositive {
+        return Ok(CertifiedInterval {
+            lower: multiply_dyadic(&left.upper, &right.upper),
+            upper: multiply_dyadic(&left.lower, &right.lower),
+        });
+    }
+    if left_nonnegative && right_nonpositive {
+        return Ok(CertifiedInterval {
+            lower: multiply_dyadic(&left.upper, &right.lower),
+            upper: multiply_dyadic(&left.lower, &right.upper),
+        });
+    }
+    if left_nonpositive && right_nonnegative {
+        return Ok(CertifiedInterval {
+            lower: multiply_dyadic(&left.lower, &right.upper),
+            upper: multiply_dyadic(&left.upper, &right.lower),
+        });
+    }
     let candidates = [
         multiply_dyadic(&left.lower, &right.lower),
         multiply_dyadic(&left.lower, &right.upper),
@@ -2070,6 +2098,28 @@ mod tests {
         let interval = from_rational_bounds(&lower, &upper, 12).unwrap();
         assert!(contains_rational(&interval, &lower).unwrap());
         assert!(contains_rational(&interval, &upper).unwrap());
+    }
+
+    #[test]
+    fn signed_interval_multiplication_matches_endpoint_extrema() {
+        for (left, right, expected) in [
+            ((2, 3), (4, 5), (8, 15)),
+            ((-3, -2), (-5, -4), (8, 15)),
+            ((2, 3), (-5, -4), (-15, -8)),
+            ((-3, -2), (4, 5), (-15, -8)),
+            ((0, 3), (-5, 0), (-15, 0)),
+            ((-2, 3), (4, 5), (-10, 15)),
+            ((-2, 3), (-5, 4), (-15, 12)),
+        ] {
+            let left =
+                from_rational_bounds(&rational(left.0, 1), &rational(left.1, 1), 32).unwrap();
+            let right =
+                from_rational_bounds(&rational(right.0, 1), &rational(right.1, 1), 32).unwrap();
+            let expected =
+                from_rational_bounds(&rational(expected.0, 1), &rational(expected.1, 1), 32)
+                    .unwrap();
+            assert_eq!(multiply(&left, &right).unwrap(), expected);
+        }
     }
 
     #[test]
