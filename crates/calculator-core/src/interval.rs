@@ -360,6 +360,10 @@ pub(crate) fn atan(
 ) -> Result<CertifiedInterval, IntervalError> {
     let lower = dyadic_to_rational(&value.lower)?;
     let upper = dyadic_to_rational(&value.upper)?;
+    if lower == upper {
+        let (lower, upper) = atan_rational_bounds(&lower, precision_bits)?;
+        return from_rational_bounds(&lower, &upper, precision_bits);
+    }
     let (lower, _) = atan_rational_bounds(&lower, precision_bits)?;
     let (_, upper) = atan_rational_bounds(&upper, precision_bits)?;
     from_rational_bounds(&lower, &upper, precision_bits)
@@ -370,6 +374,10 @@ pub(crate) fn asin(
     precision_bits: u32,
 ) -> Result<CertifiedInterval, IntervalError> {
     let (lower, upper) = inverse_sine_cosine_domain_bounds(value)?;
+    if lower == upper {
+        let (lower, upper) = asin_rational_bounds(&lower, precision_bits)?;
+        return from_rational_bounds(&lower, &upper, precision_bits);
+    }
     let (lower, _) = asin_rational_bounds(&lower, precision_bits)?;
     let (_, upper) = asin_rational_bounds(&upper, precision_bits)?;
     from_rational_bounds(&lower, &upper, precision_bits)
@@ -380,6 +388,10 @@ pub(crate) fn acos(
     precision_bits: u32,
 ) -> Result<CertifiedInterval, IntervalError> {
     let (lower_endpoint, upper_endpoint) = inverse_sine_cosine_domain_bounds(value)?;
+    if lower_endpoint == upper_endpoint {
+        let (lower, upper) = acos_rational_bounds(&lower_endpoint, precision_bits)?;
+        return from_rational_bounds(&lower, &upper, precision_bits);
+    }
     let (lower, _) = acos_rational_bounds(&upper_endpoint, precision_bits)?;
     let (_, upper) = acos_rational_bounds(&lower_endpoint, precision_bits)?;
     from_rational_bounds(&lower, &upper, precision_bits)
@@ -2470,6 +2482,31 @@ mod tests {
                     128
                 )
                 .unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn inverse_trig_exact_points_share_paired_bounds() {
+        let value = rational(1, 2);
+        let point = from_rational(&value, 128);
+        for (actual, expected) in [
+            (
+                atan(&point, 128).unwrap(),
+                atan_rational_bounds(&value, 128).unwrap(),
+            ),
+            (
+                asin(&point, 128).unwrap(),
+                asin_rational_bounds(&value, 128).unwrap(),
+            ),
+            (
+                acos(&point, 128).unwrap(),
+                acos_rational_bounds(&value, 128).unwrap(),
+            ),
+        ] {
+            assert_eq!(
+                actual,
+                from_rational_bounds(&expected.0, &expected.1, 128).unwrap()
             );
         }
     }
