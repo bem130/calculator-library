@@ -1125,6 +1125,21 @@ four input-independent Machin recurrence traversals per non-degenerate transform
 interval; endpoint-specific sqrt and atan work is unchanged. Directed bounds,
 resource accounting, and protocol are unchanged.
 
+Wasm/npm benchmark definition v11 adds the corresponding transformed-acos case.
+One-iteration boundary smokes used identical sources and presentation requests.
+The base artifact was
+`468c30c0b5909b72ae1e4af8d2fd2d6e751328a07002735631bbae59cd34a1e6`
+(792,927 bytes); the reviewed artifact was
+`c5536723ac8fecfae0b5dc4bcc09b6acf170d81eefcaa54bb387afebfdab4ae2`
+(793,359 bytes). Asin retained its 1,788-byte serialized payload and acos its
+1,794-byte payload. Host contention also makes these single-run Wasm times smoke
+data rather than a timing claim. CLI stdout remained byte-identical: asin SHA-256
+`f84326849c16faeb7851f12b51ed3c5694edd9020955a1dbc96cf19ef45d5e07`
+and acos SHA-256
+`d10359056958748c0e2da89393fc49277510f74234a7df85a1e8c45f12fd7901`.
+The package check, example production build, and browser E2E passed against the
+reviewed artifact, confirming unchanged npm presentation and example-ui display.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
