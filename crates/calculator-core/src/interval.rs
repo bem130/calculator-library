@@ -1999,29 +1999,49 @@ fn compare_rationals(left: &Rational, right: &Rational) -> Ordering {
 }
 
 pub(crate) fn dyadic_to_rational(value: &ExactDyadic) -> Result<Rational, IntervalError> {
-    let normalized = normalize_dyadic(
-        value.coefficient.inner.clone(),
-        value.exponent_two.inner.clone(),
-    );
-    if normalized.coefficient.is_zero() {
+    if value.coefficient.is_zero() {
         return Ok(Rational::zero());
     }
-    let exponent = &normalized.exponent_two.inner;
-    if exponent.sign() == Sign::Minus {
+    let exponent = &value.exponent_two.inner;
+    if exponent.sign() == Sign::Minus && !value.coefficient.inner.is_even() {
         let denominator = BigInt::one()
             << exponent
                 .abs()
                 .to_u32()
                 .ok_or(IntervalError::ExponentTooLarge)?;
         Ok(Rational {
-            numerator: normalized.coefficient,
+            numerator: value.coefficient.clone(),
             denominator: PositiveInteger {
                 inner: Integer::from_bigint(denominator),
             },
         })
+    } else if exponent.sign() == Sign::Minus {
+        let mut coefficient = value.coefficient.inner.clone();
+        let mut exponent = exponent.clone();
+        while exponent.sign() == Sign::Minus && coefficient.is_even() {
+            coefficient >>= 1_u8;
+            exponent += 1_u8;
+        }
+        if exponent.sign() == Sign::Minus {
+            let denominator = BigInt::one()
+                << exponent
+                    .abs()
+                    .to_u32()
+                    .ok_or(IntervalError::ExponentTooLarge)?;
+            Ok(Rational {
+                numerator: Integer::from_bigint(coefficient),
+                denominator: PositiveInteger {
+                    inner: Integer::from_bigint(denominator),
+                },
+            })
+        } else {
+            let numerator =
+                coefficient << exponent.to_u32().ok_or(IntervalError::ExponentTooLarge)?;
+            Ok(Rational::from_integer(Integer::from_bigint(numerator)))
+        }
     } else {
-        let numerator = &normalized.coefficient.inner
-            << exponent.to_u32().ok_or(IntervalError::ExponentTooLarge)?;
+        let numerator =
+            &value.coefficient.inner << exponent.to_u32().ok_or(IntervalError::ExponentTooLarge)?;
         Ok(Rational::from_integer(Integer::from_bigint(numerator)))
     }
 }
