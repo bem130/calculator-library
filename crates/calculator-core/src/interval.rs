@@ -2018,10 +2018,13 @@ pub(crate) fn dyadic_to_rational(value: &ExactDyadic) -> Result<Rational, Interv
     } else if exponent.sign() == Sign::Minus {
         let mut coefficient = value.coefficient.inner.clone();
         let mut exponent = exponent.clone();
-        while exponent.sign() == Sign::Minus && coefficient.is_even() {
-            coefficient >>= 1_u8;
-            exponent += 1_u8;
-        }
+        let trailing_zeros = coefficient.trailing_zeros().unwrap_or(0);
+        let removed = exponent
+            .abs()
+            .to_u64()
+            .map_or(trailing_zeros, |magnitude| magnitude.min(trailing_zeros));
+        coefficient >>= removed;
+        exponent += removed;
         if exponent.sign() == Sign::Minus {
             let denominator = BigInt::one()
                 << exponent
