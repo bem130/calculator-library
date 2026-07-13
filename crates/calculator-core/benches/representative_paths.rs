@@ -80,6 +80,11 @@ const APPROXIMATE_COMPONENTS: &[(&str, &str, ExpectedExact)] = &[
         ExpectedExact::GeneralSymbolic,
     ),
     (
+        "acos_five_eighths",
+        "acos(5/8)",
+        ExpectedExact::GeneralSymbolic,
+    ),
+    (
         "acos_non_degenerate_transform",
         "acos((2+sin(1))/3)",
         ExpectedExact::GeneralSymbolic,
