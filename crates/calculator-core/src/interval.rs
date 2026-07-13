@@ -247,13 +247,13 @@ pub(crate) fn exp(
                     &lower,
                     term_count,
                     BoundDirection::Lower,
-                    &common_denominator,
+                    common_denominator.clone(),
                 )?,
                 exp_series_rational_bound_with_common_denominator(
                     &upper,
                     term_count,
                     BoundDirection::Upper,
-                    &common_denominator,
+                    common_denominator,
                 )?,
             )
         } else {
@@ -916,7 +916,7 @@ fn exp_series_rational_bound_with_common_denominator(
     value: &Rational,
     term_count: u32,
     direction: BoundDirection,
-    common_denominator: &BigInt,
+    common_denominator: BigInt,
 ) -> Result<Rational, IntervalError> {
     let tail_index = term_count
         .checked_add(1)
@@ -967,17 +967,20 @@ fn exp_series_state(value: &Rational, term_count: u32, tail_index: u32) -> ExpSe
     let value_denominator = &value.denominator.inner.inner;
     let mut sum_numerator = BigInt::one();
     let mut term_numerator = BigInt::one();
+    let mut common_denominator = BigInt::one();
     for next_n in 1..=term_count {
         let denominator_factor = value_denominator * next_n;
         let next_term_numerator = &term_numerator * value_numerator;
         sum_numerator *= &denominator_factor;
         sum_numerator += &next_term_numerator;
         term_numerator = next_term_numerator;
+        common_denominator *= value_denominator;
+        common_denominator *= next_n;
     }
     ExpSeriesState {
         sum_numerator,
         term_numerator,
-        common_denominator: exp_series_common_denominator(value_denominator, term_count),
+        common_denominator,
         value_numerator,
         value_denominator,
         tail_index,
@@ -988,7 +991,7 @@ fn exp_series_state_with_common_denominator<'a>(
     value: &'a Rational,
     term_count: u32,
     tail_index: u32,
-    common_denominator: &BigInt,
+    common_denominator: BigInt,
 ) -> ExpSeriesState<'a> {
     let value_numerator = &value.numerator.inner;
     let value_denominator = &value.denominator.inner.inner;
@@ -1004,7 +1007,7 @@ fn exp_series_state_with_common_denominator<'a>(
     ExpSeriesState {
         sum_numerator,
         term_numerator,
-        common_denominator: common_denominator.clone(),
+        common_denominator,
         value_numerator,
         value_denominator,
         tail_index,
@@ -3282,7 +3285,7 @@ mod tests {
                     &lower,
                     term_count,
                     BoundDirection::Lower,
-                    &common_denominator,
+                    common_denominator.clone(),
                 )
                 .unwrap(),
                 exp_series_rational_bound(&lower, term_count, BoundDirection::Lower).unwrap(),
@@ -3292,7 +3295,7 @@ mod tests {
                     &upper,
                     term_count,
                     BoundDirection::Upper,
-                    &common_denominator,
+                    common_denominator,
                 )
                 .unwrap(),
                 exp_series_rational_bound(&upper, term_count, BoundDirection::Upper).unwrap(),
