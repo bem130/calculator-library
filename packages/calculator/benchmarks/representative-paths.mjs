@@ -21,6 +21,7 @@ const cases = [
     ["exact_trig_identity", "sin(1)^2+cos(1)^2", "1"],
     ["approximate", "sin(1)+ln(2)+2^sqrt(2)", "2^sqrt(2)+sin(1)+ln(2)"],
     ["log_non_degenerate", "ln(2+sin(1))", "ln(sin(1)+2)"],
+    ["log_large_positive", "ln(340282366920938463463374607431768211457)", "ln(340282366920938463463374607431768211457)"],
     ["euler", "e", "e"],
     ["exp_negative_10000", "exp(-10000)", "exp(-10000)"],
     ["exp_positive_10000", "exp(10000)", "exp(10000)"],
@@ -59,7 +60,7 @@ results.push(measure("session_dispatch_sequence", dispatchSessionSequence));
 
 process.stdout.write(`${JSON.stringify({
     schemaVersion: 1,
-    benchmarkDefinition: "representative-paths-v14",
+    benchmarkDefinition: "representative-paths-v15",
     artifact: {
         wasmSha256: createHash("sha256").update(wasmBytes).digest("hex"),
         wasmBytes: wasmBytes.byteLength,

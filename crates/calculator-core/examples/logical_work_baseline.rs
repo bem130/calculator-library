@@ -16,6 +16,10 @@ fn main() {
         ("exp_negative_10000", "exp(-10000)"),
         ("exp_positive_10000", "exp(10000)"),
         ("log_non_degenerate", "ln(2+sin(1))"),
+        (
+            "log_large_positive",
+            "ln(340282366920938463463374607431768211457)",
+        ),
         ("atan_half", "atan(1/2)"),
         ("atan_two", "atan(2)"),
         ("atan_non_degenerate", "atan(2+sin(1))"),

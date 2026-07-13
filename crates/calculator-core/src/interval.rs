@@ -1479,19 +1479,61 @@ fn reduce_log_argument_to_unit_range(value: &Rational) -> Result<(Rational, i64)
     let mut steps = 0_u32;
     while compare_positive_rational_to_two(&reduced) != Ordering::Less {
         guard_log_range_reduction_step(&mut steps)?;
-        reduced = halve_rational(&reduced)?;
+        reduced = halve_log_range_rational(&reduced);
         exponent_two = exponent_two
             .checked_add(1)
             .ok_or(IntervalError::ExponentTooLarge)?;
     }
     while compare_positive_rational_to_one(&reduced) == Ordering::Less {
         guard_log_range_reduction_step(&mut steps)?;
-        reduced = scale_rational_by_positive_u32(&reduced, 2)?;
+        reduced = double_log_range_rational(&reduced);
         exponent_two = exponent_two
             .checked_sub(1)
             .ok_or(IntervalError::ExponentTooLarge)?;
     }
     Ok((reduced, exponent_two))
+}
+
+fn halve_log_range_rational(value: &Rational) -> Rational {
+    debug_assert!(!value.is_negative() && !value.is_zero());
+    let (numerator, denominator) = if value.numerator.inner.is_even() {
+        (
+            &value.numerator.inner >> 1_u8,
+            value.denominator.inner.inner.clone(),
+        )
+    } else {
+        (
+            value.numerator.inner.clone(),
+            &value.denominator.inner.inner << 1_u8,
+        )
+    };
+    Rational {
+        numerator: Integer::from_bigint(numerator),
+        denominator: PositiveInteger {
+            inner: Integer::from_bigint(denominator),
+        },
+    }
+}
+
+fn double_log_range_rational(value: &Rational) -> Rational {
+    debug_assert!(!value.is_negative() && !value.is_zero());
+    let (numerator, denominator) = if value.denominator.inner.inner.is_even() {
+        (
+            value.numerator.inner.clone(),
+            &value.denominator.inner.inner >> 1_u8,
+        )
+    } else {
+        (
+            &value.numerator.inner << 1_u8,
+            value.denominator.inner.inner.clone(),
+        )
+    };
+    Rational {
+        numerator: Integer::from_bigint(numerator),
+        denominator: PositiveInteger {
+            inner: Integer::from_bigint(denominator),
+        },
+    }
 }
 
 fn compare_positive_rational_to_one(value: &Rational) -> Ordering {
@@ -4828,6 +4870,7 @@ mod tests {
     fn scalar_log_range_reduction_matches_rational_operations() {
         let two = rational_integer(2);
         for value in [
+            rational(3, 4_096),
             rational(3, 16),
             rational(3, 4),
             Rational::one(),
@@ -4835,6 +4878,7 @@ mod tests {
             rational(2, 1),
             rational(3, 1),
             rational(8, 1),
+            rational(12_288, 5),
         ] {
             let mut expected = value.clone();
             let mut expected_exponent = 0_i64;
@@ -4849,6 +4893,29 @@ mod tests {
             assert_eq!(
                 reduce_log_argument_to_unit_range(&value).unwrap(),
                 (expected, expected_exponent),
+            );
+        }
+    }
+
+    #[test]
+    fn canonical_log_scaling_matches_general_rational_operations() {
+        for value in [
+            rational(1, 8),
+            rational(3, 8),
+            rational(1, 3),
+            rational(2, 3),
+            rational(3, 1),
+            rational(8, 3),
+            rational(1_024, 3),
+            rational(3, 1_024),
+        ] {
+            assert_eq!(
+                halve_log_range_rational(&value),
+                divide_rational(&value, &rational_integer(2)).unwrap(),
+            );
+            assert_eq!(
+                double_log_range_rational(&value),
+                value.multiply(&rational_integer(2)),
             );
         }
     }

@@ -2061,6 +2061,56 @@ unit reduced endpoints, multiple precisions, and the zero/error preflight order.
 Reproduce with allocation case `approximate_log_non_degenerate`, Criterion case
 `approximate_components/log_non_degenerate`, and `logical_work_baseline`.
 
+## Canonical logarithm range scaling
+
+Logarithm range reduction repeatedly halves values at or above two and doubles
+values below one. For canonical `n/d`, parity determines the only possible factor
+of two cancellation: halving uses `(n/2)/d` when `n` is even and `n/(2d)`
+otherwise; doubling uses `n/(d/2)` when `d` is even and `(2n)/d` otherwise. The
+range reducer now constructs those already-canonical forms directly instead of
+running a general GCD and exact division at every step.
+
+The representative native, allocation, logical-work, and Wasm/npm harnesses now
+include `ln(340282366920938463463374607431768211457)`, a non-power integer just
+above `2^128` that requires 128 halving steps without simplifying to an integer
+multiple of `ln(2)`. On 2026-07-13 with `rustc 1.97.0`, deterministic one-call
+allocation changed as follows:
+
+| Case | Before | After |
+| --- | ---: | ---: |
+| large positive log | 179,401 bytes / 1,927 blocks | 170,153 / 1,415 |
+| `ln(2+sin(1))` | 347,780 / 1,517 | 347,588 / 1,509 |
+| `ln(2)` | 20,197 / 728 | 20,165 / 724 |
+| `2^sqrt(2)` | 151,374 / 2,060 | 151,342 / 2,056 |
+| `exp(-10000)` | 511,776 / 1,765 | unchanged |
+| `exp(10000)` | 489,112 / 1,695 | unchanged |
+
+Peak live allocation was unchanged. A same-host saved-baseline Criterion run was
+noisy for the new large-log case (5.114 ms base midpoint, 5.608 ms candidate,
+confidence intervals overlapping and `p=0.43`) and therefore supports no timing
+claim for that case. The same run classified `ln(2)` and the non-degenerate log
+as improved, with midpoint changes of about 41% and 22%; deterministic allocation
+is the reproducible claim. Logical work remains 200,225 units for the
+non-degenerate log and is 21 units for the new large-log case.
+The one-iteration Wasm/npm boundary smoke used artifact
+`2d4b563c30964faaf8c2566e511efddf5b6b349ebdbaf0b63d80447f26e9f3c8`
+(811,498 bytes); the new case completed in 22.3 ms with a 1,834-byte payload.
+This cold single sample verifies the facade and payload path and is not a timing
+comparison.
+
+Structural regressions compare both parity branches and multi-step reductions
+against general Rational multiplication/division. A rejected alternative built
+the nonunit series common denominator once with a final power. It reduced the
+non-degenerate-log allocation from 347,780 to 314,628 bytes but a saved-baseline
+run regressed the Criterion midpoint from 4.53 ms to 5.11 ms (about 12%,
+`p=0.01`), so it is not retained.
+
+Reproduce with allocation cases `approximate_log_large_positive`,
+`approximate_log_non_degenerate`, `approximate_log_two`, and the existing exp
+controls; Criterion cases are under `approximate_components`. Run
+`logical_work_baseline` and the package benchmark to cover deterministic work and
+the Wasm/npm boundary.
+
 ## Primitive exponential recurrence indices
 
 At base commit `5506090`, the common-denominator exponential recurrence converted
