@@ -1260,6 +1260,20 @@ impl ExpSeriesState<'_> {
     }
 }
 
+fn multiply_by_exp_denominator_factor(
+    value: &mut BigInt,
+    denominator: &BigInt,
+    denominator_shift: Option<usize>,
+    index: u32,
+) {
+    if let Some(shift) = denominator_shift {
+        *value *= index;
+        *value <<= shift;
+    } else {
+        *value *= denominator * index;
+    }
+}
+
 fn exp_series_state_with_plan<'a>(
     value: &'a Rational,
     plan: &ExpSeriesPlan,
@@ -1273,12 +1287,17 @@ fn exp_series_state_with_plan<'a>(
         term_count,
         &plan.factorial,
     )?;
+    let value_denominator_shift = positive_power_of_two_shift(value_denominator);
     let mut sum_numerator = BigInt::one();
     let mut term_numerator = BigInt::one();
     for next_n in 1..=term_count {
-        let denominator_factor = value_denominator * next_n;
         term_numerator *= value_numerator;
-        sum_numerator *= &denominator_factor;
+        multiply_by_exp_denominator_factor(
+            &mut sum_numerator,
+            value_denominator,
+            value_denominator_shift,
+            next_n,
+        );
         sum_numerator += &term_numerator;
     }
     Ok(ExpSeriesState {
@@ -1299,12 +1318,17 @@ fn exp_series_state_with_common_denominator<'a>(
 ) -> ExpSeriesState<'a> {
     let value_numerator = &value.numerator.inner;
     let value_denominator = &value.denominator.inner.inner;
+    let value_denominator_shift = positive_power_of_two_shift(value_denominator);
     let mut sum_numerator = BigInt::one();
     let mut term_numerator = BigInt::one();
     for next_n in 1..=term_count {
-        let denominator_factor = value_denominator * next_n;
         term_numerator *= value_numerator;
-        sum_numerator *= denominator_factor;
+        multiply_by_exp_denominator_factor(
+            &mut sum_numerator,
+            value_denominator,
+            value_denominator_shift,
+            next_n,
+        );
         sum_numerator += &term_numerator;
     }
     ExpSeriesState {
@@ -1331,16 +1355,26 @@ fn exp_series_common_denominator_with_factorial(
     term_count: u32,
     factorial: &BigInt,
 ) -> Result<BigInt, IntervalError> {
-    let magnitude = value_denominator.magnitude();
-    let bits = magnitude.bits();
-    if bits > 0 && magnitude == &(BigUint::one() << (bits - 1)) {
-        let shift: usize = (bits - 1)
-            .checked_mul(u64::from(term_count))
-            .and_then(|value| value.try_into().ok())
+    if let Some(denominator_shift) = positive_power_of_two_shift(value_denominator) {
+        let term_count: usize = term_count
+            .try_into()
+            .map_err(|_| IntervalError::ExponentTooLarge)?;
+        let shift = denominator_shift
+            .checked_mul(term_count)
             .ok_or(IntervalError::ExponentTooLarge)?;
         Ok(factorial << shift)
     } else {
         Ok(value_denominator.pow(term_count) * factorial)
+    }
+}
+
+fn positive_power_of_two_shift(value: &BigInt) -> Option<usize> {
+    let magnitude = value.magnitude();
+    let bits = magnitude.bits();
+    if bits > 0 && magnitude.trailing_zeros() == Some(bits - 1) {
+        (bits - 1).try_into().ok()
+    } else {
+        None
     }
 }
 
@@ -3795,6 +3829,71 @@ mod tests {
                     expected,
                 );
             }
+        }
+    }
+
+    #[test]
+    fn dyadic_exponential_recurrence_matches_general_denominator_products() {
+        fn legacy_state<'a>(
+            value: &'a Rational,
+            plan: &ExpSeriesPlan,
+            tail_index: u32,
+        ) -> ExpSeriesState<'a> {
+            let value_numerator = &value.numerator.inner;
+            let value_denominator = &value.denominator.inner.inner;
+            let common_denominator = exp_series_common_denominator_with_factorial(
+                value_denominator,
+                plan.term_count,
+                &plan.factorial,
+            )
+            .unwrap();
+            let mut sum_numerator = BigInt::one();
+            let mut term_numerator = BigInt::one();
+            for next_n in 1..=plan.term_count {
+                let denominator_factor = value_denominator * next_n;
+                term_numerator *= value_numerator;
+                sum_numerator *= denominator_factor;
+                sum_numerator += &term_numerator;
+            }
+            ExpSeriesState {
+                sum_numerator,
+                term_numerator,
+                common_denominator,
+                value_numerator,
+                value_denominator,
+                tail_index,
+            }
+        }
+
+        let plan = ExpSeriesPlan {
+            term_count: 17,
+            factorial: exp_series_factorial(17),
+        };
+        for value in [
+            Rational::one(),
+            rational(1, 2),
+            rational(3, 8),
+            rational(1, 3),
+        ] {
+            let tail_index = plan.term_count + 1;
+            assert_eq!(
+                exp_series_state_with_plan(&value, &plan, tail_index)
+                    .unwrap()
+                    .into_lower()
+                    .unwrap(),
+                legacy_state(&value, &plan, tail_index)
+                    .into_lower()
+                    .unwrap(),
+            );
+            assert_eq!(
+                exp_series_state_with_plan(&value, &plan, tail_index)
+                    .unwrap()
+                    .into_upper()
+                    .unwrap(),
+                legacy_state(&value, &plan, tail_index)
+                    .into_upper()
+                    .unwrap(),
+            );
         }
     }
 

@@ -1940,6 +1940,41 @@ their cached controls. This slice claims the deterministic allocation reduction;
 directed bounds, precision, logical-work charging, and public protocol are
 unchanged.
 
+## Dyadic exponential recurrence denominator shifts
+
+For a dyadic Taylor input denominator `b = 2^k`, every recurrence step formerly
+allocated `b*n` and used it as a general BigInt multiplier for the growing sum.
+The state now detects `k` once without allocating and performs the equivalent
+`sum *= n; sum <<= k`. Non-dyadic denominators retain the general product. The
+same non-allocating power-of-two predicate replaces the allocating comparison in
+the existing final common-denominator plan.
+
+Against commit `7b70b4d`, deterministic one-calculation allocation changed as
+follows on 2026-07-13 with `rustc 1.97.0`:
+
+| Case | Before | After |
+| --- | ---: | ---: |
+| `exp(1)` | 16,861 bytes / 600 blocks | 16,581 / 565 |
+| `2^sqrt(2)` | 156,814 / 2,221 | 151,926 / 2,098 |
+| `exp(sqrt(2)*ln(2))` | 190,766 / 3,737 | 185,878 / 3,614 |
+| `exp(-10000)` | 512,640 / 1,814 | 512,480 / 1,808 |
+| `exp(10000)` | 489,992 / 1,744 | 489,816 / 1,738 |
+
+Peak live allocation was unchanged. Multiplying by the primitive index before
+shifting saved a further 232 bytes and one block in each general-power case over
+shift-before-multiply, without changing the other cases. Applying the same split
+to tail construction saved 128 bytes and two blocks plus 32 peak bytes for general
+power, but added 96 bytes/two blocks to `exp(-10000)` and 32 bytes/one block to
+`exp(10000)`; that mixed, broader variant was rejected in favor of the loop-only
+change. Exact regressions compare lower and upper results with the old general
+factor recurrence for integer, dyadic, and non-dyadic inputs. Directed bounds,
+logical-work charging, and public protocol are unchanged. Ten-sample Criterion
+midpoints moved from the preceding 32.8 µs snapshot to 23.7 µs for `exp(1)`, from
+630 µs to 204 µs for general power, and from 1.00 ms to 232 µs for
+`exp(-10000)`. These host-sensitive snapshots agree with the structural removal
+of the large general multiplications; deterministic allocation remains the
+reproducible comparison.
+
 ## Shared binary logarithm composition
 
 Non-degenerate logarithm intervals require endpoint-specific range reduction and
