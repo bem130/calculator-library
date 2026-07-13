@@ -1174,8 +1174,12 @@ fn exp_series_rational_bound_with_common_denominator(
     let tail_index = term_count
         .checked_add(1)
         .ok_or(IntervalError::ExponentTooLarge)?;
-    let state =
-        exp_series_state_with_common_denominator(value, term_count, tail_index, common_denominator);
+    let state = exp_series_state_with_common_denominator(
+        value,
+        term_count,
+        tail_index,
+        common_denominator,
+    )?;
     match direction {
         BoundDirection::Lower => state.into_lower(),
         BoundDirection::Upper => state.into_upper(),
@@ -1192,8 +1196,12 @@ fn exp_series_dyadic_bound_with_common_denominator(
     let tail_index = term_count
         .checked_add(1)
         .ok_or(IntervalError::ExponentTooLarge)?;
-    let state =
-        exp_series_state_with_common_denominator(value, term_count, tail_index, common_denominator);
+    let state = exp_series_state_with_common_denominator(
+        value,
+        term_count,
+        tail_index,
+        common_denominator,
+    )?;
     let (numerator, denominator) = state.into_parts(direction);
     Ok(fraction_to_dyadic_bound(
         &numerator,
@@ -1287,7 +1295,7 @@ fn exp_series_state_with_plan<'a>(
         term_count,
         &plan.factorial,
     )?;
-    let value_denominator_shift = positive_power_of_two_shift(value_denominator);
+    let value_denominator_shift = recurrence_denominator_shift(value_denominator)?;
     let mut sum_numerator = BigInt::one();
     let mut term_numerator = BigInt::one();
     for next_n in 1..=term_count {
@@ -1315,10 +1323,10 @@ fn exp_series_state_with_common_denominator<'a>(
     term_count: u32,
     tail_index: u32,
     common_denominator: BigInt,
-) -> ExpSeriesState<'a> {
+) -> Result<ExpSeriesState<'a>, IntervalError> {
     let value_numerator = &value.numerator.inner;
     let value_denominator = &value.denominator.inner.inner;
-    let value_denominator_shift = positive_power_of_two_shift(value_denominator);
+    let value_denominator_shift = recurrence_denominator_shift(value_denominator)?;
     let mut sum_numerator = BigInt::one();
     let mut term_numerator = BigInt::one();
     for next_n in 1..=term_count {
@@ -1331,14 +1339,14 @@ fn exp_series_state_with_common_denominator<'a>(
         );
         sum_numerator += &term_numerator;
     }
-    ExpSeriesState {
+    Ok(ExpSeriesState {
         sum_numerator,
         term_numerator,
         common_denominator,
         value_numerator,
         value_denominator,
         tail_index,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -1356,26 +1364,46 @@ fn exp_series_common_denominator_with_factorial(
     factorial: &BigInt,
 ) -> Result<BigInt, IntervalError> {
     if let Some(denominator_shift) = positive_power_of_two_shift(value_denominator) {
-        let term_count: usize = term_count
-            .try_into()
-            .map_err(|_| IntervalError::ExponentTooLarge)?;
-        let shift = denominator_shift
-            .checked_mul(term_count)
-            .ok_or(IntervalError::ExponentTooLarge)?;
+        let shift = checked_exp_denominator_total_shift(denominator_shift, term_count)?;
         Ok(factorial << shift)
     } else {
         Ok(value_denominator.pow(term_count) * factorial)
     }
 }
 
-fn positive_power_of_two_shift(value: &BigInt) -> Option<usize> {
+fn positive_power_of_two_shift(value: &BigInt) -> Option<u64> {
+    if value.sign() != Sign::Plus {
+        return None;
+    }
     let magnitude = value.magnitude();
     let bits = magnitude.bits();
     if bits > 0 && magnitude.trailing_zeros() == Some(bits - 1) {
-        (bits - 1).try_into().ok()
+        Some(bits - 1)
     } else {
         None
     }
+}
+
+fn recurrence_denominator_shift(value: &BigInt) -> Result<Option<usize>, IntervalError> {
+    positive_power_of_two_shift(value)
+        .map(checked_exp_denominator_shift)
+        .transpose()
+}
+
+fn checked_exp_denominator_shift(shift: u64) -> Result<usize, IntervalError> {
+    shift
+        .try_into()
+        .map_err(|_| IntervalError::ExponentTooLarge)
+}
+
+fn checked_exp_denominator_total_shift(
+    denominator_shift: u64,
+    term_count: u32,
+) -> Result<usize, IntervalError> {
+    denominator_shift
+        .checked_mul(u64::from(term_count))
+        .and_then(|shift| shift.try_into().ok())
+        .ok_or(IntervalError::ExponentTooLarge)
 }
 
 fn log_rational_bounds(
@@ -3817,7 +3845,7 @@ mod tests {
 
     #[test]
     fn exponential_common_denominator_matches_product_definition() {
-        for denominator in [1_i64, 2, 8] {
+        for denominator in [1_i64, 2, 3, 6, 8] {
             for term_count in [0_u32, 1, 5, 17] {
                 let denominator = BigInt::from(denominator);
                 let mut expected = BigInt::one();
@@ -3830,6 +3858,24 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn exponential_denominator_shift_classification_preserves_checked_boundaries() {
+        assert_eq!(positive_power_of_two_shift(&BigInt::from(1_u8)), Some(0));
+        assert_eq!(positive_power_of_two_shift(&BigInt::from(8_u8)), Some(3));
+        assert_eq!(positive_power_of_two_shift(&BigInt::from(6_u8)), None);
+        assert_eq!(positive_power_of_two_shift(&BigInt::zero()), None);
+        assert_eq!(positive_power_of_two_shift(&BigInt::from(-8_i8)), None);
+        assert_eq!(
+            checked_exp_denominator_total_shift(u64::MAX, 2),
+            Err(IntervalError::ExponentTooLarge),
+        );
+        #[cfg(target_pointer_width = "32")]
+        assert_eq!(
+            checked_exp_denominator_shift(u64::from(u32::MAX) + 1),
+            Err(IntervalError::ExponentTooLarge),
+        );
     }
 
     #[test]
