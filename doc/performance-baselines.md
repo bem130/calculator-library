@@ -1853,6 +1853,31 @@ measured 1.944 ms and 1.745 ms midpoints respectively, but timing is treated as 
 noisy snapshot rather than attributed wholly to this small allocation change.
 Logical work remains 586 and 582 units.
 
+## Reused exponential factorial plan
+
+Taylor term selection proves its tail bound by constructing `(N+1)!`. The
+selected `N!` was then discarded and rebuilt for the recurrence denominator
+`b^N*N!`. The precision-only series plan now retains `N!` alongside `N` and
+passes it to exact-point, non-degenerate, and binary-scaled recurrence setup.
+Endpoint-specific denominator powers, sums, terms, tails, and directed rounding
+remain independent.
+
+Against commit `28af12e`, one public `2^sqrt(2)` calculation moved from 171,078
+bytes in 2,248 blocks to 171,022 bytes in 2,245 blocks. The cumulative
+`exp(sqrt(2)*ln(2))` case moved from 205,030 / 3,764 to 204,974 / 3,761.
+`exp(-10000)` moved from 526,216 / 1,844 to 526,160 / 1,841, and `exp(10000)`
+from 498,952 / 1,774 to 498,896 / 1,771. The `exp(1)` and `exp(2)` controls were
+unchanged at 17,133 / 634 and 17,865 / 656. General-power peak live allocation
+increased by 24 bytes because the small factorial is retained through denominator
+setup; large-exp peak values were unchanged. Logical work remains 400,447, 586,
+and 582 units respectively.
+
+A 20-sample Criterion snapshot measured 1.118 ms for direct general power,
+912.52 µs for the cumulative exp stage, and 2.066 ms for `exp(-10000)`.
+Criterion detected no change for direct general power or large exp; the cumulative
+case improved against its cached control, but this small planning change claims
+only the deterministic allocation reduction.
+
 ## Shared binary logarithm composition
 
 Non-degenerate logarithm intervals require endpoint-specific range reduction and

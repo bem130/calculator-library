@@ -240,15 +240,19 @@ pub(crate) fn exp(
     let (lower, upper) = if lower == upper {
         exp_rational_bounds(&lower, precision_bits)?
     } else {
-        let term_count = exp_series_terms(precision_bits)?;
+        let series_plan = exp_series_plan(precision_bits)?;
+        let term_count = series_plan.term_count;
         if lower.denominator == upper.denominator
             && !lower.is_negative()
             && !upper.is_negative()
             && ceil_nonnegative_rational_to_u32(&lower)? == 1
             && ceil_nonnegative_rational_to_u32(&upper)? == 1
         {
-            let common_denominator =
-                exp_series_common_denominator(&lower.denominator.inner.inner, term_count)?;
+            let common_denominator = exp_series_common_denominator_with_factorial(
+                &lower.denominator.inner.inner,
+                term_count,
+                &series_plan.factorial,
+            )?;
             (
                 exp_series_rational_bound_with_common_denominator(
                     &lower,
@@ -265,8 +269,8 @@ pub(crate) fn exp(
             )
         } else {
             (
-                exp_rational_bound_with_terms(&lower, term_count, BoundDirection::Lower)?,
-                exp_rational_bound_with_terms(&upper, term_count, BoundDirection::Upper)?,
+                exp_rational_bound_with_plan(&lower, &series_plan, BoundDirection::Lower)?,
+                exp_rational_bound_with_plan(&upper, &series_plan, BoundDirection::Upper)?,
             )
         }
     };
@@ -297,7 +301,7 @@ fn exp_binary_scaled_bound(
 
 struct ExpBinaryScalingPlan {
     working_precision: u32,
-    term_count: u32,
+    series_plan: ExpSeriesPlan,
     log_two_lower: Rational,
     log_two_upper: Rational,
     binary_exponent: i64,
@@ -331,7 +335,7 @@ fn exp_binary_scaling_plan(
         .checked_add(guard_bits)
         .and_then(|value| value.checked_add(2))
         .ok_or(IntervalError::ExponentTooLarge)?;
-    let term_count = exp_series_terms(working_precision)?;
+    let series_plan = exp_series_plan(working_precision)?;
     let (log_two_lower, log_two_upper) =
         log_reduced_rational_bounds(&rational_integer(2), working_precision)?;
     let log_two_midpoint = halve_rational(&log_two_lower.add(&log_two_upper))?;
@@ -347,7 +351,7 @@ fn exp_binary_scaling_plan(
     }
     Ok(ExpBinaryScalingPlan {
         working_precision,
-        term_count,
+        series_plan,
         log_two_lower,
         log_two_upper,
         binary_exponent,
@@ -367,7 +371,7 @@ fn exp_binary_scaled_bound_with_plan(
             &scale_rational_by_i64(&plan.log_two_lower, plan.binary_exponent)?,
         ),
     };
-    let bound = exp_rational_bound_with_terms(&residual, plan.term_count, direction)?;
+    let bound = exp_rational_bound_with_plan(&residual, &plan.series_plan, direction)?;
     let exponent_two = -BigInt::from(plan.working_precision);
     let mut dyadic = match direction {
         BoundDirection::Lower => {
@@ -877,9 +881,22 @@ fn exp_rational_bound(
     exp_rational_bound_with_terms(value, exp_series_terms(precision_bits)?, direction)
 }
 
+#[cfg(test)]
 fn exp_rational_bound_with_terms(
     value: &Rational,
     term_count: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    let plan = ExpSeriesPlan {
+        term_count,
+        factorial: exp_series_factorial(term_count),
+    };
+    exp_rational_bound_with_plan(value, &plan, direction)
+}
+
+fn exp_rational_bound_with_plan(
+    value: &Rational,
+    plan: &ExpSeriesPlan,
     direction: BoundDirection,
 ) -> Result<Rational, IntervalError> {
     if value.is_zero() {
@@ -890,14 +907,11 @@ fn exp_rational_bound_with_terms(
             BoundDirection::Lower => BoundDirection::Upper,
             BoundDirection::Upper => BoundDirection::Lower,
         };
-        let positive = exp_nonnegative_rational_bound_with_terms(
-            &value.negate(),
-            term_count,
-            reciprocal_direction,
-        )?;
+        let positive =
+            exp_nonnegative_rational_bound_with_plan(&value.negate(), plan, reciprocal_direction)?;
         return reciprocal_nonzero_rational(&positive);
     }
-    exp_nonnegative_rational_bound_with_terms(value, term_count, direction)
+    exp_nonnegative_rational_bound_with_plan(value, plan, direction)
 }
 
 fn reciprocal_nonzero_rational(value: &Rational) -> Result<Rational, IntervalError> {
@@ -918,9 +932,9 @@ fn reciprocal_nonzero_rational(value: &Rational) -> Result<Rational, IntervalErr
     })
 }
 
-fn exp_nonnegative_rational_bound_with_terms(
+fn exp_nonnegative_rational_bound_with_plan(
     value: &Rational,
-    term_count: u32,
+    plan: &ExpSeriesPlan,
     direction: BoundDirection,
 ) -> Result<Rational, IntervalError> {
     debug_assert!(!value.is_negative());
@@ -932,7 +946,7 @@ fn exp_nonnegative_rational_bound_with_terms(
         reduced_storage = divide_rational_by_positive_u32(value, reduction)?;
         &reduced_storage
     };
-    let bound = exp_series_rational_bound(reduced, term_count, direction)?;
+    let bound = exp_series_rational_bound_with_plan(reduced, plan, direction)?;
     if reduction == 1 {
         Ok(bound)
     } else {
@@ -981,13 +995,30 @@ fn exp_small_nonnegative_rational_bounds(
 ) -> Result<(Rational, Rational), IntervalError> {
     debug_assert!(!value.is_negative());
     debug_assert!(compare_rationals(value, &Rational::one()) != Ordering::Greater);
-    exp_series_rational_bounds(value, exp_series_terms(precision_bits)?)
+    let plan = exp_series_plan(precision_bits)?;
+    exp_series_rational_bounds_with_plan(value, &plan)
 }
 
+#[cfg(test)]
 fn exp_series_rational_bounds(
     value: &Rational,
     term_count: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
+    term_count
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let plan = ExpSeriesPlan {
+        term_count,
+        factorial: exp_series_factorial(term_count),
+    };
+    exp_series_rational_bounds_with_plan(value, &plan)
+}
+
+fn exp_series_rational_bounds_with_plan(
+    value: &Rational,
+    plan: &ExpSeriesPlan,
+) -> Result<(Rational, Rational), IntervalError> {
+    let term_count = plan.term_count;
     debug_assert!(!value.is_negative());
     debug_assert!(compare_rationals(value, &Rational::one()) != Ordering::Greater);
     let tail_index = term_count
@@ -996,22 +1027,39 @@ fn exp_series_rational_bounds(
     if value.is_zero() {
         return Ok((Rational::one(), Rational::one()));
     }
-    let state = exp_series_state(value, term_count, tail_index)?;
+    let state = exp_series_state_with_plan(value, plan, tail_index)?;
     state.into_bounds()
 }
 
+#[cfg(test)]
 fn exp_series_rational_bound(
     value: &Rational,
     term_count: u32,
     direction: BoundDirection,
 ) -> Result<Rational, IntervalError> {
+    term_count
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let plan = ExpSeriesPlan {
+        term_count,
+        factorial: exp_series_factorial(term_count),
+    };
+    exp_series_rational_bound_with_plan(value, &plan, direction)
+}
+
+fn exp_series_rational_bound_with_plan(
+    value: &Rational,
+    plan: &ExpSeriesPlan,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    let term_count = plan.term_count;
     let tail_index = term_count
         .checked_add(1)
         .ok_or(IntervalError::ExponentTooLarge)?;
     if value.is_zero() {
         return Ok(Rational::one());
     }
-    let state = exp_series_state(value, term_count, tail_index)?;
+    let state = exp_series_state_with_plan(value, plan, tail_index)?;
     match direction {
         BoundDirection::Lower => state.into_lower(),
         BoundDirection::Upper => state.into_upper(),
@@ -1068,14 +1116,19 @@ impl ExpSeriesState<'_> {
     }
 }
 
-fn exp_series_state(
-    value: &Rational,
-    term_count: u32,
+fn exp_series_state_with_plan<'a>(
+    value: &'a Rational,
+    plan: &ExpSeriesPlan,
     tail_index: u32,
-) -> Result<ExpSeriesState<'_>, IntervalError> {
+) -> Result<ExpSeriesState<'a>, IntervalError> {
+    let term_count = plan.term_count;
     let value_numerator = &value.numerator.inner;
     let value_denominator = &value.denominator.inner.inner;
-    let common_denominator = exp_series_common_denominator(value_denominator, term_count)?;
+    let common_denominator = exp_series_common_denominator_with_factorial(
+        value_denominator,
+        term_count,
+        &plan.factorial,
+    )?;
     let mut sum_numerator = BigInt::one();
     let mut term_numerator = BigInt::one();
     for next_n in 1..=term_count {
@@ -1122,14 +1175,20 @@ fn exp_series_state_with_common_denominator<'a>(
     }
 }
 
+#[cfg(test)]
 fn exp_series_common_denominator(
     value_denominator: &BigInt,
     term_count: u32,
 ) -> Result<BigInt, IntervalError> {
-    let mut factorial = BigInt::one();
-    for factor in 1..=term_count {
-        factorial *= factor;
-    }
+    let factorial = exp_series_factorial(term_count);
+    exp_series_common_denominator_with_factorial(value_denominator, term_count, &factorial)
+}
+
+fn exp_series_common_denominator_with_factorial(
+    value_denominator: &BigInt,
+    term_count: u32,
+    factorial: &BigInt,
+) -> Result<BigInt, IntervalError> {
     let magnitude = value_denominator.magnitude();
     let bits = magnitude.bits();
     if bits > 0 && magnitude == &(BigUint::one() << (bits - 1)) {
@@ -2740,7 +2799,12 @@ fn log_series_terms(precision_bits: u32) -> Result<u32, IntervalError> {
     }
 }
 
-fn exp_series_terms(precision_bits: u32) -> Result<u32, IntervalError> {
+struct ExpSeriesPlan {
+    term_count: u32,
+    factorial: BigInt,
+}
+
+fn exp_series_plan(precision_bits: u32) -> Result<ExpSeriesPlan, IntervalError> {
     let target_bits = precision_bits
         .checked_add(1)
         .ok_or(IntervalError::ExponentTooLarge)?;
@@ -2753,9 +2817,28 @@ fn exp_series_terms(precision_bits: u32) -> Result<u32, IntervalError> {
             .ok_or(IntervalError::ExponentTooLarge)?;
         factorial *= next_factor;
     }
-    next_factor
+    let term_count = next_factor
         .checked_sub(1)
-        .ok_or(IntervalError::ExponentTooLarge)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    factorial /= next_factor;
+    Ok(ExpSeriesPlan {
+        term_count,
+        factorial,
+    })
+}
+
+#[cfg(test)]
+fn exp_series_factorial(term_count: u32) -> BigInt {
+    let mut factorial = BigInt::one();
+    for factor in 1..=term_count {
+        factorial *= factor;
+    }
+    factorial
+}
+
+#[cfg(test)]
+fn exp_series_terms(precision_bits: u32) -> Result<u32, IntervalError> {
+    Ok(exp_series_plan(precision_bits)?.term_count)
 }
 
 fn trigonometric_series_terms(precision_bits: u32) -> Result<u32, IntervalError> {
@@ -4297,7 +4380,8 @@ mod tests {
     #[test]
     fn exponential_series_uses_minimal_factorial_tail_bound() {
         for precision_bits in [0, 1, 16, 128, 256] {
-            let term_count = exp_series_terms(precision_bits).unwrap();
+            let plan = exp_series_plan(precision_bits).unwrap();
+            let term_count = plan.term_count;
             let next_factor = term_count.checked_add(1).unwrap();
             let factorial = (1..=next_factor)
                 .map(BigInt::from)
@@ -4307,6 +4391,7 @@ mod tests {
             if term_count > 0 {
                 assert!(&factorial / BigInt::from(next_factor) < target);
             }
+            assert_eq!(plan.factorial, factorial / next_factor);
         }
         assert!(exp_series_terms(128).unwrap() < series_terms(128).unwrap());
         assert_eq!(
