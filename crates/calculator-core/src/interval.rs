@@ -241,7 +241,7 @@ pub(crate) fn exp(
             && ceil_nonnegative_rational_to_u32(&upper)? == 1
         {
             let common_denominator =
-                exp_series_common_denominator(&lower.denominator.inner.inner, term_count);
+                exp_series_common_denominator(&lower.denominator.inner.inner, term_count)?;
             (
                 exp_series_rational_bound_with_common_denominator(
                     &lower,
@@ -890,7 +890,7 @@ fn exp_series_rational_bounds(
     if value.is_zero() {
         return Ok((Rational::one(), Rational::one()));
     }
-    let state = exp_series_state(value, term_count, tail_index);
+    let state = exp_series_state(value, term_count, tail_index)?;
     state.into_bounds()
 }
 
@@ -905,7 +905,7 @@ fn exp_series_rational_bound(
     if value.is_zero() {
         return Ok(Rational::one());
     }
-    let state = exp_series_state(value, term_count, tail_index);
+    let state = exp_series_state(value, term_count, tail_index)?;
     match direction {
         BoundDirection::Lower => state.into_lower(),
         BoundDirection::Upper => state.into_upper(),
@@ -962,7 +962,11 @@ impl ExpSeriesState<'_> {
     }
 }
 
-fn exp_series_state(value: &Rational, term_count: u32, tail_index: u32) -> ExpSeriesState<'_> {
+fn exp_series_state(
+    value: &Rational,
+    term_count: u32,
+    tail_index: u32,
+) -> Result<ExpSeriesState<'_>, IntervalError> {
     let value_numerator = &value.numerator.inner;
     let value_denominator = &value.denominator.inner.inner;
     let mut sum_numerator = BigInt::one();
@@ -974,14 +978,14 @@ fn exp_series_state(value: &Rational, term_count: u32, tail_index: u32) -> ExpSe
         sum_numerator += &next_term_numerator;
         term_numerator = next_term_numerator;
     }
-    ExpSeriesState {
+    Ok(ExpSeriesState {
         sum_numerator,
         term_numerator,
-        common_denominator: exp_series_common_denominator(value_denominator, term_count),
+        common_denominator: exp_series_common_denominator(value_denominator, term_count)?,
         value_numerator,
         value_denominator,
         tail_index,
-    }
+    })
 }
 
 fn exp_series_state_with_common_denominator<'a>(
@@ -1011,7 +1015,10 @@ fn exp_series_state_with_common_denominator<'a>(
     }
 }
 
-fn exp_series_common_denominator(value_denominator: &BigInt, term_count: u32) -> BigInt {
+fn exp_series_common_denominator(
+    value_denominator: &BigInt,
+    term_count: u32,
+) -> Result<BigInt, IntervalError> {
     let mut factorial = BigInt::one();
     for factor in 1..=term_count {
         factorial *= factor;
@@ -1022,10 +1029,10 @@ fn exp_series_common_denominator(value_denominator: &BigInt, term_count: u32) ->
         let shift: usize = (bits - 1)
             .checked_mul(u64::from(term_count))
             .and_then(|value| value.try_into().ok())
-            .expect("bounded exponential term count and denominator shift");
-        factorial << shift
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        Ok(factorial << shift)
     } else {
-        value_denominator.pow(term_count) * factorial
+        Ok(value_denominator.pow(term_count) * factorial)
     }
 }
 
@@ -3286,7 +3293,7 @@ mod tests {
             (rational(5, 16), rational(15, 16)),
         ] {
             let common_denominator =
-                exp_series_common_denominator(&lower.denominator.inner.inner, term_count);
+                exp_series_common_denominator(&lower.denominator.inner.inner, term_count).unwrap();
             assert_eq!(
                 exp_series_rational_bound_with_common_denominator(
                     &lower,
@@ -3307,6 +3314,23 @@ mod tests {
                 .unwrap(),
                 exp_series_rational_bound(&upper, term_count, BoundDirection::Upper).unwrap(),
             );
+        }
+    }
+
+    #[test]
+    fn exponential_common_denominator_matches_product_definition() {
+        for denominator in [1_i64, 2, 8] {
+            for term_count in [0_u32, 1, 5, 17] {
+                let denominator = BigInt::from(denominator);
+                let mut expected = BigInt::one();
+                for factor in 1..=term_count {
+                    expected *= &denominator * factor;
+                }
+                assert_eq!(
+                    exp_series_common_denominator(&denominator, term_count).unwrap(),
+                    expected,
+                );
+            }
         }
     }
 

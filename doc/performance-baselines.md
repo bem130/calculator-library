@@ -686,9 +686,10 @@ On 2026-07-13 with `rustc 1.97.0`, deterministic one-calculation allocation for
 `exp(sqrt(2)*ln(2))` moved from 241,934 bytes in 3,822 blocks to 205,030 bytes in
 3,764 blocks. Direct `2^sqrt(2)` moved from 207,982 bytes in 2,306 blocks to
 171,078 bytes in 2,248 blocks. Peak live allocation moved down by 16 bytes in
-each case. Against the immediate in-place-product control, ten-sample Criterion
-midpoints moved from 1.419 ms to 835.58 µs for the cumulative exp stage and from
-1.016 ms to 691.00 µs for general power (about 41% and 32% lower respectively).
+each case. Against main `069bf6b`, ten-sample Criterion midpoints moved from
+1.107 ms to 835.58 µs for the cumulative exp stage and from 992.63 µs to
+691.00 µs for general power (about 25% and 30% lower respectively). The final
+run also improved significantly against the immediate in-place-product control.
 The representative logical-work boundaries, including the 400,447-unit approximate
 composite, were unchanged. The remaining endpoint cost is the necessarily
 value-dependent term and partial-sum large-integer multiplication.
