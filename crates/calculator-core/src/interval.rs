@@ -447,17 +447,25 @@ fn log_rational_directed_endpoint_bounds(
 ) -> Result<(Rational, Rational), IntervalError> {
     let (lower_reduced, lower_exponent_two) = reduce_log_argument_to_unit_range(lower)?;
     let (upper_reduced, upper_exponent_two) = reduce_log_argument_to_unit_range(upper)?;
+    let needs_series = !is_positive_one_rational(&lower_reduced)
+        || !is_positive_one_rational(&upper_reduced)
+        || lower_exponent_two != 0
+        || upper_exponent_two != 0;
+    if !needs_series {
+        return Ok((Rational::zero(), Rational::zero()));
+    }
+    let term_count = log_series_terms(precision_bits)?;
     let lower_bound =
-        log_reduced_rational_bound(&lower_reduced, precision_bits, BoundDirection::Lower)?;
+        log_reduced_rational_bound_with_terms(&lower_reduced, term_count, BoundDirection::Lower)?;
     let upper_bound =
-        log_reduced_rational_bound(&upper_reduced, precision_bits, BoundDirection::Upper)?;
+        log_reduced_rational_bound_with_terms(&upper_reduced, term_count, BoundDirection::Upper)?;
     if lower_exponent_two == 0 && upper_exponent_two == 0 {
         return Ok((lower_bound, upper_bound));
     }
     let shared_log_two = if lower_exponent_two != 0 && upper_exponent_two != 0 {
-        Some(log_reduced_rational_bounds(
+        Some(log_reduced_rational_bounds_with_terms(
             &rational_integer(2),
-            precision_bits,
+            term_count,
         )?)
     } else {
         None
@@ -478,7 +486,7 @@ fn log_rational_directed_endpoint_bounds(
             }
         } else {
             owned_log_two =
-                log_reduced_rational_bound(&rational_integer(2), precision_bits, direction)?;
+                log_reduced_rational_bound_with_terms(&rational_integer(2), term_count, direction)?;
             &owned_log_two
         };
         lower_bound.add(&scale_rational_by_i64(log_two, lower_exponent_two)?)
@@ -499,7 +507,7 @@ fn log_rational_directed_endpoint_bounds(
             }
         } else {
             owned_log_two =
-                log_reduced_rational_bound(&rational_integer(2), precision_bits, direction)?;
+                log_reduced_rational_bound_with_terms(&rational_integer(2), term_count, direction)?;
             &owned_log_two
         };
         upper_bound.add(&scale_rational_by_i64(log_two, upper_exponent_two)?)
@@ -1514,9 +1522,30 @@ fn log_reduced_rational_bounds(
     }
     let z = log_series_argument(value)?;
     let term_count = log_series_terms(precision_bits)?;
-    log_series_common_denominator_bounds(&z, term_count)
+    log_reduced_rational_bounds_with_argument_and_terms(&z, term_count)
 }
 
+fn log_reduced_rational_bounds_with_terms(
+    value: &Rational,
+    term_count: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    debug_assert!(compare_positive_rational_to_one(value) != Ordering::Less);
+    debug_assert!(compare_positive_rational_to_two(value) != Ordering::Greater);
+    if is_positive_one_rational(value) {
+        return Ok((Rational::zero(), Rational::zero()));
+    }
+    let z = log_series_argument(value)?;
+    log_reduced_rational_bounds_with_argument_and_terms(&z, term_count)
+}
+
+fn log_reduced_rational_bounds_with_argument_and_terms(
+    z: &Rational,
+    term_count: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    log_series_common_denominator_bounds(z, term_count)
+}
+
+#[cfg(test)]
 fn log_reduced_rational_bound(
     value: &Rational,
     precision_bits: u32,
@@ -1529,7 +1558,29 @@ fn log_reduced_rational_bound(
     }
     let z = log_series_argument(value)?;
     let term_count = log_series_terms(precision_bits)?;
-    log_series_common_denominator_bound(&z, term_count, direction)
+    log_reduced_rational_bound_with_argument_and_terms(&z, term_count, direction)
+}
+
+fn log_reduced_rational_bound_with_terms(
+    value: &Rational,
+    term_count: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    debug_assert!(compare_positive_rational_to_one(value) != Ordering::Less);
+    debug_assert!(compare_positive_rational_to_two(value) != Ordering::Greater);
+    if is_positive_one_rational(value) {
+        return Ok(Rational::zero());
+    }
+    let z = log_series_argument(value)?;
+    log_reduced_rational_bound_with_argument_and_terms(&z, term_count, direction)
+}
+
+fn log_reduced_rational_bound_with_argument_and_terms(
+    z: &Rational,
+    term_count: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    log_series_common_denominator_bound(z, term_count, direction)
 }
 
 fn log_series_argument(value: &Rational) -> Result<Rational, IntervalError> {
@@ -3522,10 +3573,12 @@ mod tests {
     }
 
     #[test]
-    fn shared_log_two_matches_independent_directed_endpoints() {
+    fn shared_log_term_plan_matches_independent_directed_endpoints() {
         for precision_bits in [1, 64, 128] {
             for (lower, upper) in [
+                (rational(1, 4), rational(1, 2)),
                 (rational(1, 4), rational(3, 4)),
+                (rational(1, 2), rational(2, 1)),
                 (rational(3, 4), rational(3, 2)),
                 (rational(3, 4), rational(3, 1)),
                 (rational(3, 2), rational(3, 1)),
@@ -3542,6 +3595,15 @@ mod tests {
                 );
             }
         }
+
+        assert_eq!(
+            log_rational_directed_endpoint_bounds(&Rational::one(), &Rational::one(), u32::MAX,),
+            Ok((Rational::zero(), Rational::zero())),
+        );
+        assert_eq!(
+            log_rational_directed_endpoint_bounds(&Rational::one(), &rational(3, 2), u32::MAX,),
+            Err(IntervalError::ExponentTooLarge),
+        );
     }
 
     #[test]

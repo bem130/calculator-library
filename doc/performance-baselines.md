@@ -2033,6 +2033,34 @@ tail produced byte-, block-, and peak-identical measurements; a 20-sample run
 measured 101.1 µs and 5.87 ms against base values 91.1 µs and 4.92 ms. Neither
 variant is retained.
 
+## Shared non-degenerate logarithm term plan
+
+After endpoint range reduction, the reduced logarithm term count depends only on
+requested precision. At base commit `7db9fd2`, a non-degenerate interval repeated
+that same integer-only plan for its lower directed series, upper directed series,
+and any required shared or single `ln(2)` composition. The endpoint pair now
+computes it once and passes it to each value-dependent recurrence. Exact-point
+paired evaluation is intentionally unchanged.
+
+On 2026-07-13 with `rustc 1.97.0`, deterministic one-calculation allocation for
+`ln(2+sin(1))` moved from 349,060 bytes / 1,607 blocks to 347,780 / 1,517;
+peak live allocation remained 16,982 bytes. Controls were byte-, block-, and
+peak-identical: `ln(2)` 20,197 / 728, `2^sqrt(2)` 151,374 / 2,060,
+`sqrt(2)*ln(2)` 90,674 / 3,410, `exp(sqrt(2)*ln(2))` 185,326 / 3,576,
+`exp(-10000)` 511,776 / 1,765, `exp(10000)` 489,112 / 1,695, and
+`exp(1)` 16,581 / 565. A same-host ten-sample Criterion comparison was noisy:
+the base and candidate non-degenerate-log medians were approximately 4.365 ms
+and 4.300 ms with overlapping variation, so this slice claims deterministic
+allocation reduction rather than timing speedup.
+
+Logical work was unchanged: `approximate` remained 400,447 units,
+`log_non_degenerate` 200,225, `exp_negative_10000` 586, and
+`exp_positive_10000` 582. Exact regressions compare against the former independent
+directed evaluator for negative, zero, positive, and mixed binary exponents,
+unit reduced endpoints, multiple precisions, and the zero/error preflight order.
+Reproduce with allocation case `approximate_log_non_degenerate`, Criterion case
+`approximate_components/log_non_degenerate`, and `logical_work_baseline`.
+
 ## Primitive exponential recurrence indices
 
 At base commit `5506090`, the common-denominator exponential recurrence converted
