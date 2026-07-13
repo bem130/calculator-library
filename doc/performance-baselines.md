@@ -1217,6 +1217,37 @@ SHA-256 `721cd6720b8af23ec51372d6fb543fdd6d7ee15f1a964bbfdef080013e3dbb19`.
 Package check, example production build, and browser E2E passed for the
 implementation artifact, confirming unchanged npm and example-ui presentation.
 
+## Shared integer-root search for exact sqrt bounds
+
+At base commit `bc655eb`, an exact-point square root independently searched for
+the integer floor root used by its lower bound and the integer floor root used
+inside its upper ceil-root calculation. The scaled lower and upper integers
+differ by at most one. Commit `934ae68` searches the lower floor root once, then
+compares its exact square with the scaled upper integer to select either that
+root or its successor. No floating-point estimate or precision shortcut is used.
+
+On 2026-07-13 with `rustc 1.97.0`, deterministic one-calculation allocations
+changed as follows:
+
+| Case | Bytes | Blocks |
+| --- | ---: | ---: |
+| `sqrt(2)` | 59,537 / 41,953 | 1,937 / 1,388 |
+| `2^sqrt(2)` | 225,646 / 208,062 | 2,859 / 2,310 |
+| `sqrt(2)*ln(2)` | 108,810 / 91,226 | 3,997 / 3,448 |
+| `exp(sqrt(2)*ln(2))` | 259,598 / 242,014 | 4,375 / 3,826 |
+
+Separate 20-sample `sqrt(2)` Criterion midpoint estimates moved from 102.04 µs
+to 59.58 µs. General-power timings moved with host-wide load and do not support
+a timing claim. The approximate logical-work boundary remained 400,447 units.
+
+One-iteration Wasm/npm boundary smokes retained the 1,812-byte approximate
+payload and moved from 10.55 ms at base artifact
+`15e043173a5dec60a4500d9bc5afd9edd0a63de5596211f2d8f3064dc050dd2a`
+(794,581 bytes) to 7.54 ms at implementation artifact
+`72cdee12bd04cf0a9977eb272a6b49c234f5072c73040492de1e2f82fa799fe7`
+(794,661 bytes). This is not a powered Wasm timing claim. Directed enclosure,
+resource accounting, no-float policy, and public protocol are unchanged.
+
 ## Region-selected exact asin transform
 
 At base commit `56c3721`, exact rational `1/2 < x < 1/sqrt(2)` used
