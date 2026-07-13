@@ -2161,6 +2161,40 @@ term counts. Reproduce with allocation case `approximate_log_non_degenerate`,
 Criterion case `approximate_components/log_non_degenerate`,
 `logical_work_baseline`, and the package benchmark.
 
+## Hybrid binary splitting for nonunit arctangent series
+
+At base commit `19ea116`, the nonunit unit-range arctangent recurrence multiplied
+every growing partial sum by the next denominator factor. The hybrid evaluator
+keeps the exact signed ratio `p_k=-a^2(2k-1)`, `q_k=b^2(2k+1)` and merges segment
+products and cumulative-product sums above a 32-term sequential leaf. Zero, unit
+numerators, and smaller plans retain the recurrence. Directed bounds that select
+the current alternating partial sum omit the adjacent-only root product.
+
+On 2026-07-13 with `rustc 1.97.0`, deterministic one-calculation allocation
+changed from 710,074 bytes / 1,983 blocks to 528,330 / 2,194 for
+`atan(2+sin(1))`, from 1,473,476 / 4,073 to 1,166,372 / 4,422 for transformed
+`asin`, and from 1,641,406 / 4,166 to 1,334,302 / 4,515 for transformed `acos`.
+Total bytes fell by about 25.6%, 20.8%, and 18.7%; short-lived tree temporaries
+increased block counts while peak live allocation was unchanged. Unit/small
+controls remained 22,046 / 820 for `atan(1/2)` and 49,402 / 1,145 for `atan(2)`.
+
+A saved-baseline ten-sample Criterion comparison moved the target midpoint from
+16.087 ms to 13.853 ms (about 13.9%). Its distribution estimate was a nonsignificant
+6.3% reduction (`p=0.29`), so the claim is deterministic allocation reduction
+without a detected timing regression. The unit/small controls do not use the new
+dispatch; their noisy movement is not attributed to this change. Logical work
+remained 200,225 units for atan and 200,447 for each transformed inverse function.
+
+The three-iteration/one-warmup Wasm/npm runs used base artifact
+`7cac7fc1f881194390f70c00097090ad4624fac84d4360bd13b093ef50effb6d`
+(814,038 bytes) and candidate artifact
+`00a75a0925f83f664b5c1ffe23ac15ef2dd20cd192a15ed2ebb8e328c5ba76ca`
+(816,896 bytes), below the 860,000-byte budget. Broad control movement showed host
+contention, so these runs establish boundary integration, payload stability, and
+size rather than a Wasm speed claim. Exact oracle tests cover threshold-adjacent
+and 64/128/256-bit plans, paired/directed parity, legacy recurrence agreement,
+zero/unit/small dispatch, and checked term-count overflow.
+
 ## Primitive exponential recurrence indices
 
 At base commit `5506090`, the common-denominator exponential recurrence converted

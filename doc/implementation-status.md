@@ -97,6 +97,7 @@ logの`[1,2)` range reductionはcanonical正Rationalのpartsを1・2境界と構
 非退化logのbinary range compositionは、endpoint固有のreduced argumentと方向付き級数を独立に保ちつつ、入力非依存の同一`ln(2)` enclosureを上下endpointで共有する。binary exponentがzeroのendpointでは不要な合成をせず、正負・異なるexponentの方向選択、logical-work、公開protocolを維持する。
 非退化logはrange reduction後にprecisionだけで決まる級数項数を一度だけ計画し、lower/upperのdirected reduced seriesと必要なshared/single `ln(2)` compositionへ渡す。endpoint固有の級数stateと方向、exact-pointのpaired evaluator、logical-work契約を変更しない。両endpointがreduced 1かつbinary exponent 0のexact zeroは従来どおりprecision preflightより先に返す。
 非退化intervalのatanはlower endpointからlower bound、upper endpointからupper boundだけを構築する。unit交代級数は次項符号からsum/adjacentの必要側だけをcanonical化し、reciprocal域では反対方向のunit boundと同方向のMachin π boundを組み合わせる。exact pointのpaired共有、負値の奇関数方向、logical-work契約を維持する。
+nonunit atanの交代級数は32項までを逐次leafとして評価し、それを超えるplanではsigned項比の積と累積積和をbalanced mergeする。zero・unit numerator・小さいplanは従来recurrenceを保ち、directed endpointが現在の部分和を選ぶ場合はadjacent専用のroot積を構築しない。交代級数parity、reciprocal変換、shared π、logical-work契約を維持する。
 非退化intervalの両atan endpointがreciprocal域なら、入力非依存の同一π enclosureを一度構築して共有する。unit/reciprocal混在intervalは片側directed πを維持し、endpoint固有reciprocal atan、負値方向、logical-work契約を変更しない。
 非退化intervalの`|x|<=1/2` asinはlower endpointの部分和またはupper endpointのtail付き値だけをcanonical化する。負値は反対方向の正値boundをnegateし、exact pointはpaired共有、変換域は既存paired fallbackを維持する。
 `1/2<|x|<=1`のasin変換域は要求方向に応じて`sqrt(1-x^2)`の片側endpoint、反対方向のdirected atan、同方向のdirected πだけを構築する。負値の奇関数方向、±1 endpoint、domainとlogical-work契約を維持する。
