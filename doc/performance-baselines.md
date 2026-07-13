@@ -703,9 +703,14 @@ three iterations and one warmup, base artifact
 `3bd844de7f84cd4f357c7b916fb3057700ac421744a74fa85dc5828c46fc5b1e`
 (818,132 bytes) measured 302.1 ms/iteration for sine and 265.2 ms/iteration for
 tangent. Candidate artifact
-`b901906f0d96886ad164735667826846b4341820602de3bf5b3b27eaeb7129b6`
-(818,191 bytes) measured 55.6 and 57.5 ms/iteration. Payloads remained 1,784 and
+`c21aeb12bb3ab137b449d48229892ac20831d897898e42d13f76ec4e09c6e032`
+(818,346 bytes) measured 45.1 and 48.3 ms/iteration. Payloads remained 1,784 and
 1,802 bytes, and both artifacts stayed below the 860,000-byte budget.
+
+The final CI-equivalent gate rebuilt the package and example artifacts at that
+same candidate SHA and 818,346-byte size, passed the package-size budget, and
+completed the native, no-default, Wasm, package, example-build, external-oracle,
+browser-E2E, dependency-policy, generated-contract, and documentation suites.
 
 Reproduce with:
 
