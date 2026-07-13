@@ -1451,6 +1451,7 @@ pub(crate) fn floor_nth_root_nonnegative(value: &BigInt, index: u32) -> BigInt {
     low
 }
 
+#[cfg(test)]
 pub(crate) fn ceil_nth_root_nonnegative(value: &BigInt, index: u32) -> BigInt {
     let floor = floor_nth_root_nonnegative(value, index);
     if floor.pow(index) == *value {

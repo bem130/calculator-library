@@ -5,9 +5,8 @@ use num_integer::Integer as _;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use crate::types::{
-    ceil_nth_root_nonnegative, ceil_sqrt_nonnegative, floor_nth_root_nonnegative,
-    floor_sqrt_nonnegative, CertifiedInterval, Constant, DomainErrorKind, ExactDyadic, Integer,
-    PositiveInteger, Rational,
+    ceil_sqrt_nonnegative, floor_nth_root_nonnegative, floor_sqrt_nonnegative, CertifiedInterval,
+    Constant, DomainErrorKind, ExactDyadic, Integer, PositiveInteger, Rational,
 };
 
 const MAX_EXP_RANGE_REDUCTION_STEPS: u32 = 4096;
@@ -876,15 +875,17 @@ fn nth_root_nonnegative_rational(
     let denominator = &value.denominator.inner.inner;
     let scaled_lower = scaled_numerator.div_floor(denominator);
     let scaled_upper = scaled_numerator.div_ceil(denominator);
+    let lower_root = floor_nth_root_nonnegative(&scaled_lower, index);
+    let lower_root_power = lower_root.pow(index);
+    let upper_root = if lower_root_power == scaled_upper {
+        lower_root.clone()
+    } else {
+        &lower_root + 1_u8
+    };
+    let exponent = -BigInt::from(precision_bits);
     Ok(CertifiedInterval {
-        lower: normalize_dyadic(
-            floor_nth_root_nonnegative(&scaled_lower, index),
-            -BigInt::from(precision_bits),
-        ),
-        upper: normalize_dyadic(
-            ceil_nth_root_nonnegative(&scaled_upper, index),
-            -BigInt::from(precision_bits),
-        ),
+        lower: normalize_dyadic(lower_root, exponent.clone()),
+        upper: normalize_dyadic(upper_root, exponent),
     })
 }
 
@@ -5965,6 +5966,53 @@ mod tests {
             sqrt_dyadic_bounds(&from_rational(&rational(2, 1), 1).lower, u32::MAX),
             Err(IntervalError::ExponentTooLarge)
         );
+    }
+
+    #[test]
+    fn shared_nth_root_search_matches_independent_floor_and_ceil() {
+        for value in [
+            Rational::zero(),
+            rational(1, 7),
+            rational(2, 1),
+            rational(8, 1),
+            rational(17, 5),
+        ] {
+            for index in [2_u32, 3, 5, 17] {
+                for precision_bits in [0_u32, 1, 32, 64] {
+                    let scale_bits = precision_bits.checked_mul(index).unwrap();
+                    let scaled_numerator = &value.numerator.inner << scale_bits;
+                    let denominator = &value.denominator.inner.inner;
+                    let scaled_lower = scaled_numerator.div_floor(denominator);
+                    let scaled_upper = scaled_numerator.div_ceil(denominator);
+                    let exponent = -BigInt::from(precision_bits);
+                    let expected = CertifiedInterval {
+                        lower: normalize_dyadic(
+                            floor_nth_root_nonnegative(&scaled_lower, index),
+                            exponent.clone(),
+                        ),
+                        upper: normalize_dyadic(
+                            crate::types::ceil_nth_root_nonnegative(&scaled_upper, index),
+                            exponent,
+                        ),
+                    };
+                    assert_eq!(
+                        nth_root_nonnegative_rational(&value, index, precision_bits).unwrap(),
+                        expected,
+                        "value={value:?}, index={index}, precision={precision_bits}",
+                    );
+                }
+            }
+        }
+        for index in [3_u32, 5, 17] {
+            let positive = nth_root_nonnegative_rational(&rational(2, 1), index, 64).unwrap();
+            assert_eq!(
+                nth_root_rational(&rational(-2, 1), index, 64).unwrap(),
+                CertifiedInterval {
+                    lower: negate_dyadic(&positive.upper),
+                    upper: negate_dyadic(&positive.lower),
+                },
+            );
+        }
     }
 
     #[test]
