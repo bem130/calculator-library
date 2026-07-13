@@ -761,6 +761,10 @@ with the unchanged 1,792-byte payload using artifact
 860,000-byte budget. The single elapsed sample verifies boundary integration and
 is not used as a timing claim.
 
+The final CI-equivalent gate rebuilt the package and example artifacts at that
+same SHA and 818,132-byte size, passed the package-size budget, and completed the
+native, Wasm, package, example-build, external-oracle, and browser-E2E suites.
+
 ## Dyadic exponential common-denominator construction
 
 The exponential Taylor state previously updated a second growing product for its
