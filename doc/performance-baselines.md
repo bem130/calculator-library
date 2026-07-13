@@ -1828,10 +1828,11 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
 ## Shared binary logarithm composition
 
 Non-degenerate logarithm intervals require endpoint-specific range reduction and
-directed reduced-series bounds. When either binary exponent is nonzero, both
+directed reduced-series bounds. When both binary exponents are nonzero, the
 endpoint evaluators previously rebuilt the same input-independent `ln(2)` series.
-The endpoint pair now builds one certified `ln(2)` enclosure and selects its side
-from each exponent sign and requested direction. Zero exponents skip composition.
+The pair now builds one certified enclosure and selects its side from each exponent
+sign and requested direction. If only one exponent is nonzero, that endpoint keeps
+the single directed `ln(2)` path; zero exponents skip composition.
 
 On 2026-07-13 with `rustc 1.97.0`, `ln(2+sin(1))` moved from 351,388 bytes in
 1,783 blocks to 349,612 bytes in 1,645 blocks for one public calculation. A

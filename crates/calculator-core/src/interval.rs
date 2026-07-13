@@ -379,25 +379,53 @@ fn log_rational_directed_endpoint_bounds(
     if lower_exponent_two == 0 && upper_exponent_two == 0 {
         return Ok((lower_bound, upper_bound));
     }
-    let (log_two_lower, log_two_upper) =
-        log_reduced_rational_bounds(&rational_integer(2), precision_bits)?;
+    let shared_log_two = if lower_exponent_two != 0 && upper_exponent_two != 0 {
+        Some(log_reduced_rational_bounds(
+            &rational_integer(2),
+            precision_bits,
+        )?)
+    } else {
+        None
+    };
     let lower = if lower_exponent_two == 0 {
         lower_bound
     } else {
-        let log_two = if lower_exponent_two > 0 {
-            &log_two_lower
+        let direction = if lower_exponent_two > 0 {
+            BoundDirection::Lower
         } else {
-            &log_two_upper
+            BoundDirection::Upper
+        };
+        let owned_log_two;
+        let log_two = if let Some((log_two_lower, log_two_upper)) = shared_log_two.as_ref() {
+            match direction {
+                BoundDirection::Lower => log_two_lower,
+                BoundDirection::Upper => log_two_upper,
+            }
+        } else {
+            owned_log_two =
+                log_reduced_rational_bound(&rational_integer(2), precision_bits, direction)?;
+            &owned_log_two
         };
         lower_bound.add(&scale_rational_by_i64(log_two, lower_exponent_two)?)
     };
     let upper = if upper_exponent_two == 0 {
         upper_bound
     } else {
-        let log_two = if upper_exponent_two > 0 {
-            &log_two_upper
+        let direction = if upper_exponent_two > 0 {
+            BoundDirection::Upper
         } else {
-            &log_two_lower
+            BoundDirection::Lower
+        };
+        let owned_log_two;
+        let log_two = if let Some((log_two_lower, log_two_upper)) = shared_log_two.as_ref() {
+            match direction {
+                BoundDirection::Lower => log_two_lower,
+                BoundDirection::Upper => log_two_upper,
+            }
+        } else {
+            owned_log_two =
+                log_reduced_rational_bound(&rational_integer(2), precision_bits, direction)?;
+            &owned_log_two
         };
         upper_bound.add(&scale_rational_by_i64(log_two, upper_exponent_two)?)
     };
@@ -3129,6 +3157,7 @@ mod tests {
             for (lower, upper) in [
                 (rational(1, 4), rational(3, 4)),
                 (rational(3, 4), rational(3, 2)),
+                (rational(3, 4), rational(3, 1)),
                 (rational(3, 2), rational(7, 4)),
                 (rational(2, 1), rational(3, 1)),
                 (rational(3, 1), rational(9, 1)),
