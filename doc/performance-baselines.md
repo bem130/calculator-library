@@ -716,6 +716,12 @@ The focused one-iteration/one-warmup Wasm/npm boundary smoke completed
 (818,170 bytes). This is 316 bytes smaller than the `9d0f271` artifact and below
 the 860,000-byte package budget; the single elapsed sample verifies boundary
 integration and is not used as a timing claim.
+Benchmark definition v17 adds the primary non-degenerate unit-series case
+`asin(sin(1)/3)`. A same-host base/candidate smoke used base artifact
+`63f5b763653137b83e035bb75733d353626d9a3980646616803a51b36eea4f89`
+(818,486 bytes) and the candidate artifact above; both returned the exact
+`asin(1/3*sin(1))` with a 1,786-byte payload. Their single elapsed samples were
+48.5 ms and 38.8 ms respectively, but are recorded only as boundary coverage.
 
 ## Dyadic exponential common-denominator construction
 

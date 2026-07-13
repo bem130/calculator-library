@@ -5,8 +5,8 @@ asinの共通分母Taylor recurrenceは各項で
 term numeratorへ乗算して破棄する。directed endpointでもpaired exact pointでも
 同じ短命係数が反復される。
 
-- owned term numeratorへ`numerator_squared`と2つのprimitive odd factorを順に
-  in-place乗算し、numerator係数BigIntをmaterializeしない。
+- owned term numeratorへ`numerator_squared`と、checked odd indexを正確に平方した
+  primitive `u64`をin-place乗算し、numerator係数BigIntをmaterializeしない。
 - denominator factor、部分和、最初の未加算項を2倍するtail、paired/directed bound、
   負値の奇関数性とacos変換を変更しない。
 - 旧係数積 recurrenceとのexact oracleをunit/nonunit numerator、zero、小plan、

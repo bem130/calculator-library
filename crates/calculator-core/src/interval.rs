@@ -2736,7 +2736,10 @@ fn asin_common_denominator_bound(
     term_count: u32,
     direction: BoundDirection,
 ) -> Result<Rational, IntervalError> {
-    preflight_asin_series_tail_index(term_count)?;
+    match direction {
+        BoundDirection::Lower => preflight_asin_series_included_index(term_count)?,
+        BoundDirection::Upper => preflight_asin_series_tail_index(term_count)?,
+    }
     let value_numerator = &value.numerator.inner;
     let value_denominator = &value.denominator.inner.inner;
     let numerator_squared = value_numerator * value_numerator;
@@ -2793,6 +2796,14 @@ fn preflight_asin_series_tail_index(term_count: u32) -> Result<(), IntervalError
     term_count
         .checked_add(1)
         .and_then(|index| index.checked_mul(2))
+        .and_then(|doubled| doubled.checked_add(1))
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    Ok(())
+}
+
+fn preflight_asin_series_included_index(term_count: u32) -> Result<(), IntervalError> {
+    term_count
+        .checked_mul(2)
         .and_then(|doubled| doubled.checked_add(1))
         .ok_or(IntervalError::ExponentTooLarge)?;
     Ok(())
@@ -5427,6 +5438,18 @@ mod tests {
                 Err(IntervalError::ExponentTooLarge),
             ));
         }
+        let max_included = (u32::MAX - 1) / 2;
+        assert_eq!(preflight_asin_series_included_index(max_included), Ok(()));
+        assert!(matches!(
+            preflight_asin_series_included_index(max_included + 1),
+            Err(IntervalError::ExponentTooLarge),
+        ));
+        let max_tail = max_included - 1;
+        assert_eq!(preflight_asin_series_tail_index(max_tail), Ok(()));
+        assert!(matches!(
+            preflight_asin_series_tail_index(max_tail + 1),
+            Err(IntervalError::ExponentTooLarge),
+        ));
     }
 
     #[test]
