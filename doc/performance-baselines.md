@@ -2201,6 +2201,36 @@ size rather than a Wasm speed claim. Target payloads remained 1,776 bytes for at
 and 64/128/256-bit plans, paired/directed parity, legacy recurrence agreement,
 zero/unit/small dispatch, and checked term-count overflow.
 
+## Unit-numerator arctangent recurrence
+
+At base commit `5a2b612`, `atan(1/b)` still multiplied its arbitrary-precision
+term numerator by one and then multiplied that one by the growing odd product on
+every recurrence step. The specialized paired and directed loops use the odd
+product directly as the alternating correction. Nonunit binary splitting,
+sum/adjacent parity, reciprocal transformation, and shared Machin π are unchanged.
+
+On 2026-07-13 with `rustc 1.97.0`, deterministic one-calculation allocation
+changed from 22,046 bytes / 820 blocks to 20,774 / 760 for `atan(1/2)`, from
+49,402 / 1,145 to 45,586 / 965 for `atan(2)`, from 528,330 / 2,194 to
+525,786 / 2,074 for non-degenerate atan, from 485,388 / 1,293 to
+438,548 / 1,260 for `asin(1/3)`, and from 654,810 / 1,799 to 531,202 / 1,577
+for `acos(1/3)`. Peak live allocation did not increase. Logical work remained
+31, 5, 200,225, 31, and 31 units respectively.
+
+Same-source saved-baseline Criterion runs were dominated by host drift: the later
+run also moved the unchanged nonunit atan control upward about 10%. Alternating
+base/candidate Wasm processes produced overlapping ranges for `atan(1/2)` and
+`asin(1/3)`, so no timing claim is made; the accepted claim is the deterministic
+allocation and block reduction from removing two provably redundant operations.
+The base Wasm artifact was
+`021ce40894287cc85e21e86a2755fb1691d3ef40fafa73fabed27de712005618`
+(816,896 bytes); the candidate was
+`ff91afb27c59c7f369d83d7e412e9f644382427c9c7cde85077904e91f342a39`
+(818,499 bytes), 1,603 bytes (about 0.20%) larger and below the 860,000-byte
+budget. Payloads remained 1,772 bytes. The Wasm benchmark now accepts
+`CALCULATOR_BENCH_CASE` to make alternating focused boundary measurements
+reproducible without changing case definitions.
+
 ## Primitive exponential recurrence indices
 
 At base commit `5506090`, the common-denominator exponential recurrence converted
