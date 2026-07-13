@@ -594,6 +594,16 @@ impl ReductionBudget {
         self.logical_work_remaining = remaining;
         true
     }
+
+    fn consume_rewrites(&mut self, units: u32) -> bool {
+        let Some(remaining) = self.rewrite_steps_remaining.checked_sub(units) else {
+            self.limit_reached
+                .get_or_insert(ComputationLimitKind::RewriteSteps);
+            return false;
+        };
+        self.rewrite_steps_remaining = remaining;
+        true
+    }
 }
 
 fn rebuild_node(
@@ -1104,20 +1114,39 @@ fn exact_normalize_polynomial_terms(
         }
     }
     terms.retain(|term| !term.coefficient.is_zero());
-    let complement_work =
-        polynomial_trig_complement_work(&terms, |id| dag.structural_sizes[id.0 as usize]);
-    if !budget.consume_work(u64::try_from(complement_work).unwrap_or(u64::MAX)) {
+    let (complement_rewrites, complement_work) = polynomial_trig_complement_plan(
+        &terms,
+        |id| dag.structural_sizes[id.0 as usize],
+        |id, exponent| trig_square_candidate_kind(dag.semantic_node(id), exponent),
+    );
+    if !budget.consume_rewrites(u32::try_from(complement_rewrites).unwrap_or(u32::MAX))
+        || !budget.consume_work(u64::try_from(complement_work).unwrap_or(u64::MAX))
+    {
         return None;
     }
     reduce_trig_square_complements(dag, &mut terms);
     Some(BuilderPolynomial { terms })
 }
 
-fn polynomial_trig_complement_work(
+fn polynomial_trig_complement_plan(
     terms: &[BuilderMonomial],
     factor_weight: impl Fn(ExprId) -> usize + Copy,
-) -> usize {
-    terms
+    candidate_kind: impl Fn(ExprId, i64) -> u8,
+) -> (usize, usize) {
+    let (sines, cosines) = terms.iter().flat_map(|term| &term.factors).fold(
+        (0usize, 0usize),
+        |(sines, cosines), (id, exponent)| match candidate_kind(*id, *exponent) {
+            1 => (sines.saturating_add(1), cosines),
+            2 => (sines, cosines.saturating_add(1)),
+            _ => (sines, cosines),
+        },
+    );
+    let rewrite_bound = if sines > 0 && cosines > 0 {
+        sines.saturating_add(cosines).saturating_sub(1)
+    } else {
+        0
+    };
+    let scan_work = terms
         .iter()
         .enumerate()
         .fold(0usize, |work, (index, left)| {
@@ -1127,7 +1156,48 @@ fn polynomial_trig_complement_work(
                         .saturating_mul(monomial_structural_weight(right, factor_weight)),
                 )
             })
-        })
+        });
+    let merge_work = polynomial_term_merge_work(
+        &BuilderPolynomial {
+            terms: terms.to_vec(),
+        },
+        factor_weight,
+    );
+    let coefficient_work = terms
+        .iter()
+        .map(|term| monomial_structural_weight(term, factor_weight))
+        .sum::<usize>()
+        .saturating_mul(4);
+    let iteration_work = scan_work
+        .saturating_add(merge_work)
+        .saturating_add(coefficient_work);
+    (rewrite_bound, rewrite_bound.saturating_mul(iteration_work))
+}
+
+fn trig_square_candidate_kind(node: &ExpressionNode, exponent: i64) -> u8 {
+    if exponent != 2 {
+        return 0;
+    }
+    match node {
+        ExpressionNode::Function {
+            function: Function::Sin,
+            ..
+        } => 1,
+        ExpressionNode::Function {
+            function: Function::Cos,
+            ..
+        } => 2,
+        ExpressionNode::Rational(_)
+        | ExpressionNode::Exact(_)
+        | ExpressionNode::Constant(_)
+        | ExpressionNode::Add(_)
+        | ExpressionNode::Multiply(_)
+        | ExpressionNode::Divide { .. }
+        | ExpressionNode::Power { .. }
+        | ExpressionNode::LogBase { .. }
+        | ExpressionNode::Function { .. }
+        | ExpressionNode::BinaryFunction { .. } => 0,
+    }
 }
 
 fn reduce_trig_square_complements(dag: &ExactExpressionDag, terms: &mut Vec<BuilderMonomial>) {
@@ -9143,10 +9213,12 @@ impl DagBuilder {
             terms.push(term);
         }
         terms.retain(|term| !term.coefficient.is_zero());
-        budget.reserve(
-            0,
-            polynomial_trig_complement_work(&terms, |id| self.structural_sizes[id.0 as usize]),
-        )?;
+        let (complement_rewrites, complement_work) = polynomial_trig_complement_plan(
+            &terms,
+            |id| self.structural_sizes[id.0 as usize],
+            |id, exponent| trig_square_candidate_kind(&self.nodes[id.0 as usize], exponent),
+        );
+        budget.reserve(complement_rewrites, complement_work)?;
         self.reduce_trig_square_complements(&mut terms);
         if terms.len() > self.canonical_term_limit {
             return Err(ComputationLimitKind::LogicalWorkUnits);

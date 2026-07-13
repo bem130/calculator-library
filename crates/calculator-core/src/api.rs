@@ -6682,6 +6682,8 @@ mod tests {
             ("-3*sin(1)^2-2*cos(1)^2", "-(2+sin(1)^2)"),
             ("exp(1)*sin(1)^2+exp(1)*cos(1)^2", "exp(1)"),
             ("sin(1)^2+cos(1)^2+sin(2)", "sin(2)+1"),
+            ("sin(1)^2+cos(1)^2+sin(2)^2+cos(2)^2", "2"),
+            ("(sin(1)^2+cos(1)^2)*exp(1)", "exp(1)"),
             ("sin(1)^2-cos(1)^2", "sin(1)^2-cos(1)^2"),
             ("sin(1)^2+cos(2)^2", "sin(1)^2+cos(2)^2"),
         ] {
@@ -6709,6 +6711,54 @@ mod tests {
                 span: None,
             })
         );
+    }
+
+    #[test]
+    fn trigonometric_square_complements_respect_resource_limits_atomically() {
+        for limits in [
+            ResourceLimits {
+                max_rewrite_steps: 0,
+                ..ResourceLimits::default()
+            },
+            ResourceLimits {
+                max_logical_work_units: 1,
+                ..ResourceLimits::default()
+            },
+        ] {
+            let request = CalculationRequest {
+                scientific_output: ScientificOutputRequest::Omit,
+                enclosure_output: EnclosureOutputRequest::Omit,
+                limits: ResourceLimitRequest::Custom(limits),
+                ..CalculationRequest::default()
+            };
+            let mut context = EvaluationContext::default();
+            let outcome = calculate(
+                "sin(1)^2+cos(1)^2+sin(2)^2+cos(2)^2",
+                &request,
+                &mut context,
+            )
+            .expect("a tight canonical budget must return a typed partial");
+            let CalculationOutcome::Partial {
+                calculation,
+                reason,
+                ..
+            } = outcome
+            else {
+                panic!("a tight canonical budget must not apply the identity partially");
+            };
+            assert!(matches!(
+                reason,
+                IncompleteReason::ComputationLimit {
+                    kind: ComputationLimitKind::RewriteSteps
+                        | ComputationLimitKind::LogicalWorkUnits,
+                }
+            ));
+            let ExactOutput::Included(exact) = calculation.exact else {
+                panic!("the original exact expression must be retained");
+            };
+            assert_ne!(exact.plain_text, "1");
+            assert_ne!(exact.plain_text, "2");
+        }
     }
 
     #[test]
