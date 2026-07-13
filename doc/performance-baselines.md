@@ -2225,11 +2225,14 @@ run also moved the unchanged nonunit atan control upward about 10%. Alternating
 base/candidate Wasm processes produced overlapping ranges for `atan(1/2)` and
 `asin(1/3)`, so no timing claim is made; the accepted claim is the deterministic
 allocation and block reduction from removing two provably redundant operations.
-The base Wasm artifact was
+The alternating timing smoke used base Wasm artifact
 `021ce40894287cc85e21e86a2755fb1691d3ef40fafa73fabed27de712005618`
-(816,896 bytes); the candidate was
+(816,896 bytes) and pre-review candidate
 `ff91afb27c59c7f369d83d7e412e9f644382427c9c7cde85077904e91f342a39`
-(818,499 bytes), 1,603 bytes (about 0.20%) larger and below the 860,000-byte
+(818,499 bytes). After adding the checked overflow preflight, the final candidate
+package/example artifact was
+`63f5b763653137b83e035bb75733d353626d9a3980646616803a51b36eea4f89`
+(818,486 bytes), 1,590 bytes (about 0.19%) above base and below the 860,000-byte
 budget. Payloads remained 1,772 bytes. The Wasm benchmark now accepts
 `CALCULATOR_BENCH_CASE` to make alternating focused boundary measurements
 reproducible without changing case definitions.
