@@ -673,6 +673,43 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Primitive squared arcsine coefficients
+
+At base commit `9d0f271`, every arcsine Taylor step materialized
+`numerator_squared * (2k-1) * (2k-1)` as a temporary BigInt and then multiplied
+that coefficient into the growing term numerator. The retained recurrence updates
+the owned term by the input numerator square and one exact primitive `u64` square.
+The checked series index bounds `2k-1` to `u32`, so its square fits exactly in
+`u64`; no float, truncation, precision, or term-count change is involved. The
+first omitted term is also doubled in its owned buffer after the lower bound no
+longer needs the undoubled value.
+
+On 2026-07-13 with `rustc 1.97.0`, deterministic one-calculation allocation
+changed as follows:
+
+| Case | Before | After |
+| --- | ---: | ---: |
+| `asin(1/3)` | 438,548 bytes / 1,260 blocks | 426,740 / 1,031 |
+| `asin(sin(1)/3)` | 881,571 / 1,795 | 859,259 / 1,569 |
+| transformed `asin((2+sin(1))/3)` control | 1,163,828 / 4,302 | unchanged |
+| `acos(1/3)` | 531,202 / 1,577 | 519,394 / 1,348 |
+
+Peak live allocation was unchanged. Logical work remained 31, 200,216, 200,447,
+and 31 units respectively. A same-target saved-baseline Criterion comparison found
+no regression: `asin(1/3)` changed from a 2.4510 ms base midpoint to 2.4257 ms,
+and the non-degenerate unit-series case from 8.6344 ms to 7.8899 ms, with both
+confidence intervals classified as no detected change. The transformed control
+does not enter this recurrence; its measured timing movement is not attributed to
+the optimization.
+
+An initial variant multiplied the growing term by the primitive odd value twice.
+It preserved exact results and produced the same allocation totals but regressed
+the two target Criterion midpoints by about 22% and 20%. Squaring the bounded odd
+coefficient first restores one growing-term coefficient multiplication and removes
+that regression. Exact oracle tests cover unit and nonunit numerators, zero,
+0/1/5/20/64/128/256-term plans, paired/directed bounds, and checked oversized
+term counts against the former materialized-coefficient recurrence.
+
 ## Dyadic exponential common-denominator construction
 
 The exponential Taylor state previously updated a second growing product for its
