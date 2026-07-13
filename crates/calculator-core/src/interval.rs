@@ -2401,10 +2401,17 @@ fn sqrt_rational_bounds(
     } else {
         &scaled_lower + BigInt::one()
     };
+    let lower_root = floor_sqrt_nonnegative(&scaled_lower);
+    let lower_root_squared = &lower_root * &lower_root;
+    let upper_root = if lower_root_squared == scaled_upper {
+        lower_root.clone()
+    } else {
+        &lower_root + 1_u8
+    };
     let exponent = -BigInt::from(precision_bits);
     Ok((
-        normalize_dyadic(floor_sqrt_nonnegative(&scaled_lower), exponent.clone()),
-        normalize_dyadic(ceil_sqrt_nonnegative(&scaled_upper), exponent),
+        normalize_dyadic(lower_root, exponent.clone()),
+        normalize_dyadic(upper_root, exponent),
     ))
 }
 
@@ -4136,7 +4143,14 @@ mod tests {
     #[test]
     fn exact_point_sqrt_shares_scaled_bounds_without_changing_results() {
         for precision_bits in [1, 32, 128] {
-            for value in [rational(1, 2), rational(3, 2), rational(2, 1)] {
+            for value in [
+                Rational::zero(),
+                rational(1, 2),
+                Rational::one(),
+                rational(3, 2),
+                rational(2, 1),
+                rational(4, 1),
+            ] {
                 let input = from_rational(&value, precision_bits);
                 assert_eq!(input.lower, input.upper);
                 let (lower, upper) = sqrt_dyadic_bounds(&input.lower, precision_bits).unwrap();
