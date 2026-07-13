@@ -6756,8 +6756,7 @@ mod tests {
             let ExactOutput::Included(exact) = calculation.exact else {
                 panic!("the original exact expression must be retained");
             };
-            assert_ne!(exact.plain_text, "1");
-            assert_ne!(exact.plain_text, "2");
+            assert_eq!(exact.plain_text, "sin(1)^2+sin(2)^2+cos(1)^2+cos(2)^2");
         }
     }
 
@@ -7401,6 +7400,23 @@ mod tests {
                 "{source}"
             );
         }
+
+        let node_limited_request = CalculationRequest {
+            scientific_output: ScientificOutputRequest::Omit,
+            enclosure_output: EnclosureOutputRequest::Omit,
+            limits: ResourceLimitRequest::Custom(ResourceLimits {
+                max_expression_nodes: 1,
+                ..ResourceLimits::default()
+            }),
+            ..CalculationRequest::default()
+        };
+        let mut context = EvaluationContext::default();
+        assert_eq!(
+            calculate("sin(1)^2+cos(1)^2", &node_limited_request, &mut context),
+            Err(CalculatorError::InputLimit(InputLimitError {
+                kind: InputLimitErrorKind::ExpressionTooLarge,
+            }))
+        );
     }
 
     #[test]

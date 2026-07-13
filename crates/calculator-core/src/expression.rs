@@ -1118,6 +1118,7 @@ fn exact_normalize_polynomial_terms(
         &terms,
         |id| dag.structural_sizes[id.0 as usize],
         |id, exponent| trig_square_candidate_kind(dag.semantic_node(id), exponent),
+        |left, right| trig_complement_monomials_match(dag, left, right),
     );
     if !budget.consume_rewrites(u32::try_from(complement_rewrites).unwrap_or(u32::MAX))
         || !budget.consume_work(u64::try_from(complement_work).unwrap_or(u64::MAX))
@@ -1132,6 +1133,7 @@ fn polynomial_trig_complement_plan(
     terms: &[BuilderMonomial],
     factor_weight: impl Fn(ExprId) -> usize + Copy,
     candidate_kind: impl Fn(ExprId, i64) -> u8,
+    compatible: impl Fn(&BuilderMonomial, &BuilderMonomial) -> bool,
 ) -> (usize, usize) {
     let (sines, cosines) = terms.iter().flat_map(|term| &term.factors).fold(
         (0usize, 0usize),
@@ -1141,11 +1143,19 @@ fn polynomial_trig_complement_plan(
             _ => (sines, cosines),
         },
     );
-    let rewrite_bound = if sines > 0 && cosines > 0 {
-        sines.saturating_add(cosines).saturating_sub(1)
-    } else {
-        0
-    };
+    if sines == 0 || cosines == 0 {
+        return (0, 0);
+    }
+    let rewrite_bound = terms
+        .iter()
+        .enumerate()
+        .map(|(index, left)| {
+            terms[index + 1..]
+                .iter()
+                .filter(|right| compatible(left, right))
+                .count()
+        })
+        .sum::<usize>();
     let scan_work = terms
         .iter()
         .enumerate()
@@ -1165,13 +1175,18 @@ fn polynomial_trig_complement_plan(
     );
     let coefficient_work = terms
         .iter()
-        .map(|term| monomial_structural_weight(term, factor_weight))
+        .map(|term| rational_structural_size(&term.coefficient))
         .sum::<usize>()
-        .saturating_mul(4);
+        .saturating_mul(8);
     let iteration_work = scan_work
         .saturating_add(merge_work)
         .saturating_add(coefficient_work);
-    (rewrite_bound, rewrite_bound.saturating_mul(iteration_work))
+    (
+        rewrite_bound,
+        rewrite_bound
+            .saturating_add(1)
+            .saturating_mul(iteration_work),
+    )
 }
 
 fn trig_square_candidate_kind(node: &ExpressionNode, exponent: i64) -> u8 {
@@ -1269,6 +1284,34 @@ fn reduce_trig_square_complements(dag: &ExactExpressionDag, terms: &mut Vec<Buil
         merged.retain(|term| !term.coefficient.is_zero());
         *terms = merged;
     }
+}
+
+fn trig_complement_monomials_match(
+    dag: &ExactExpressionDag,
+    left: &BuilderMonomial,
+    right: &BuilderMonomial,
+) -> bool {
+    for left_factor in 0..left.factors.len() {
+        let Some((left_function, left_argument)) = trig_square_factor(dag, left, left_factor)
+        else {
+            continue;
+        };
+        for right_factor in 0..right.factors.len() {
+            let Some((right_function, right_argument)) =
+                trig_square_factor(dag, right, right_factor)
+            else {
+                continue;
+            };
+            if trig_functions_are_complements(left_function, right_function)
+                && compare_exact_expressions(dag, left_argument, right_argument) == Ordering::Equal
+                && monomial_factors_equal_without(dag, left, left_factor, right, right_factor)
+                && common_signed_coefficient(&left.coefficient, &right.coefficient).is_some()
+            {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn trig_square_factor(
@@ -9217,6 +9260,7 @@ impl DagBuilder {
             &terms,
             |id| self.structural_sizes[id.0 as usize],
             |id, exponent| trig_square_candidate_kind(&self.nodes[id.0 as usize], exponent),
+            |left, right| self.trig_complement_monomials_match(left, right),
         );
         budget.reserve(complement_rewrites, complement_work)?;
         self.reduce_trig_square_complements(&mut terms);
@@ -9313,6 +9357,34 @@ impl DagBuilder {
             return None;
         };
         matches!(function, Function::Sin | Function::Cos).then_some((function, argument))
+    }
+
+    fn trig_complement_monomials_match(
+        &self,
+        left: &BuilderMonomial,
+        right: &BuilderMonomial,
+    ) -> bool {
+        for left_factor in 0..left.factors.len() {
+            let Some((left_function, left_argument)) = self.trig_square_factor(left, left_factor)
+            else {
+                continue;
+            };
+            for right_factor in 0..right.factors.len() {
+                let Some((right_function, right_argument)) =
+                    self.trig_square_factor(right, right_factor)
+                else {
+                    continue;
+                };
+                if trig_functions_are_complements(left_function, right_function)
+                    && self.compare_expressions(left_argument, right_argument) == Ordering::Equal
+                    && self.monomial_factors_equal_without(left, left_factor, right, right_factor)
+                    && common_signed_coefficient(&left.coefficient, &right.coefficient).is_some()
+                {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     fn monomial_factors_equal_without(
@@ -10156,6 +10228,25 @@ mod tests {
             large_integer.structural_sizes[large_integer.root().0 as usize]
                 > small_integer.structural_sizes[small_integer.root().0 as usize]
         );
+    }
+
+    #[test]
+    fn trig_complement_plan_reserves_rewrites_only_for_compatible_pairs() {
+        for (source, expected_rewrites) in [("sin(1)^2+cos(2)^2", 0), ("sin(1)^2-cos(1)^2", 0)] {
+            let dag = lower(source);
+            let mut budget = ReductionBudget::new(&ResourceLimits::default(), 0, 0, None);
+            let polynomial =
+                exact_polynomial_from_expression(&dag, dag.root(), &mut budget, usize::MAX)
+                    .unwrap()
+                    .unwrap();
+            let (rewrites, _) = polynomial_trig_complement_plan(
+                &polynomial.terms,
+                |id| dag.structural_sizes[id.0 as usize],
+                |id, exponent| trig_square_candidate_kind(dag.semantic_node(id), exponent),
+                |left, right| trig_complement_monomials_match(&dag, left, right),
+            );
+            assert_eq!(rewrites, expected_rewrites, "{source}");
+        }
     }
 
     #[test]
