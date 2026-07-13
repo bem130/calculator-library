@@ -1825,6 +1825,21 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Shared binary logarithm composition
+
+Non-degenerate logarithm intervals require endpoint-specific range reduction and
+directed reduced-series bounds. When either binary exponent is nonzero, both
+endpoint evaluators previously rebuilt the same input-independent `ln(2)` series.
+The endpoint pair now builds one certified `ln(2)` enclosure and selects its side
+from each exponent sign and requested direction. Zero exponents skip composition.
+
+On 2026-07-13 with `rustc 1.97.0`, `ln(2+sin(1))` moved from 351,388 bytes in
+1,783 blocks to 349,612 bytes in 1,645 blocks for one public calculation. A
+10-sample Criterion run moved from a 5.204 ms midpoint to 3.647 ms (about 30%
+lower). Endpoint-pair regressions cover negative, zero, positive, mixed, and
+different binary exponents against the former independent directed evaluator.
+The remaining dominant work is endpoint-specific reduced-series arithmetic.
+
 ## Primitive exponential recurrence indices
 
 At base commit `5506090`, the common-denominator exponential recurrence converted

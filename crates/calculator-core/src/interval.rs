@@ -360,12 +360,48 @@ pub(crate) fn log(
     let (lower, upper) = if lower == upper {
         log_rational_bounds(&lower, precision_bits)?
     } else {
-        (
-            log_rational_bound(&lower, precision_bits, BoundDirection::Lower)?,
-            log_rational_bound(&upper, precision_bits, BoundDirection::Upper)?,
-        )
+        log_rational_directed_endpoint_bounds(&lower, &upper, precision_bits)?
     };
     from_rational_bounds(&lower, &upper, precision_bits)
+}
+
+fn log_rational_directed_endpoint_bounds(
+    lower: &Rational,
+    upper: &Rational,
+    precision_bits: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    let (lower_reduced, lower_exponent_two) = reduce_log_argument_to_unit_range(lower)?;
+    let (upper_reduced, upper_exponent_two) = reduce_log_argument_to_unit_range(upper)?;
+    let lower_bound =
+        log_reduced_rational_bound(&lower_reduced, precision_bits, BoundDirection::Lower)?;
+    let upper_bound =
+        log_reduced_rational_bound(&upper_reduced, precision_bits, BoundDirection::Upper)?;
+    if lower_exponent_two == 0 && upper_exponent_two == 0 {
+        return Ok((lower_bound, upper_bound));
+    }
+    let (log_two_lower, log_two_upper) =
+        log_reduced_rational_bounds(&rational_integer(2), precision_bits)?;
+    let lower = if lower_exponent_two == 0 {
+        lower_bound
+    } else {
+        let log_two = if lower_exponent_two > 0 {
+            &log_two_lower
+        } else {
+            &log_two_upper
+        };
+        lower_bound.add(&scale_rational_by_i64(log_two, lower_exponent_two)?)
+    };
+    let upper = if upper_exponent_two == 0 {
+        upper_bound
+    } else {
+        let log_two = if upper_exponent_two > 0 {
+            &log_two_upper
+        } else {
+            &log_two_lower
+        };
+        upper_bound.add(&scale_rational_by_i64(log_two, upper_exponent_two)?)
+    };
+    Ok((lower, upper))
 }
 
 pub(crate) fn atan(
@@ -1067,6 +1103,7 @@ fn log_rational_bounds(
     }
 }
 
+#[cfg(test)]
 fn log_rational_bound(
     value: &Rational,
     precision_bits: u32,
@@ -3081,6 +3118,27 @@ mod tests {
                 assert_eq!(
                     log_rational_bound(&value, precision_bits, BoundDirection::Upper).unwrap(),
                     upper,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn shared_log_two_matches_independent_directed_endpoints() {
+        for precision_bits in [1, 64, 128] {
+            for (lower, upper) in [
+                (rational(1, 4), rational(3, 4)),
+                (rational(3, 4), rational(3, 2)),
+                (rational(3, 2), rational(7, 4)),
+                (rational(2, 1), rational(3, 1)),
+                (rational(3, 1), rational(9, 1)),
+            ] {
+                assert_eq!(
+                    log_rational_directed_endpoint_bounds(&lower, &upper, precision_bits).unwrap(),
+                    (
+                        log_rational_bound(&lower, precision_bits, BoundDirection::Lower).unwrap(),
+                        log_rational_bound(&upper, precision_bits, BoundDirection::Upper).unwrap(),
+                    ),
                 );
             }
         }
