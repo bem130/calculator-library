@@ -225,6 +225,13 @@ pub(crate) fn exp(
     let lower = dyadic_to_rational(&value.lower)?;
     let upper = dyadic_to_rational(&value.upper)?;
     if exp_uses_binary_scaling(&lower) || exp_uses_binary_scaling(&upper) {
+        if lower == upper {
+            let plan = exp_binary_scaling_plan(&lower, precision_bits)?;
+            return Ok(CertifiedInterval {
+                lower: exp_binary_scaled_bound_with_plan(&lower, BoundDirection::Lower, &plan)?,
+                upper: exp_binary_scaled_bound_with_plan(&upper, BoundDirection::Upper, &plan)?,
+            });
+        }
         return Ok(CertifiedInterval {
             lower: exp_binary_scaled_bound(&lower, precision_bits, BoundDirection::Lower)?,
             upper: exp_binary_scaled_bound(&upper, precision_bits, BoundDirection::Upper)?,
@@ -284,6 +291,21 @@ fn exp_binary_scaled_bound(
     precision_bits: u32,
     direction: BoundDirection,
 ) -> Result<ExactDyadic, IntervalError> {
+    let plan = exp_binary_scaling_plan(value, precision_bits)?;
+    exp_binary_scaled_bound_with_plan(value, direction, &plan)
+}
+
+struct ExpBinaryScalingPlan {
+    working_precision: u32,
+    log_two_lower: Rational,
+    log_two_upper: Rational,
+    binary_exponent: i64,
+}
+
+fn exp_binary_scaling_plan(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<ExpBinaryScalingPlan, IntervalError> {
     let magnitude = abs_rational(value);
     // ln(2) < 1, so this magnitude already implies an exponent beyond the
     // public cap. Reject it before magnitude-dependent guard precision and
@@ -321,22 +343,38 @@ fn exp_binary_scaled_bound(
     if binary_exponent.unsigned_abs() > MAX_BINARY_EXPONENT_MAGNITUDE {
         return Err(IntervalError::ExponentTooLarge);
     }
+    Ok(ExpBinaryScalingPlan {
+        working_precision,
+        log_two_lower,
+        log_two_upper,
+        binary_exponent,
+    })
+}
 
-    let residual = match (binary_exponent.is_negative(), direction) {
-        (false, BoundDirection::Lower) | (true, BoundDirection::Upper) => {
-            value.subtract(&scale_rational_by_i64(&log_two_upper, binary_exponent)?)
-        }
-        (false, BoundDirection::Upper) | (true, BoundDirection::Lower) => {
-            value.subtract(&scale_rational_by_i64(&log_two_lower, binary_exponent)?)
-        }
+fn exp_binary_scaled_bound_with_plan(
+    value: &Rational,
+    direction: BoundDirection,
+    plan: &ExpBinaryScalingPlan,
+) -> Result<ExactDyadic, IntervalError> {
+    let residual = match (plan.binary_exponent.is_negative(), direction) {
+        (false, BoundDirection::Lower) | (true, BoundDirection::Upper) => value.subtract(
+            &scale_rational_by_i64(&plan.log_two_upper, plan.binary_exponent)?,
+        ),
+        (false, BoundDirection::Upper) | (true, BoundDirection::Lower) => value.subtract(
+            &scale_rational_by_i64(&plan.log_two_lower, plan.binary_exponent)?,
+        ),
     };
-    let bound = exp_rational_bound(&residual, working_precision, direction)?;
-    let exponent_two = -BigInt::from(working_precision);
+    let bound = exp_rational_bound(&residual, plan.working_precision, direction)?;
+    let exponent_two = -BigInt::from(plan.working_precision);
     let mut dyadic = match direction {
-        BoundDirection::Lower => rational_to_dyadic_lower(&bound, working_precision, exponent_two),
-        BoundDirection::Upper => rational_to_dyadic_upper(&bound, working_precision, exponent_two),
+        BoundDirection::Lower => {
+            rational_to_dyadic_lower(&bound, plan.working_precision, exponent_two)
+        }
+        BoundDirection::Upper => {
+            rational_to_dyadic_upper(&bound, plan.working_precision, exponent_two)
+        }
     };
-    dyadic.exponent_two.inner += BigInt::from(binary_exponent);
+    dyadic.exponent_two.inner += BigInt::from(plan.binary_exponent);
     Ok(normalize_dyadic(
         dyadic.coefficient.inner,
         dyadic.exponent_two.inner,
@@ -4557,6 +4595,36 @@ mod tests {
             ),
             Err(IntervalError::ExponentTooLarge)
         );
+    }
+
+    #[test]
+    fn exact_binary_exponential_plan_matches_independent_directions() {
+        for precision_bits in [64, 128] {
+            for value in [
+                rational(-10000, 1),
+                rational(-65, 1),
+                rational(65, 1),
+                rational(10000, 1),
+            ] {
+                assert_eq!(
+                    exp(&from_rational(&value, precision_bits), precision_bits,).unwrap(),
+                    CertifiedInterval {
+                        lower: exp_binary_scaled_bound(
+                            &value,
+                            precision_bits,
+                            BoundDirection::Lower,
+                        )
+                        .unwrap(),
+                        upper: exp_binary_scaled_bound(
+                            &value,
+                            precision_bits,
+                            BoundDirection::Upper,
+                        )
+                        .unwrap(),
+                    },
+                );
+            }
+        }
     }
 
     #[test]

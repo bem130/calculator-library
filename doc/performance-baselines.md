@@ -1825,6 +1825,23 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Shared exact-point binary exponential plan
+
+Large exact dyadic exponentials previously invoked the binary-scaled endpoint
+evaluator independently for lower and upper bounds. Both calls rebuilt the same
+working precision, certified `ln(2)` pair, midpoint quotient, and binary exponent.
+Exact points now share that immutable plan while retaining direction-specific
+residuals, Taylor bounds, dyadic rounding, and exponent application. Non-degenerate
+endpoints retain independent planning because their guard precision can differ.
+
+On 2026-07-13 with `rustc 1.97.0`, one public `exp(-10000)` calculation moved
+from 531,048 bytes in 2,062 blocks to 526,296 bytes in 1,848 blocks; `exp(10000)`
+moved from 503,752 bytes in 1,988 blocks to 499,032 bytes in 1,778 blocks.
+Ten-sample Criterion midpoints moved from 3.271 ms to 2.889 ms for the negative
+case and from 3.240 ms to 2.492 ms for the positive case (about 12% and 23% lower).
+Logical-work charging remains the conservative public boundary rather than an
+implementation-operation count.
+
 ## Shared binary logarithm composition
 
 Non-degenerate logarithm intervals require endpoint-specific range reduction and
