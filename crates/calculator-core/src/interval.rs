@@ -234,10 +234,34 @@ pub(crate) fn exp(
         exp_rational_bounds(&lower, precision_bits)?
     } else {
         let term_count = exp_series_terms(precision_bits)?;
-        (
-            exp_rational_bound_with_terms(&lower, term_count, BoundDirection::Lower)?,
-            exp_rational_bound_with_terms(&upper, term_count, BoundDirection::Upper)?,
-        )
+        if lower.denominator == upper.denominator
+            && !lower.is_negative()
+            && !upper.is_negative()
+            && ceil_nonnegative_rational_to_u32(&lower)? == 1
+            && ceil_nonnegative_rational_to_u32(&upper)? == 1
+        {
+            let common_denominator =
+                exp_series_common_denominator(&lower.denominator.inner.inner, term_count);
+            (
+                exp_series_rational_bound_with_common_denominator(
+                    &lower,
+                    term_count,
+                    BoundDirection::Lower,
+                    &common_denominator,
+                )?,
+                exp_series_rational_bound_with_common_denominator(
+                    &upper,
+                    term_count,
+                    BoundDirection::Upper,
+                    &common_denominator,
+                )?,
+            )
+        } else {
+            (
+                exp_rational_bound_with_terms(&lower, term_count, BoundDirection::Lower)?,
+                exp_rational_bound_with_terms(&upper, term_count, BoundDirection::Upper)?,
+            )
+        }
     };
     from_rational_bounds(&lower, &upper, precision_bits)
 }
@@ -888,6 +912,23 @@ fn exp_series_rational_bound(
     }
 }
 
+fn exp_series_rational_bound_with_common_denominator(
+    value: &Rational,
+    term_count: u32,
+    direction: BoundDirection,
+    common_denominator: &BigInt,
+) -> Result<Rational, IntervalError> {
+    let tail_index = term_count
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let state =
+        exp_series_state_with_common_denominator(value, term_count, tail_index, common_denominator);
+    match direction {
+        BoundDirection::Lower => state.into_lower(),
+        BoundDirection::Upper => state.into_upper(),
+    }
+}
+
 struct ExpSeriesState<'a> {
     sum_numerator: BigInt,
     term_numerator: BigInt,
@@ -926,23 +967,56 @@ fn exp_series_state(value: &Rational, term_count: u32, tail_index: u32) -> ExpSe
     let value_denominator = &value.denominator.inner.inner;
     let mut sum_numerator = BigInt::one();
     let mut term_numerator = BigInt::one();
-    let mut common_denominator = BigInt::one();
     for next_n in 1..=term_count {
         let denominator_factor = value_denominator * next_n;
         let next_term_numerator = &term_numerator * value_numerator;
         sum_numerator *= &denominator_factor;
         sum_numerator += &next_term_numerator;
         term_numerator = next_term_numerator;
-        common_denominator *= denominator_factor;
     }
     ExpSeriesState {
         sum_numerator,
         term_numerator,
-        common_denominator,
+        common_denominator: exp_series_common_denominator(value_denominator, term_count),
         value_numerator,
         value_denominator,
         tail_index,
     }
+}
+
+fn exp_series_state_with_common_denominator<'a>(
+    value: &'a Rational,
+    term_count: u32,
+    tail_index: u32,
+    common_denominator: &BigInt,
+) -> ExpSeriesState<'a> {
+    let value_numerator = &value.numerator.inner;
+    let value_denominator = &value.denominator.inner.inner;
+    let mut sum_numerator = BigInt::one();
+    let mut term_numerator = BigInt::one();
+    for next_n in 1..=term_count {
+        let denominator_factor = value_denominator * next_n;
+        let next_term_numerator = &term_numerator * value_numerator;
+        sum_numerator *= denominator_factor;
+        sum_numerator += &next_term_numerator;
+        term_numerator = next_term_numerator;
+    }
+    ExpSeriesState {
+        sum_numerator,
+        term_numerator,
+        common_denominator: common_denominator.clone(),
+        value_numerator,
+        value_denominator,
+        tail_index,
+    }
+}
+
+fn exp_series_common_denominator(value_denominator: &BigInt, term_count: u32) -> BigInt {
+    let mut factorial = BigInt::one();
+    for factor in 2..=term_count {
+        factorial *= factor;
+    }
+    value_denominator.pow(term_count) * factorial
 }
 
 fn log_rational_bounds(
@@ -3190,6 +3264,38 @@ mod tests {
                     128
                 )
                 .unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn shared_exponential_denominator_matches_independent_endpoint_states() {
+        let term_count = exp_series_terms(128).unwrap();
+        for (lower, upper) in [
+            (rational(1, 8), rational(3, 8)),
+            (rational(5, 16), rational(15, 16)),
+        ] {
+            let common_denominator =
+                exp_series_common_denominator(&lower.denominator.inner.inner, term_count);
+            assert_eq!(
+                exp_series_rational_bound_with_common_denominator(
+                    &lower,
+                    term_count,
+                    BoundDirection::Lower,
+                    &common_denominator,
+                )
+                .unwrap(),
+                exp_series_rational_bound(&lower, term_count, BoundDirection::Lower).unwrap(),
+            );
+            assert_eq!(
+                exp_series_rational_bound_with_common_denominator(
+                    &upper,
+                    term_count,
+                    BoundDirection::Upper,
+                    &common_denominator,
+                )
+                .unwrap(),
+                exp_series_rational_bound(&upper, term_count, BoundDirection::Upper).unwrap(),
             );
         }
     }

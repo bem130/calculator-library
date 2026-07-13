@@ -673,6 +673,23 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Direct exponential common-denominator construction
+
+The exponential Taylor state previously multiplied its final common denominator
+by `b*n` at every recurrence step even though that state is used only after the
+loop and is exactly `b^N*N!`. The recurrence now constructs that value directly
+from the canonical input denominator and term count. When non-degenerate unit
+range endpoints have the same denominator, the final value is also shared; their
+value-dependent term and partial-sum numerators remain independent.
+
+On 2026-07-13 with `rustc 1.97.0`, deterministic one-calculation allocation for
+`exp(sqrt(2)*ln(2))` moved from 241,934 bytes in 3,822 blocks to 211,374 bytes in
+3,776 blocks. Direct `2^sqrt(2)` moved from 207,982 bytes in 2,306 blocks to
+177,422 bytes in 2,260 blocks. Peak live allocation moved by only eight bytes in
+each case. The representative logical-work boundaries, including the 400,447-unit
+approximate composite, were unchanged. The remaining endpoint cost is the
+necessarily value-dependent term and partial-sum large-integer multiplication.
+
 ## Factor-seeded trigonometric range composition
 
 At base commit `d84b6ca`, binary angle composition started from the identity pair,
