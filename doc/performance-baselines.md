@@ -2111,6 +2111,49 @@ controls; Criterion cases are under `approximate_components`. Run
 `logical_work_baseline` and the package benchmark to cover deterministic work and
 the Wasm/npm boundary.
 
+## Hybrid binary splitting for nonunit logarithms
+
+For nonunit `z=a/b`, let `x=a^2`, `y=b^2`, and define the positive-series
+ratios `p_k=x(2k-1)` and `q_k=y(2k+1)`. A contiguous segment stores product
+`P/Q` and cumulative-product sum `T/Q`. Adjacent segments combine exactly as
+`P=P_l P_r`, `Q=Q_l Q_r`, and `T=T_l Q_r + P_l T_r`. The final lower bound is
+`2a(Q+T)/(bQ)`; the existing first-omitted-term upper guarantee is reconstructed
+from the same product without a division or floating-point approximation.
+
+Fully balanced one-term leaves reduced total bytes but created many small blocks
+and regressed the 128-bit public-path Criterion midpoint by about 22%. The retained
+hybrid builds sequential chunks of at most 32 terms with reusable owned buffers
+and balances only the chunks. It is selected for nonzero, nonunit series with more
+than 32 planned recurrence terms. Zero, the unit-numerator specialization, and
+smaller plans retain their previous loops. Upper-tail products are deferred until
+an upper bound is requested, preserving directed lower-only evaluation.
+
+Against `12fa2b1` on 2026-07-13 with `rustc 1.97.0`, one public
+`ln(2+sin(1))` calculation changed from 347,588 bytes / 1,509 blocks to
+283,020 bytes / 1,734 blocks. Total bytes fell by about 18.6%; the larger block
+count reflects short-lived chunk temporaries, while peak live allocation remained
+16,982 bytes / 43 blocks. Allocation controls were unchanged: `ln(2)`
+20,165 / 724, `2^sqrt(2)` 151,342 / 2,056, `sqrt(2)*ln(2)` 90,642 / 3,406,
+`exp(sqrt(2)*ln(2))` 185,294 / 3,572, `exp(-10000)` 511,776 / 1,765,
+`exp(10000)` 489,112 / 1,695, and `exp(1)` 16,581 / 565.
+
+A same-host saved-baseline ten-sample Criterion comparison moved the
+non-degenerate-log midpoint from 4.272 ms to 3.634 ms (about 19.4%, `p<0.01`);
+`ln(2)` had no detected change. A three-iteration/one-warmup Wasm/npm comparison
+using the same compiled candidate code with the strategy disabled/enabled moved
+the non-degenerate case from 45.1 to 30.6 ms per iteration. Payload size remained
+1,772 bytes and retained JS heap remained 9,568 bytes. The candidate artifact was
+`11b9c3423a836bdb19345f7fae8f7ba0cd99537e5c468c0fb8e11efc096cd1ec`
+(813,416 bytes). Wasm timing is a small same-host diagnostic; native Criterion and
+deterministic allocation provide the primary evidence.
+
+Logical work remains 200,225 units for the non-degenerate log. Exact regressions
+cover the old incremental recurrence at small, threshold, 64-, 128-, and 256-bit
+term plans, directed and paired bounds, zero/unit dispatch, and checked oversized
+term counts. Reproduce with allocation case `approximate_log_non_degenerate`,
+Criterion case `approximate_components/log_non_degenerate`,
+`logical_work_baseline`, and the package benchmark.
+
 ## Primitive exponential recurrence indices
 
 At base commit `5506090`, the common-denominator exponential recurrence converted

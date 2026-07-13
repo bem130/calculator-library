@@ -14,6 +14,8 @@ const MAX_EXP_RANGE_REDUCTION_STEPS: u32 = 4096;
 const MAX_DIRECT_EXP_REDUCTION: u64 = 64;
 const MAX_BINARY_EXPONENT_MAGNITUDE: u64 = 1_000_000;
 const MAX_LOG_RANGE_REDUCTION_STEPS: u32 = 4096;
+const LOG_BINARY_SPLIT_LEAF_TERMS: u32 = 32;
+const LOG_BINARY_SPLIT_THRESHOLD: u32 = LOG_BINARY_SPLIT_LEAF_TERMS + 1;
 const MAX_TRIG_RANGE_REDUCTION_STEPS: u32 = 4096;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1635,7 +1637,7 @@ fn log_series_common_denominator_bounds(
     z: &Rational,
     term_count: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
-    log_series_state(z, term_count)?.into_bounds()
+    log_series_evaluation(z, term_count)?.into_bounds()
 }
 
 fn log_series_common_denominator_bound(
@@ -1643,10 +1645,38 @@ fn log_series_common_denominator_bound(
     term_count: u32,
     direction: BoundDirection,
 ) -> Result<Rational, IntervalError> {
-    let state = log_series_state(z, term_count)?;
+    let state = log_series_evaluation(z, term_count)?;
     match direction {
         BoundDirection::Lower => state.into_lower(),
         BoundDirection::Upper => state.into_upper(),
+    }
+}
+
+enum LogSeriesEvaluation {
+    Recurrence(LogSeriesState),
+    BinarySplit(LogBinarySplitState),
+}
+
+impl LogSeriesEvaluation {
+    fn into_lower(self) -> Result<Rational, IntervalError> {
+        match self {
+            Self::Recurrence(state) => state.into_lower(),
+            Self::BinarySplit(state) => state.into_lower(),
+        }
+    }
+
+    fn into_upper(self) -> Result<Rational, IntervalError> {
+        match self {
+            Self::Recurrence(state) => state.into_upper(),
+            Self::BinarySplit(state) => state.into_upper(),
+        }
+    }
+
+    fn into_bounds(self) -> Result<(Rational, Rational), IntervalError> {
+        match self {
+            Self::Recurrence(state) => state.into_bounds(),
+            Self::BinarySplit(state) => state.into_bounds(),
+        }
     }
 }
 
@@ -1690,7 +1720,20 @@ impl LogSeriesState {
     }
 }
 
-fn log_series_state(z: &Rational, term_count: u32) -> Result<LogSeriesState, IntervalError> {
+fn log_series_evaluation(
+    z: &Rational,
+    term_count: u32,
+) -> Result<LogSeriesEvaluation, IntervalError> {
+    if !z.is_zero() && !z.numerator.inner.is_one() && term_count >= LOG_BINARY_SPLIT_THRESHOLD {
+        return log_binary_split_state(z, term_count).map(LogSeriesEvaluation::BinarySplit);
+    }
+    log_series_recurrence_state(z, term_count).map(LogSeriesEvaluation::Recurrence)
+}
+
+fn log_series_recurrence_state(
+    z: &Rational,
+    term_count: u32,
+) -> Result<LogSeriesState, IntervalError> {
     let value_numerator = &z.numerator.inner;
     let value_denominator = &z.denominator.inner.inner;
     let numerator_squared = value_numerator * value_numerator;
@@ -1735,6 +1778,141 @@ fn log_series_state(z: &Rational, term_count: u32) -> Result<LogSeriesState, Int
         numerator_squared,
         denominator_squared,
         term_count,
+    })
+}
+
+struct LogBinarySplitState {
+    sum_numerator: BigInt,
+    common_denominator: BigInt,
+    last_product_numerator: BigInt,
+    value_numerator: BigInt,
+    numerator_squared: BigInt,
+    denominator_squared: BigInt,
+    term_count: u32,
+}
+
+impl LogBinarySplitState {
+    fn into_lower(self) -> Result<Rational, IntervalError> {
+        rational_from_parts(self.sum_numerator * 2_u8, self.common_denominator)
+    }
+
+    fn into_upper(self) -> Result<Rational, IntervalError> {
+        let final_odd = self
+            .term_count
+            .checked_mul(2)
+            .and_then(|value| value.checked_add(1))
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        let next_odd = final_odd
+            .checked_add(2)
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        let next_denominator_factor = self.denominator_squared * next_odd;
+        let next_term_scaled_numerator =
+            self.value_numerator * self.last_product_numerator * self.numerator_squared * final_odd;
+        let upper_numerator = self.sum_numerator * &next_denominator_factor * 2_u8
+            + next_term_scaled_numerator * 4_u8;
+        rational_from_parts(
+            upper_numerator,
+            self.common_denominator * next_denominator_factor,
+        )
+    }
+
+    fn into_bounds(self) -> Result<(Rational, Rational), IntervalError> {
+        let lower =
+            rational_from_parts(&self.sum_numerator * 2_u8, self.common_denominator.clone())?;
+        let upper = self.into_upper()?;
+        Ok((lower, upper))
+    }
+}
+
+struct LogBinarySplit {
+    // For a segment of recurrence indices, P/Q is the product of all term
+    // ratios and T/Q is the sum of the segment's cumulative products.
+    product_numerator: BigInt,
+    product_denominator: BigInt,
+    sum_numerator: BigInt,
+}
+
+fn log_binary_split_state(
+    z: &Rational,
+    term_count: u32,
+) -> Result<LogBinarySplitState, IntervalError> {
+    debug_assert!(!z.numerator.inner.is_one());
+    debug_assert!(term_count > 0);
+    let numerator = &z.numerator.inner;
+    let denominator = &z.denominator.inner.inner;
+    let numerator_squared = numerator * numerator;
+    let denominator_squared = denominator * denominator;
+    let split = log_binary_split(
+        &numerator_squared,
+        &denominator_squared,
+        1,
+        term_count
+            .checked_add(1)
+            .ok_or(IntervalError::ExponentTooLarge)?,
+    )?;
+    let sum_numerator = numerator * (&split.product_denominator + &split.sum_numerator);
+    let common_denominator = denominator * &split.product_denominator;
+    Ok(LogBinarySplitState {
+        sum_numerator,
+        common_denominator,
+        last_product_numerator: split.product_numerator,
+        value_numerator: numerator.clone(),
+        numerator_squared,
+        denominator_squared,
+        term_count,
+    })
+}
+
+fn log_binary_split(
+    numerator_squared: &BigInt,
+    denominator_squared: &BigInt,
+    start: u32,
+    end: u32,
+) -> Result<LogBinarySplit, IntervalError> {
+    debug_assert!(start < end);
+    if end - start <= LOG_BINARY_SPLIT_LEAF_TERMS {
+        return log_binary_split_leaf_block(numerator_squared, denominator_squared, start, end);
+    }
+    let middle = start + (end - start) / 2;
+    let mut left = log_binary_split(numerator_squared, denominator_squared, start, middle)?;
+    let mut right = log_binary_split(numerator_squared, denominator_squared, middle, end)?;
+    left.sum_numerator *= &right.product_denominator;
+    right.sum_numerator *= &left.product_numerator;
+    left.sum_numerator += right.sum_numerator;
+    left.product_numerator *= right.product_numerator;
+    left.product_denominator *= right.product_denominator;
+    Ok(left)
+}
+
+fn log_binary_split_leaf_block(
+    numerator_squared: &BigInt,
+    denominator_squared: &BigInt,
+    start: u32,
+    end: u32,
+) -> Result<LogBinarySplit, IntervalError> {
+    let mut product_numerator = BigInt::one();
+    let mut product_denominator = BigInt::one();
+    let mut sum_numerator = BigInt::zero();
+    for index in start..end {
+        let odd_before = index
+            .checked_mul(2)
+            .and_then(|value| value.checked_sub(1))
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        let odd_after = index
+            .checked_mul(2)
+            .and_then(|value| value.checked_add(1))
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        let step_numerator = numerator_squared * odd_before;
+        let step_denominator = denominator_squared * odd_after;
+        sum_numerator *= &step_denominator;
+        sum_numerator += &product_numerator * &step_numerator;
+        product_numerator *= step_numerator;
+        product_denominator *= step_denominator;
+    }
+    Ok(LogBinarySplit {
+        product_numerator,
+        product_denominator,
+        sum_numerator,
     })
 }
 
@@ -4776,7 +4954,7 @@ mod tests {
     }
 
     #[test]
-    fn unit_numerator_log_loop_matches_general_recurrence() {
+    fn log_series_strategies_match_incremental_recurrence() {
         fn legacy_bounds(
             z: &Rational,
             term_count: u32,
@@ -4828,6 +5006,7 @@ mod tests {
                 20,
                 log_series_terms(64).unwrap(),
                 log_series_terms(128).unwrap(),
+                log_series_terms(256).unwrap(),
             ] {
                 let expected = legacy_bounds(&z, term_count).unwrap();
                 assert_eq!(
@@ -4846,6 +5025,31 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn log_binary_split_dispatch_keeps_small_and_unit_recurrences() {
+        let nonunit = rational(3, 10);
+        assert!(matches!(
+            log_series_evaluation(&nonunit, LOG_BINARY_SPLIT_THRESHOLD - 1).unwrap(),
+            LogSeriesEvaluation::Recurrence(_),
+        ));
+        assert!(matches!(
+            log_series_evaluation(&nonunit, LOG_BINARY_SPLIT_THRESHOLD).unwrap(),
+            LogSeriesEvaluation::BinarySplit(_),
+        ));
+        assert!(matches!(
+            log_series_evaluation(&rational(1, 3), log_series_terms(256).unwrap()).unwrap(),
+            LogSeriesEvaluation::Recurrence(_),
+        ));
+        assert!(matches!(
+            log_series_evaluation(&Rational::zero(), log_series_terms(256).unwrap()).unwrap(),
+            LogSeriesEvaluation::Recurrence(_),
+        ));
+        assert!(matches!(
+            log_binary_split_state(&nonunit, u32::MAX),
+            Err(IntervalError::ExponentTooLarge),
+        ));
     }
 
     #[test]
