@@ -36,6 +36,8 @@ fn main() {
         ("sin_two", "sin(2)"),
         ("cos_two", "cos(2)"),
         ("tan_two", "tan(2)"),
+        ("sin_periodic_non_degenerate", "sin(100+sin(1))"),
+        ("tan_periodic_non_degenerate", "tan(100+sin(1)/100)"),
         ("algebraic", "((2^(1/3)-2^(1/3))+2)^(1/3)"),
         ("wide_add_256", wide.as_str()),
     ];

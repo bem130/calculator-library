@@ -43,6 +43,8 @@ fn main() {
         "approximate_sin_two" => Some(String::from("sin(2)")),
         "approximate_cos_two" => Some(String::from("cos(2)")),
         "approximate_tan_two" => Some(String::from("tan(2)")),
+        "approximate_sin_periodic_non_degenerate" => Some(String::from("sin(100+sin(1))")),
+        "approximate_tan_periodic_non_degenerate" => Some(String::from("tan(100+sin(1)/100)")),
         "approximate_atan_two" => Some(String::from("atan(2)")),
         "approximate_atan_non_degenerate" => Some(String::from("atan(2+sin(1))")),
         "approximate_atan_half" => Some(String::from("atan(1/2)")),
