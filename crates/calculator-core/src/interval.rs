@@ -887,6 +887,12 @@ fn exp_rational_bound_with_terms(
     term_count: u32,
     direction: BoundDirection,
 ) -> Result<Rational, IntervalError> {
+    if value.is_zero() {
+        return Ok(Rational::one());
+    }
+    term_count
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
     let plan = ExpSeriesPlan {
         term_count,
         factorial: exp_series_factorial(term_count),
@@ -4397,6 +4403,14 @@ mod tests {
         assert_eq!(
             exp_series_terms(u32::MAX),
             Err(IntervalError::ExponentTooLarge)
+        );
+        assert_eq!(
+            exp_rational_bound_with_terms(&Rational::zero(), u32::MAX, BoundDirection::Lower,),
+            Ok(Rational::one()),
+        );
+        assert_eq!(
+            exp_rational_bound_with_terms(&Rational::one(), u32::MAX, BoundDirection::Lower,),
+            Err(IntervalError::ExponentTooLarge),
         );
 
         for precision_bits in [0, 1, 16, 128] {
