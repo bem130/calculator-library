@@ -1139,10 +1139,9 @@ fn exp_series_state_with_plan<'a>(
     let mut term_numerator = BigInt::one();
     for next_n in 1..=term_count {
         let denominator_factor = value_denominator * next_n;
-        let next_term_numerator = &term_numerator * value_numerator;
+        term_numerator *= value_numerator;
         sum_numerator *= &denominator_factor;
-        sum_numerator += &next_term_numerator;
-        term_numerator = next_term_numerator;
+        sum_numerator += &term_numerator;
     }
     Ok(ExpSeriesState {
         sum_numerator,
@@ -1166,10 +1165,9 @@ fn exp_series_state_with_common_denominator<'a>(
     let mut term_numerator = BigInt::one();
     for next_n in 1..=term_count {
         let denominator_factor = value_denominator * next_n;
-        let next_term_numerator = &term_numerator * value_numerator;
+        term_numerator *= value_numerator;
         sum_numerator *= denominator_factor;
-        sum_numerator += &next_term_numerator;
-        term_numerator = next_term_numerator;
+        sum_numerator += &term_numerator;
     }
     ExpSeriesState {
         sum_numerator,

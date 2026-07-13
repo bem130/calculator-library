@@ -1878,6 +1878,21 @@ Criterion detected no change for direct general power or large exp; the cumulati
 case improved against its cached control, but this small planning change claims
 only the deterministic allocation reduction.
 
+## In-place exponential term buffer
+
+The common-denominator recurrence previously allocated `term*a` as a new BigInt,
+moved it into the state, and dropped the preceding term buffer. Updating the owned
+term in place preserves the exact recurrence while allowing ordinary-size products
+to reuse capacity. Against commit `de0f7c1`, one public `exp(1)` calculation moved
+from 17,133 bytes in 634 blocks to 16,861 bytes in 600 blocks. General power, its
+cumulative exp stage, and `exp(±10000)` were byte-for-byte unchanged because their
+growing term products still require fresh capacity. Peak live allocation and the
+representative logical-work boundaries were unchanged. This slice therefore claims
+deterministic allocation reduction for ordinary exact exponential evaluation only.
+A 20-sample Criterion snapshot measured a 30.710 µs midpoint and reported an
+improvement against its cached control; host-sensitive timing is not used to
+broaden the claim beyond the deterministic allocation result.
+
 ## Shared binary logarithm composition
 
 Non-degenerate logarithm intervals require endpoint-specific range reduction and
