@@ -1991,6 +1991,45 @@ lower). Endpoint-pair regressions cover negative, zero, positive, mixed, and
 different binary exponents against the former independent directed evaluator.
 The remaining dominant work is endpoint-specific reduced-series arithmetic.
 
+## Unit-numerator reduced logarithm recurrence
+
+For the positive-series variable `z=a/b`, a unit numerator makes every unweighted
+power numerator exactly one. The recurrence now selects a dedicated loop once and
+adds the existing odd-denominator product directly to the scaled sum, avoiding
+`term *= 1` and the temporary `term*odd_product`. This applies to every `z=1/b`,
+not only the `ln(2)` value `1/3`. Nonunit and zero numerators retain the former
+loop byte-for-byte; upper-tail construction remains shared and unchanged.
+
+Against commit `b66ce00`, deterministic one-calculation allocation changed as
+follows on 2026-07-13 with `rustc 1.97.0`:
+
+| Case | Before | After |
+| --- | ---: | ---: |
+| `ln(2)` | 20,749 bytes / 766 blocks | 20,197 / 728 |
+| `ln(2+sin(1))` | 349,612 / 1,645 | 349,060 / 1,607 |
+| `2^sqrt(2)` | 151,926 / 2,098 | 151,374 / 2,060 |
+| `sqrt(2)*ln(2)` | 91,226 / 3,448 | 90,674 / 3,410 |
+| `exp(sqrt(2)*ln(2))` | 185,878 / 3,614 | 185,326 / 3,576 |
+| `exp(-10000)` | 512,480 / 1,808 | 511,776 / 1,765 |
+| `exp(10000)` | 489,816 / 1,738 | 489,112 / 1,695 |
+
+`exp(1)` remained at 16,581 bytes / 565 blocks, and peak live allocation was
+unchanged in every case. Twenty-sample reruns detected no timing change for the
+`exp(1)` control or `ln(2)`; host load varied substantially during the much longer
+non-degenerate log sample, so this slice claims only deterministic allocation.
+Exact tests cover `z=1/3`, `1/4`, `1/5`, `1/7`, nonunit `3/10`, zero, term counts
+0/1/5/20, and the 64/128-bit term plans against the former general recurrence and
+the independent Rational definition.
+
+Two broader alternatives were rejected before this slice. Folding the odd product
+into the stored term reduced non-degenerate-log allocation from 349,612 to 280,836
+bytes but changed `ln(2)` from 82.9 to 104.8 µs and the non-degenerate log from
+4.43 to 6.18 ms in same-load base/candidate runs because subsequent general
+multiplications consumed a larger term. Explicitly consuming buffers in the upper
+tail produced byte-, block-, and peak-identical measurements; a 20-sample run
+measured 101.1 µs and 5.87 ms against base values 91.1 µs and 4.92 ms. Neither
+variant is retained.
+
 ## Primitive exponential recurrence indices
 
 At base commit `5506090`, the common-denominator exponential recurrence converted

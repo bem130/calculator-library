@@ -1607,17 +1607,31 @@ fn log_series_state(z: &Rational, term_count: u32) -> Result<LogSeriesState, Int
     let mut odd_product = BigInt::one();
     let mut common_denominator = value_denominator.clone();
 
-    for k in 1..=term_count {
-        let odd_denominator = k
-            .checked_mul(2)
-            .and_then(|value| value.checked_add(1))
-            .ok_or(IntervalError::ExponentTooLarge)?;
-        term_numerator *= &numerator_squared;
-        let denominator_factor = &denominator_squared * odd_denominator;
-        sum_numerator *= &denominator_factor;
-        sum_numerator += &term_numerator * &odd_product;
-        common_denominator *= denominator_factor;
-        odd_product *= odd_denominator;
+    if value_numerator.is_one() {
+        for k in 1..=term_count {
+            let odd_denominator = k
+                .checked_mul(2)
+                .and_then(|value| value.checked_add(1))
+                .ok_or(IntervalError::ExponentTooLarge)?;
+            let denominator_factor = &denominator_squared * odd_denominator;
+            sum_numerator *= &denominator_factor;
+            sum_numerator += &odd_product;
+            common_denominator *= denominator_factor;
+            odd_product *= odd_denominator;
+        }
+    } else {
+        for k in 1..=term_count {
+            let odd_denominator = k
+                .checked_mul(2)
+                .and_then(|value| value.checked_add(1))
+                .ok_or(IntervalError::ExponentTooLarge)?;
+            term_numerator *= &numerator_squared;
+            let denominator_factor = &denominator_squared * odd_denominator;
+            sum_numerator *= &denominator_factor;
+            sum_numerator += &term_numerator * &odd_product;
+            common_denominator *= denominator_factor;
+            odd_product *= odd_denominator;
+        }
     }
 
     Ok(LogSeriesState {
@@ -4652,6 +4666,79 @@ mod tests {
                 assert_eq!(
                     log_series_common_denominator_bounds(&z, term_count).unwrap(),
                     (expected_lower, expected_upper),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn unit_numerator_log_loop_matches_general_recurrence() {
+        fn legacy_bounds(
+            z: &Rational,
+            term_count: u32,
+        ) -> Result<(Rational, Rational), IntervalError> {
+            let value_numerator = &z.numerator.inner;
+            let value_denominator = &z.denominator.inner.inner;
+            let numerator_squared = value_numerator * value_numerator;
+            let denominator_squared = value_denominator * value_denominator;
+            let mut sum_numerator = value_numerator.clone();
+            let mut term_numerator = value_numerator.clone();
+            let mut odd_product = BigInt::one();
+            let mut common_denominator = value_denominator.clone();
+            for k in 1..=term_count {
+                let odd_denominator = k
+                    .checked_mul(2)
+                    .and_then(|value| value.checked_add(1))
+                    .ok_or(IntervalError::ExponentTooLarge)?;
+                term_numerator *= &numerator_squared;
+                let denominator_factor = &denominator_squared * odd_denominator;
+                sum_numerator *= &denominator_factor;
+                sum_numerator += &term_numerator * &odd_product;
+                common_denominator *= denominator_factor;
+                odd_product *= odd_denominator;
+            }
+            let state = LogSeriesState {
+                sum_numerator,
+                term_numerator,
+                odd_product,
+                common_denominator,
+                numerator_squared,
+                denominator_squared,
+                term_count,
+            };
+            state.into_bounds()
+        }
+
+        for z in [
+            Rational::zero(),
+            rational(1, 3),
+            rational(1, 4),
+            rational(1, 5),
+            rational(1, 7),
+            rational(3, 10),
+        ] {
+            for term_count in [
+                0,
+                1,
+                5,
+                20,
+                log_series_terms(64).unwrap(),
+                log_series_terms(128).unwrap(),
+            ] {
+                let expected = legacy_bounds(&z, term_count).unwrap();
+                assert_eq!(
+                    log_series_common_denominator_bounds(&z, term_count).unwrap(),
+                    expected,
+                );
+                assert_eq!(
+                    log_series_common_denominator_bound(&z, term_count, BoundDirection::Lower,)
+                        .unwrap(),
+                    expected.0,
+                );
+                assert_eq!(
+                    log_series_common_denominator_bound(&z, term_count, BoundDirection::Upper,)
+                        .unwrap(),
+                    expected.1,
                 );
             }
         }

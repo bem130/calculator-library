@@ -68,6 +68,7 @@ exp Taylor recurrenceのraw分子・正分母が直ちに公開ExactDyadicへ丸
 exp Taylor recurrenceの入力分母が`2^k`なら、各項の`sum *= denominator*n`をprimitive `n`乗算と`k` bit shiftへ分解する。2冪判定はstateごとに一度だけ非allocationで行い、一般BigInt factorの反復構築・乗算を除く。非dyadic分母とtail補正は従来経路を維持する。
 exp/log/e/trig/atanの項数・tail境界補助は、checked `u32` indexと固定`u8`係数を所有BigIntへ変換せずprimitive scalarとしてBigIntへ乗算する。比較対象のfactorial・3冪・逆数分母だけを多倍長で保持し、最小項数を定める不等式は変更しない。
 reduced logの正項級数は`z=a/b`に対し、`b^(2k+1)`と既出奇数分母の積を共通分母として部分和・現在冪・奇数積をBigInt recurrenceで更新する。loop内のRational乗算・除算・加算ごとのGCDを除き、lowerと最初の未加算項を含むupperだけを最終canonical化する。
+reduced logの級数変数が`z=1/b`なら現在冪は常に1なので、loop外で正のunit numeratorを一度判定し、`term *= 1`と`term*odd_product` temporaryを除いて部分和へ`odd_product`を直接加える。nonunitとzeroのrecurrence、upper tail、canonicalization、term countとlogical-work契約は変更しない。
 負の通常range expは、正側で得たcanonicalな正Rational boundの分子・分母を交換して逆数boundを構築する。`1/bound`を汎用除算へ戻す重複GCDを除き、lower/upper方向の反転とzero防御を維持する。
 canonical非零Rationalの構造的逆数を符号付き値へ一般化し、interval reciprocalと`atan(x>1)`にも使用する。負値は分子・分母の符号を同時反転して正分母を維持し、zeroだけを拒否する。
 atanの交代級数は`z=a/b`に対し、`b^(2k+1)`と既出奇数分母の積を共通分母として部分和・現在冪・奇数積をBigInt recurrenceで更新する。unit-range atanとMachin公式のπ計算を同じhelperへ統合し、loop内のRational冪・除算・加減算ごとのGCDを除く。最終部分和と最初の未加算項を含む隣接boundだけをcanonical化し、旧Rational recurrenceとのexact一致、交代級数の方向、logical-work契約を維持する。
