@@ -1842,6 +1842,17 @@ case and from 3.240 ms to 2.492 ms for the positive case (about 12% and 23% lowe
 Logical-work charging remains the conservative public boundary rather than an
 implementation-operation count.
 
+The shared plan originally left one precision-only operation duplicated: each
+direction independently derived the Taylor term count from the same working
+precision. Storing that count in the exact-point plan removes the second
+factorial search without sharing the direction-specific residual or recurrence.
+Against commit `7ac4123`, one `exp(-10000)` calculation moved from 526,296 bytes
+in 1,848 blocks to 526,216 bytes in 1,844 blocks; `exp(10000)` moved from 499,032
+bytes in 1,778 blocks to 498,952 bytes in 1,774 blocks. A 20-sample Criterion run
+measured 1.944 ms and 1.745 ms midpoints respectively, but timing is treated as a
+noisy snapshot rather than attributed wholly to this small allocation change.
+Logical work remains 586 and 582 units.
+
 ## Shared binary logarithm composition
 
 Non-degenerate logarithm intervals require endpoint-specific range reduction and

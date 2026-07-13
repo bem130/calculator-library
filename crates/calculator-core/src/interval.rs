@@ -297,6 +297,7 @@ fn exp_binary_scaled_bound(
 
 struct ExpBinaryScalingPlan {
     working_precision: u32,
+    term_count: u32,
     log_two_lower: Rational,
     log_two_upper: Rational,
     binary_exponent: i64,
@@ -330,6 +331,7 @@ fn exp_binary_scaling_plan(
         .checked_add(guard_bits)
         .and_then(|value| value.checked_add(2))
         .ok_or(IntervalError::ExponentTooLarge)?;
+    let term_count = exp_series_terms(working_precision)?;
     let (log_two_lower, log_two_upper) =
         log_reduced_rational_bounds(&rational_integer(2), working_precision)?;
     let log_two_midpoint = halve_rational(&log_two_lower.add(&log_two_upper))?;
@@ -345,6 +347,7 @@ fn exp_binary_scaling_plan(
     }
     Ok(ExpBinaryScalingPlan {
         working_precision,
+        term_count,
         log_two_lower,
         log_two_upper,
         binary_exponent,
@@ -364,7 +367,7 @@ fn exp_binary_scaled_bound_with_plan(
             &scale_rational_by_i64(&plan.log_two_lower, plan.binary_exponent)?,
         ),
     };
-    let bound = exp_rational_bound(&residual, plan.working_precision, direction)?;
+    let bound = exp_rational_bound_with_terms(&residual, plan.term_count, direction)?;
     let exponent_two = -BigInt::from(plan.working_precision);
     let mut dyadic = match direction {
         BoundDirection::Lower => {
@@ -862,6 +865,7 @@ enum BoundDirection {
     Upper,
 }
 
+#[cfg(test)]
 fn exp_rational_bound(
     value: &Rational,
     precision_bits: u32,
