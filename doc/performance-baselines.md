@@ -1217,6 +1217,31 @@ SHA-256 `721cd6720b8af23ec51372d6fb543fdd6d7ee15f1a964bbfdef080013e3dbb19`.
 Package check, example production build, and browser E2E passed for the
 implementation artifact, confirming unchanged npm and example-ui presentation.
 
+## Shared Taylor plan for non-degenerate exponential endpoints
+
+At base commit `85065dd`, ordinary non-degenerate exponential evaluation chose
+the same factorial-based Taylor term count independently for the lower and upper
+endpoint. Commit `226debb` computes this precision-only plan once and passes it
+to both directed endpoint evaluations. Binary-scaled endpoints retain their
+independent working-precision plans, and exact points retain their shared
+recurrence state.
+
+On 2026-07-13 with `rustc 1.97.0`, deterministic allocation for `2^sqrt(2)`
+moved from 208,062 bytes / 2,310 blocks to 207,982 / 2,306. The cumulative
+`exp(sqrt(2)*ln(2))` path moved from 242,014 / 3,826 to 241,934 / 3,822.
+Twenty-sample general-power Criterion midpoint estimates were 703.19 µs and
+618.61 µs, but this small planning change does not establish that host-sensitive
+timing movement as a speedup. The approximate logical-work boundary remained
+400,447 units.
+
+One-iteration Wasm/npm boundary smokes retained the 1,812-byte approximate
+payload and moved from 7.96 ms at base artifact
+`72cdee12bd04cf0a9977eb272a6b49c234f5072c73040492de1e2f82fa799fe7`
+(794,661 bytes) to 7.55 ms at implementation artifact
+`d848924afe25a40f477ad509e6fe189407cdc7c387f60c5b010e7475f7b7ad23`
+(794,742 bytes). This is not a powered Wasm timing claim. Directed enclosure,
+resource accounting, no-float policy, and public protocol are unchanged.
+
 ## Shared integer-root search for exact sqrt bounds
 
 At base commit `bc655eb`, an exact-point square root independently searched for
