@@ -2701,6 +2701,7 @@ fn asin_common_denominator_bounds(
     value: &Rational,
     term_count: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
+    preflight_asin_series_tail_index(term_count)?;
     let value_numerator = &value.numerator.inner;
     let value_denominator = &value.denominator.inner.inner;
     let numerator_squared = value_numerator * value_numerator;
@@ -2709,9 +2710,9 @@ fn asin_common_denominator_bounds(
     let mut term_numerator = value_numerator.clone();
     let mut common_denominator = value_denominator.clone();
     for index in 1..=term_count {
-        let (numerator_factor, denominator_factor) =
-            asin_term_factors(index, &numerator_squared, &denominator_squared)?;
-        term_numerator *= numerator_factor;
+        let (odd, denominator_factor) =
+            asin_term_odd_and_denominator_factor(index, &denominator_squared)?;
+        advance_asin_term(&mut term_numerator, &numerator_squared, odd);
         sum_numerator *= &denominator_factor;
         sum_numerator += &term_numerator;
         common_denominator *= denominator_factor;
@@ -2719,12 +2720,13 @@ fn asin_common_denominator_bounds(
     let next_index = term_count
         .checked_add(1)
         .ok_or(IntervalError::ExponentTooLarge)?;
-    let (next_numerator_factor, next_denominator_factor) =
-        asin_term_factors(next_index, &numerator_squared, &denominator_squared)?;
-    term_numerator *= next_numerator_factor;
+    let (next_odd, next_denominator_factor) =
+        asin_term_odd_and_denominator_factor(next_index, &denominator_squared)?;
+    advance_asin_term(&mut term_numerator, &numerator_squared, next_odd);
     let lower = rational_from_parts(sum_numerator.clone(), common_denominator.clone())?;
     sum_numerator *= &next_denominator_factor;
-    sum_numerator += term_numerator * 2_u8;
+    term_numerator *= 2_u8;
+    sum_numerator += term_numerator;
     let upper = rational_from_parts(sum_numerator, common_denominator * next_denominator_factor)?;
     Ok((lower, upper))
 }
@@ -2734,6 +2736,7 @@ fn asin_common_denominator_bound(
     term_count: u32,
     direction: BoundDirection,
 ) -> Result<Rational, IntervalError> {
+    preflight_asin_series_tail_index(term_count)?;
     let value_numerator = &value.numerator.inner;
     let value_denominator = &value.denominator.inner.inner;
     let numerator_squared = value_numerator * value_numerator;
@@ -2742,9 +2745,9 @@ fn asin_common_denominator_bound(
     let mut term_numerator = value_numerator.clone();
     let mut common_denominator = value_denominator.clone();
     for index in 1..=term_count {
-        let (numerator_factor, denominator_factor) =
-            asin_term_factors(index, &numerator_squared, &denominator_squared)?;
-        term_numerator *= numerator_factor;
+        let (odd, denominator_factor) =
+            asin_term_odd_and_denominator_factor(index, &denominator_squared)?;
+        advance_asin_term(&mut term_numerator, &numerator_squared, odd);
         sum_numerator *= &denominator_factor;
         sum_numerator += &term_numerator;
         common_denominator *= denominator_factor;
@@ -2755,19 +2758,25 @@ fn asin_common_denominator_bound(
     let next_index = term_count
         .checked_add(1)
         .ok_or(IntervalError::ExponentTooLarge)?;
-    let (next_numerator_factor, next_denominator_factor) =
-        asin_term_factors(next_index, &numerator_squared, &denominator_squared)?;
-    term_numerator *= next_numerator_factor;
+    let (next_odd, next_denominator_factor) =
+        asin_term_odd_and_denominator_factor(next_index, &denominator_squared)?;
+    advance_asin_term(&mut term_numerator, &numerator_squared, next_odd);
     sum_numerator *= &next_denominator_factor;
-    sum_numerator += term_numerator * 2_u8;
+    term_numerator *= 2_u8;
+    sum_numerator += term_numerator;
     rational_from_parts(sum_numerator, common_denominator * next_denominator_factor)
 }
 
-fn asin_term_factors(
+fn advance_asin_term(term: &mut BigInt, numerator_squared: &BigInt, odd: u32) {
+    *term *= numerator_squared;
+    *term *= odd;
+    *term *= odd;
+}
+
+fn asin_term_odd_and_denominator_factor(
     index: u32,
-    numerator_squared: &BigInt,
     denominator_squared: &BigInt,
-) -> Result<(BigInt, BigInt), IntervalError> {
+) -> Result<(u32, BigInt), IntervalError> {
     let doubled = index
         .checked_mul(2)
         .ok_or(IntervalError::ExponentTooLarge)?;
@@ -2777,10 +2786,16 @@ fn asin_term_factors(
     let next_odd = doubled
         .checked_add(1)
         .ok_or(IntervalError::ExponentTooLarge)?;
-    Ok((
-        (numerator_squared * odd) * odd,
-        (denominator_squared * doubled) * next_odd,
-    ))
+    Ok((odd, (denominator_squared * doubled) * next_odd))
+}
+
+fn preflight_asin_series_tail_index(term_count: u32) -> Result<(), IntervalError> {
+    term_count
+        .checked_add(1)
+        .and_then(|index| index.checked_mul(2))
+        .and_then(|doubled| doubled.checked_add(1))
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    Ok(())
 }
 
 fn acos_rational_bounds(
@@ -5321,6 +5336,96 @@ mod tests {
                     "value={value:?}, term_count={term_count}",
                 );
             }
+        }
+    }
+
+    fn legacy_asin_common_denominator_bounds(
+        value: &Rational,
+        term_count: u32,
+    ) -> Result<(Rational, Rational), IntervalError> {
+        let value_numerator = &value.numerator.inner;
+        let value_denominator = &value.denominator.inner.inner;
+        let numerator_squared = value_numerator * value_numerator;
+        let denominator_squared = value_denominator * value_denominator;
+        let mut sum_numerator = value_numerator.clone();
+        let mut term_numerator = value_numerator.clone();
+        let mut common_denominator = value_denominator.clone();
+        for index in 1..=term_count {
+            let doubled = index
+                .checked_mul(2)
+                .ok_or(IntervalError::ExponentTooLarge)?;
+            let odd = doubled
+                .checked_sub(1)
+                .ok_or(IntervalError::ExponentTooLarge)?;
+            let next_odd = doubled
+                .checked_add(1)
+                .ok_or(IntervalError::ExponentTooLarge)?;
+            term_numerator *= (&numerator_squared * odd) * odd;
+            let denominator_factor = (&denominator_squared * doubled) * next_odd;
+            sum_numerator *= &denominator_factor;
+            sum_numerator += &term_numerator;
+            common_denominator *= denominator_factor;
+        }
+        let next_index = term_count
+            .checked_add(1)
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        let doubled = next_index
+            .checked_mul(2)
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        let odd = doubled
+            .checked_sub(1)
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        let next_odd = doubled
+            .checked_add(1)
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        term_numerator *= (&numerator_squared * odd) * odd;
+        let next_denominator_factor = (&denominator_squared * doubled) * next_odd;
+        let lower = rational_from_parts(sum_numerator.clone(), common_denominator.clone())?;
+        sum_numerator *= &next_denominator_factor;
+        sum_numerator += term_numerator * 2_u8;
+        let upper =
+            rational_from_parts(sum_numerator, common_denominator * next_denominator_factor)?;
+        Ok((lower, upper))
+    }
+
+    #[test]
+    fn asin_factor_recurrence_matches_materialized_coefficients() {
+        for value in [
+            Rational::zero(),
+            rational(1, 7),
+            rational(2, 5),
+            rational(1, 2),
+        ] {
+            for term_count in [0_u32, 1, 5, 20, 64, 128, 256] {
+                let expected = legacy_asin_common_denominator_bounds(&value, term_count).unwrap();
+                assert_eq!(
+                    asin_common_denominator_bounds(&value, term_count).unwrap(),
+                    expected,
+                    "value={value:?}, term_count={term_count}",
+                );
+                assert_eq!(
+                    asin_common_denominator_bound(&value, term_count, BoundDirection::Lower,)
+                        .unwrap(),
+                    expected.0,
+                    "lower value={value:?}, term_count={term_count}",
+                );
+                assert_eq!(
+                    asin_common_denominator_bound(&value, term_count, BoundDirection::Upper,)
+                        .unwrap(),
+                    expected.1,
+                    "upper value={value:?}, term_count={term_count}",
+                );
+            }
+        }
+        assert!(matches!(
+            asin_common_denominator_bounds(&rational(1, 3), u32::MAX),
+            Err(IntervalError::ExponentTooLarge),
+        ));
+        for direction in [BoundDirection::Lower, BoundDirection::Upper] {
+            assert!(matches!(
+                asin_common_denominator_bound(&rational(2, 5), u32::MAX, direction),
+                Err(IntervalError::ExponentTooLarge),
+            ));
         }
     }
 
