@@ -602,8 +602,8 @@ pub(crate) fn tan(
 ) -> Result<CertifiedInterval, IntervalError> {
     let lower = dyadic_to_rational(&value.lower)?;
     let upper = dyadic_to_rational(&value.upper)?;
-    let pi = pi_bounds(precision_bits)?;
-    if contains_possible_tangent_pole(&lower, &upper, &pi)? {
+    let half_pi = periodic_half_pi_bounds(precision_bits)?;
+    if contains_possible_tangent_pole(&lower, &upper, &half_pi)? {
         return Err(IntervalError::UnsupportedExpression);
     }
 
@@ -676,8 +676,8 @@ pub(crate) fn sin(
 ) -> Result<CertifiedInterval, IntervalError> {
     let lower = dyadic_to_rational(&value.lower)?;
     let upper = dyadic_to_rational(&value.upper)?;
-    let pi = pi_bounds(precision_bits)?;
-    if covers_full_trigonometric_period(&lower, &upper, &pi.1)? {
+    let half_pi = periodic_half_pi_bounds(precision_bits)?;
+    if covers_full_trigonometric_period(&lower, &upper, &half_pi.1)? {
         return full_trigonometric_range(precision_bits);
     }
 
@@ -686,7 +686,7 @@ pub(crate) fn sin(
     else {
         return full_trigonometric_range(precision_bits);
     };
-    if !include_sine_extrema(&lower, &upper, &mut lower_bound, &mut upper_bound, &pi)? {
+    if !include_sine_extrema(&lower, &upper, &mut lower_bound, &mut upper_bound, &half_pi)? {
         return full_trigonometric_range(precision_bits);
     }
 
@@ -701,8 +701,8 @@ pub(crate) fn cos(
 ) -> Result<CertifiedInterval, IntervalError> {
     let lower = dyadic_to_rational(&value.lower)?;
     let upper = dyadic_to_rational(&value.upper)?;
-    let pi = pi_bounds(precision_bits)?;
-    if covers_full_trigonometric_period(&lower, &upper, &pi.1)? {
+    let half_pi = periodic_half_pi_bounds(precision_bits)?;
+    if covers_full_trigonometric_period(&lower, &upper, &half_pi.1)? {
         return full_trigonometric_range(precision_bits);
     }
 
@@ -711,7 +711,7 @@ pub(crate) fn cos(
     else {
         return full_trigonometric_range(precision_bits);
     };
-    if !include_cosine_extrema(&lower, &upper, &mut lower_bound, &mut upper_bound, &pi)? {
+    if !include_cosine_extrema(&lower, &upper, &mut lower_bound, &mut upper_bound, &half_pi)? {
         return full_trigonometric_range(precision_bits);
     }
 
@@ -3065,13 +3065,13 @@ fn ordered_rational_bounds(
 fn covers_full_trigonometric_period(
     lower: &Rational,
     upper: &Rational,
-    pi_upper: &Rational,
+    half_pi_upper: &Rational,
 ) -> Result<bool, IntervalError> {
     if compare_rationals(lower, upper) == Ordering::Greater {
         return Err(IntervalError::InvalidBounds);
     }
     let width = upper.subtract(lower);
-    Ok(compare_rationals(&width, &scale_rational(pi_upper, 2)) != Ordering::Less)
+    Ok(compare_rationals(&width, &scale_rational(half_pi_upper, 4)) != Ordering::Less)
 }
 
 fn bounded_trigonometric_endpoint_bounds(
@@ -3128,16 +3128,16 @@ fn include_sine_extrema(
     upper: &Rational,
     result_lower: &mut Rational,
     result_upper: &mut Rational,
-    pi: &(Rational, Rational),
+    half_pi: &(Rational, Rational),
 ) -> Result<bool, IntervalError> {
-    let Some(limit) = half_pi_scan_limit(lower, upper, &pi.0)? else {
+    let Some(limit) = half_pi_scan_limit(lower, upper, &half_pi.0)? else {
         return Ok(false);
     };
     for index in -limit..=limit {
         if index % 2 == 0 {
             continue;
         }
-        match half_pi_multiple_containment(index, lower, upper, pi)? {
+        match half_pi_multiple_containment(index, lower, upper, half_pi)? {
             HalfPiContainment::ProvenInside => {
                 if index.rem_euclid(4) == 1 {
                     include_rational_candidate(result_lower, result_upper, &Rational::one());
@@ -3157,16 +3157,16 @@ fn include_cosine_extrema(
     upper: &Rational,
     result_lower: &mut Rational,
     result_upper: &mut Rational,
-    pi: &(Rational, Rational),
+    half_pi: &(Rational, Rational),
 ) -> Result<bool, IntervalError> {
-    let Some(limit) = half_pi_scan_limit(lower, upper, &pi.0)? else {
+    let Some(limit) = half_pi_scan_limit(lower, upper, &half_pi.0)? else {
         return Ok(false);
     };
     for index in -limit..=limit {
         if index % 2 != 0 {
             continue;
         }
-        match half_pi_multiple_containment(index, lower, upper, pi)? {
+        match half_pi_multiple_containment(index, lower, upper, half_pi)? {
             HalfPiContainment::ProvenInside => {
                 if index.rem_euclid(4) == 0 {
                     include_rational_candidate(result_lower, result_upper, &Rational::one());
@@ -3184,16 +3184,16 @@ fn include_cosine_extrema(
 fn contains_possible_tangent_pole(
     lower: &Rational,
     upper: &Rational,
-    pi: &(Rational, Rational),
+    half_pi: &(Rational, Rational),
 ) -> Result<bool, IntervalError> {
-    let Some(limit) = half_pi_scan_limit(lower, upper, &pi.0)? else {
+    let Some(limit) = half_pi_scan_limit(lower, upper, &half_pi.0)? else {
         return Ok(true);
     };
     for index in -limit..=limit {
         if index % 2 == 0 {
             continue;
         }
-        match half_pi_multiple_containment(index, lower, upper, pi)? {
+        match half_pi_multiple_containment(index, lower, upper, half_pi)? {
             HalfPiContainment::ProvenOutside => {}
             HalfPiContainment::ProvenInside | HalfPiContainment::Uncertain => return Ok(true),
         }
@@ -3212,9 +3212,9 @@ fn half_pi_multiple_containment(
     index: i64,
     lower: &Rational,
     upper: &Rational,
-    pi: &(Rational, Rational),
+    half_pi: &(Rational, Rational),
 ) -> Result<HalfPiContainment, IntervalError> {
-    let (point_lower, point_upper) = half_pi_multiple_bounds_with_pi(index, pi)?;
+    let (point_lower, point_upper) = half_pi_multiple_bounds_with_shared(index, half_pi)?;
     if compare_rationals(&point_upper, lower) == Ordering::Less
         || compare_rationals(&point_lower, upper) == Ordering::Greater
     {
@@ -3228,14 +3228,13 @@ fn half_pi_multiple_containment(
     Ok(HalfPiContainment::Uncertain)
 }
 
-fn half_pi_multiple_bounds_with_pi(
+fn half_pi_multiple_bounds_with_shared(
     index: i64,
-    pi: &(Rational, Rational),
+    half_pi: &(Rational, Rational),
 ) -> Result<(Rational, Rational), IntervalError> {
-    let multiplier = rational_integer(index);
     ordered_rational_bounds(
-        halve_rational(&multiplier.multiply(&pi.0))?,
-        halve_rational(&multiplier.multiply(&pi.1))?,
+        scale_rational_by_i64(&half_pi.0, index)?,
+        scale_rational_by_i64(&half_pi.1, index)?,
     )
 }
 
@@ -3244,13 +3243,22 @@ fn half_pi_multiple_bounds(
     index: i64,
     precision_bits: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
-    half_pi_multiple_bounds_with_pi(index, &pi_bounds(precision_bits)?)
+    let pi = pi_bounds(precision_bits)?;
+    ordered_rational_bounds(
+        halve_rational(&scale_rational_by_i64(&pi.0, index)?)?,
+        halve_rational(&scale_rational_by_i64(&pi.1, index)?)?,
+    )
+}
+
+fn periodic_half_pi_bounds(precision_bits: u32) -> Result<(Rational, Rational), IntervalError> {
+    let (pi_lower, pi_upper) = pi_bounds(precision_bits)?;
+    Ok((halve_rational(&pi_lower)?, halve_rational(&pi_upper)?))
 }
 
 fn half_pi_scan_limit(
     lower: &Rational,
     upper: &Rational,
-    pi_lower: &Rational,
+    half_pi_lower: &Rational,
 ) -> Result<Option<i64>, IntervalError> {
     if compare_rationals(lower, upper) == Ordering::Greater {
         return Err(IntervalError::InvalidBounds);
@@ -3262,8 +3270,7 @@ fn half_pi_scan_limit(
     } else {
         upper_abs
     };
-    let half_pi_lower = halve_rational(pi_lower)?;
-    let ratio = divide_rational(&max_abs, &half_pi_lower)?;
+    let ratio = divide_rational(&max_abs, half_pi_lower)?;
     let index = match ceil_nonnegative_rational_to_u32(&ratio) {
         Ok(index) => index,
         Err(IntervalError::ExponentTooLarge) => return Ok(None),
@@ -6341,10 +6348,10 @@ mod tests {
     #[test]
     fn periodic_trig_scan_reuses_exact_half_pi_bounds() {
         for precision_bits in [1_u32, 64, 128] {
-            let pi = pi_bounds(precision_bits).unwrap();
+            let half_pi = periodic_half_pi_bounds(precision_bits).unwrap();
             for index in [-257_i64, -17, -2, -1, 0, 1, 2, 17, 257] {
                 assert_eq!(
-                    half_pi_multiple_bounds_with_pi(index, &pi).unwrap(),
+                    half_pi_multiple_bounds_with_shared(index, &half_pi).unwrap(),
                     half_pi_multiple_bounds(index, precision_bits).unwrap(),
                     "index={index}, precision={precision_bits}",
                 );

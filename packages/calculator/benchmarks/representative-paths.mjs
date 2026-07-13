@@ -42,6 +42,8 @@ const cases = [
     ["sin_two", "sin(2)", "sin(2)"],
     ["cos_two", "cos(2)", "cos(2)"],
     ["tan_two", "tan(2)", "tan(2)"],
+    ["sin_periodic_non_degenerate", "sin(100+sin(1))", "sin(sin(1)+100)"],
+    ["tan_periodic_non_degenerate", "tan(100+sin(1)/100)", "tan(1/100*sin(1)+100)"],
     ["algebraic", "((2^(1/3)-2^(1/3))+2)^(1/3)", "2^(1/3)"],
     ["wide_add_256", Array.from({ length: 256 }, (_, index) => String(index + 1)).join("+"), "32896"],
 ];
@@ -70,7 +72,7 @@ if (selectedCase === undefined || selectedCase === "session_dispatch_sequence") 
 
 process.stdout.write(`${JSON.stringify({
     schemaVersion: 1,
-    benchmarkDefinition: "representative-paths-v17",
+    benchmarkDefinition: "representative-paths-v18",
     artifact: {
         wasmSha256: createHash("sha256").update(wasmBytes).digest("hex"),
         wasmBytes: wasmBytes.byteLength,
