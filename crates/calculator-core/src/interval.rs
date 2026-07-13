@@ -967,20 +967,17 @@ fn exp_series_state(value: &Rational, term_count: u32, tail_index: u32) -> ExpSe
     let value_denominator = &value.denominator.inner.inner;
     let mut sum_numerator = BigInt::one();
     let mut term_numerator = BigInt::one();
-    let mut common_denominator = BigInt::one();
     for next_n in 1..=term_count {
         let denominator_factor = value_denominator * next_n;
         let next_term_numerator = &term_numerator * value_numerator;
         sum_numerator *= &denominator_factor;
         sum_numerator += &next_term_numerator;
         term_numerator = next_term_numerator;
-        common_denominator *= value_denominator;
-        common_denominator *= next_n;
     }
     ExpSeriesState {
         sum_numerator,
         term_numerator,
-        common_denominator,
+        common_denominator: exp_series_common_denominator(value_denominator, term_count),
         value_numerator,
         value_denominator,
         tail_index,
@@ -1016,10 +1013,20 @@ fn exp_series_state_with_common_denominator<'a>(
 
 fn exp_series_common_denominator(value_denominator: &BigInt, term_count: u32) -> BigInt {
     let mut factorial = BigInt::one();
-    for factor in 2..=term_count {
+    for factor in 1..=term_count {
         factorial *= factor;
     }
-    value_denominator.pow(term_count) * factorial
+    let magnitude = value_denominator.magnitude();
+    let bits = magnitude.bits();
+    if bits > 0 && magnitude == &(BigUint::one() << (bits - 1)) {
+        let shift: usize = (bits - 1)
+            .checked_mul(u64::from(term_count))
+            .and_then(|value| value.try_into().ok())
+            .expect("bounded exponential term count and denominator shift");
+        factorial << shift
+    } else {
+        value_denominator.pow(term_count) * factorial
+    }
 }
 
 fn log_rational_bounds(

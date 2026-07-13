@@ -673,21 +673,22 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
-## In-place exponential common-denominator update
+## Dyadic exponential common-denominator construction
 
-The exponential Taylor state previously allocated a temporary arbitrary-precision
-`b*n` operand before updating its owned common denominator at every recurrence
-step. It now multiplies the owned buffer by canonical `b` and primitive `n`
-in-place. When non-degenerate unit-range endpoints have the same denominator, the
-final value is also shared; value-dependent term and partial-sum numerators remain
-independent.
+The exponential Taylor state previously updated a second growing product for its
+final common denominator at every recurrence step, in addition to the `b*n`
+operand required by the partial sum. The final value is `b^N*N!`; dyadic public
+paths now construct it by shifting the factorial for the power-of-two denominator,
+with an exact power fallback for general rationals. Same-denominator unit-range
+endpoints share the final value; value-dependent numerators remain independent.
 
 On 2026-07-13 with `rustc 1.97.0`, deterministic one-calculation allocation for
-`exp(sqrt(2)*ln(2))` moved from 241,934 bytes in 3,822 blocks to 241,582 bytes in
-3,824 blocks. Direct `2^sqrt(2)` moved from 207,982 bytes in 2,306 blocks to
-207,630 bytes in 2,308 blocks. Peak live allocation moved down by eight bytes in
-each case. Ten-sample Criterion runs detected no significant timing change:
-general power had a 1.016 ms midpoint and the cumulative exp stage 1.419 ms.
+`exp(sqrt(2)*ln(2))` moved from 241,934 bytes in 3,822 blocks to 205,030 bytes in
+3,764 blocks. Direct `2^sqrt(2)` moved from 207,982 bytes in 2,306 blocks to
+171,078 bytes in 2,248 blocks. Peak live allocation moved down by 16 bytes in
+each case. Against the immediate in-place-product control, ten-sample Criterion
+midpoints moved from 1.419 ms to 835.58 µs for the cumulative exp stage and from
+1.016 ms to 691.00 µs for general power (about 41% and 32% lower respectively).
 The representative logical-work boundaries, including the 400,447-unit approximate
 composite, were unchanged. The remaining endpoint cost is the necessarily
 value-dependent term and partial-sum large-integer multiplication.
