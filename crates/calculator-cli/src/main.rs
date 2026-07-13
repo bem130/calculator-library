@@ -115,6 +115,7 @@ mod tests {
         assert_eq!(run(["1 / 3 + 1 / 6".to_owned()]).unwrap(), "1/2");
         assert_eq!(run(["exp(-10000)".to_owned()]).unwrap(), "exp(-10000)");
         assert_eq!(run(["e^(-10000)".to_owned()]).unwrap(), "exp(-10000)");
+        assert_eq!(run(["sin(1)^2+cos(1)^2".to_owned()]).unwrap(), "1");
     }
 
     #[test]

@@ -1245,6 +1245,8 @@ hidden, and no-float, scientific/enclosure, and DTO protocol contracts remain
 unchanged.
 Package check, example production build, and browser E2E passed; the browser
 regression enters the identity through the example UI and observes exact `1`.
+The calculator-cli integration regression also returns exact stdout `1` for the
+same public expression.
 
 ## Shared Taylor plan for non-degenerate exponential endpoints
 
