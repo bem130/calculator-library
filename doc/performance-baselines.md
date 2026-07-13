@@ -1893,6 +1893,16 @@ A 20-sample Criterion snapshot measured a 30.710 µs midpoint and reported an
 improvement against its cached control; host-sensitive timing is not used to
 broaden the claim beyond the deterministic allocation result.
 
+## In-place directed exponential upper tail
+
+An upper-only endpoint previously built fresh BigInt products for its corrected
+sum and denominator even though the recurrence state was immediately discarded.
+Consuming that state and updating its sum, term, and denominator buffers in place
+reduced peak live allocation for one `2^sqrt(2)` calculation from 11,639 to 10,743
+bytes, and for `exp(sqrt(2)*ln(2))` from 11,708 to 10,812 bytes. Total bytes and
+blocks were unchanged, as were `exp(1)` and `exp(±10000)`. Paired exact bounds keep
+the non-consuming tail path. Directed bounds and logical-work values are unchanged.
+
 ## Shared binary logarithm composition
 
 Non-degenerate logarithm intervals require endpoint-specific range reduction and

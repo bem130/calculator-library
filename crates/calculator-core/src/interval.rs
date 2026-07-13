@@ -1104,7 +1104,14 @@ impl ExpSeriesState<'_> {
     }
 
     fn into_upper(self) -> Result<Rational, IntervalError> {
-        self.upper()
+        let mut state = self;
+        let next_denominator_factor = state.value_denominator * state.tail_index;
+        state.sum_numerator *= &next_denominator_factor;
+        state.term_numerator *= state.value_numerator;
+        state.term_numerator *= 2_u8;
+        state.sum_numerator += state.term_numerator;
+        state.common_denominator *= next_denominator_factor;
+        rational_from_parts(state.sum_numerator, state.common_denominator)
     }
 
     fn into_bounds(self) -> Result<(Rational, Rational), IntervalError> {
