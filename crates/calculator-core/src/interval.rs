@@ -3158,6 +3158,7 @@ mod tests {
                 (rational(1, 4), rational(3, 4)),
                 (rational(3, 4), rational(3, 2)),
                 (rational(3, 4), rational(3, 1)),
+                (rational(3, 2), rational(3, 1)),
                 (rational(3, 2), rational(7, 4)),
                 (rational(2, 1), rational(3, 1)),
                 (rational(3, 1), rational(9, 1)),
