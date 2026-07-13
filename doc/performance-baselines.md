@@ -2212,10 +2212,13 @@ sum/adjacent parity, reciprocal transformation, and shared Machin π are unchang
 On 2026-07-13 with `rustc 1.97.0`, deterministic one-calculation allocation
 changed from 22,046 bytes / 820 blocks to 20,774 / 760 for `atan(1/2)`, from
 49,402 / 1,145 to 45,586 / 965 for `atan(2)`, from 528,330 / 2,194 to
-525,786 / 2,074 for non-degenerate atan, from 485,388 / 1,293 to
-438,548 / 1,260 for `asin(1/3)`, and from 654,810 / 1,799 to 531,202 / 1,577
-for `acos(1/3)`. Peak live allocation did not increase. Logical work remained
-31, 5, 200,225, 31, and 31 units respectively.
+525,786 / 2,074 for non-degenerate atan, and from 654,810 / 1,799 to
+531,202 / 1,577 for the Machin-π-using `acos(1/3)`. Peak live allocation did not
+increase. Logical work remained 31, 5, 200,225, and 31 units respectively.
+The semantically unaffected direct-series `asin(1/3)` control moved from
+485,388 / 1,293 to 438,548 / 1,260 in the candidate artifact, but its stack does
+not enter atan or Machin π; that artifact-level code-generation movement is not
+attributed to this specialization.
 
 Same-source saved-baseline Criterion runs were dominated by host drift: the later
 run also moved the unchanged nonunit atan control upward about 10%. Alternating

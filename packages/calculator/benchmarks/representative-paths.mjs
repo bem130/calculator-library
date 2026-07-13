@@ -45,6 +45,11 @@ const cases = [
     ["wide_add_256", Array.from({ length: 256 }, (_, index) => String(index + 1)).join("+"), "32896"],
 ];
 
+const validCaseNames = [...cases.map(([name]) => name), "session_dispatch_sequence"];
+if (selectedCase !== undefined && !validCaseNames.includes(selectedCase)) {
+    throw new Error(`unknown benchmark case ${JSON.stringify(selectedCase)}; expected one of ${validCaseNames.join(", ")}`);
+}
+
 const results = [];
 for (const [name, source, expectedExact] of cases) {
     if (selectedCase !== undefined && name !== selectedCase) continue;

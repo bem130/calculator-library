@@ -2215,6 +2215,7 @@ fn atan_series_unit_numerator_bounds(
     term_count: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
     debug_assert!(value.numerator.inner.is_one());
+    preflight_atan_series_tail_index(term_count)?;
     let value_denominator = &value.denominator.inner.inner;
     let denominator_squared = value_denominator * value_denominator;
     let mut sum_numerator = BigInt::one();
@@ -2265,6 +2266,7 @@ fn atan_series_unit_numerator_bound(
     direction: BoundDirection,
 ) -> Result<Rational, IntervalError> {
     debug_assert!(value.numerator.inner.is_one());
+    preflight_atan_series_tail_index(term_count)?;
     let value_denominator = &value.denominator.inner.inner;
     let denominator_squared = value_denominator * value_denominator;
     let mut sum_numerator = BigInt::one();
@@ -2303,6 +2305,15 @@ fn atan_series_unit_numerator_bound(
         sum_numerator -= odd_product;
     }
     rational_from_parts(sum_numerator, common_denominator * next_denominator_factor)
+}
+
+fn preflight_atan_series_tail_index(term_count: u32) -> Result<(), IntervalError> {
+    term_count
+        .checked_add(1)
+        .and_then(|value| value.checked_mul(2))
+        .and_then(|value| value.checked_add(1))
+        .map(|_| ())
+        .ok_or(IntervalError::ExponentTooLarge)
 }
 
 fn atan_series_uses_binary_split(value: &Rational, term_count: u32) -> bool {
@@ -4872,6 +4883,17 @@ mod tests {
                     "upper value={value:?}, term_count={term_count}",
                 );
             }
+        }
+        let unit = rational(1, 2);
+        assert_eq!(
+            atan_series_unit_numerator_bounds(&unit, u32::MAX),
+            Err(IntervalError::ExponentTooLarge),
+        );
+        for direction in [BoundDirection::Lower, BoundDirection::Upper] {
+            assert_eq!(
+                atan_series_unit_numerator_bound(&unit, u32::MAX, direction),
+                Err(IntervalError::ExponentTooLarge),
+            );
         }
     }
 
