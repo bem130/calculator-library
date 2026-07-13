@@ -726,6 +726,34 @@ The final CI-equivalent gate rebuilt both package and example artifacts at the
 same candidate SHA and 818,170-byte size, passed the package-size budget, and
 completed the browser E2E suite.
 
+## Shared exact-point nth-root search
+
+At base commit `7b9e5c0`, general rational nth-root evaluation independently ran
+the large-integer floor-root search for the scaled lower endpoint and again inside
+the upper ceil-root helper. The two scaled integers differ by at most one. The
+retained path searches the lower floor root once, raises it to the requested index,
+and selects that root or the next integer for the upper endpoint. This is the
+general-index counterpart of the existing shared square-root endpoint algorithm.
+
+On 2026-07-13 with `rustc 1.97.0`, one public algebraic representative calculation
+moved from 141,835 bytes / 5,264 blocks to 100,723 / 3,942, about 29% fewer bytes
+and 25% fewer blocks. Peak live allocation remained 4,884 bytes / 104 blocks and
+the logical-work boundary remained 400,234 units. The index-two specialized
+`sqrt(2)` path and `2^sqrt(2)` general-power control were byte-, block-, and
+peak-identical.
+
+A same-target ten-sample Criterion comparison moved the algebraic midpoint from
+428.97 µs to 379.52 µs, but the confidence interval was classified as no detected
+change. General power also had no detected regression. The apparent movement of
+the unchanged specialized `sqrt(2)` control reflects host-wide variation and is
+not attributed to this change. The accepted claim is the deterministic removal of
+the duplicated general nth-root search and its allocation reduction.
+
+Exact oracle tests compare the former independent floor/ceil route for zero,
+rational and integral inputs, indices 2/3/5/17, precisions 0/1/32/64, perfect and
+non-perfect powers, and negative odd roots. Domain, precision, stopping behavior,
+logical work, no-float, and public protocol are unchanged.
+
 ## Dyadic exponential common-denominator construction
 
 The exponential Taylor state previously updated a second growing product for its
