@@ -16,6 +16,8 @@ const MAX_BINARY_EXPONENT_MAGNITUDE: u64 = 1_000_000;
 const MAX_LOG_RANGE_REDUCTION_STEPS: u32 = 4096;
 const LOG_BINARY_SPLIT_LEAF_TERMS: u32 = 32;
 const LOG_BINARY_SPLIT_THRESHOLD: u32 = LOG_BINARY_SPLIT_LEAF_TERMS + 1;
+const ATAN_BINARY_SPLIT_LEAF_TERMS: u32 = 32;
+const ATAN_BINARY_SPLIT_THRESHOLD: u32 = ATAN_BINARY_SPLIT_LEAF_TERMS + 1;
 const MAX_TRIG_RANGE_REDUCTION_STEPS: u32 = 4096;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2058,6 +2060,16 @@ fn atan_series_common_denominator_bounds(
     if value.is_zero() {
         return Ok((Rational::zero(), Rational::zero()));
     }
+    if atan_series_uses_binary_split(value, term_count) {
+        return atan_binary_split_state(value, term_count, true)?.into_bounds();
+    }
+    atan_series_recurrence_bounds(value, term_count)
+}
+
+fn atan_series_recurrence_bounds(
+    value: &Rational,
+    term_count: u32,
+) -> Result<(Rational, Rational), IntervalError> {
     let value_numerator = &value.numerator.inner;
     let value_denominator = &value.denominator.inner.inner;
     let numerator_squared = value_numerator * value_numerator;
@@ -2117,6 +2129,18 @@ fn atan_series_common_denominator_bound(
     if value.is_zero() {
         return Ok(Rational::zero());
     }
+    let use_sum = atan_series_sum_is_bound(term_count, direction)?;
+    if atan_series_uses_binary_split(value, term_count) {
+        return atan_binary_split_state(value, term_count, !use_sum)?.into_bound(direction);
+    }
+    atan_series_recurrence_bound(value, term_count, direction)
+}
+
+fn atan_series_recurrence_bound(
+    value: &Rational,
+    term_count: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
     let value_numerator = &value.numerator.inner;
     let value_denominator = &value.denominator.inner.inner;
     let numerator_squared = value_numerator * value_numerator;
@@ -2145,11 +2169,7 @@ fn atan_series_common_denominator_bound(
     let next_index = term_count
         .checked_add(1)
         .ok_or(IntervalError::ExponentTooLarge)?;
-    let sum_is_lower = next_index.is_multiple_of(2);
-    let use_sum = match direction {
-        BoundDirection::Lower => sum_is_lower,
-        BoundDirection::Upper => !sum_is_lower,
-    };
+    let use_sum = atan_series_sum_is_bound(term_count, direction)?;
     if use_sum {
         return rational_from_parts(sum_numerator, common_denominator);
     }
@@ -2167,6 +2187,183 @@ fn atan_series_common_denominator_bound(
         sum_numerator -= next_correction;
     }
     rational_from_parts(sum_numerator, common_denominator * next_denominator_factor)
+}
+
+fn atan_series_uses_binary_split(value: &Rational, term_count: u32) -> bool {
+    !value.is_zero() && !value.numerator.inner.is_one() && term_count >= ATAN_BINARY_SPLIT_THRESHOLD
+}
+
+fn atan_series_sum_is_bound(
+    term_count: u32,
+    direction: BoundDirection,
+) -> Result<bool, IntervalError> {
+    let next_index = term_count
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let sum_is_lower = next_index.is_multiple_of(2);
+    Ok(match direction {
+        BoundDirection::Lower => sum_is_lower,
+        BoundDirection::Upper => !sum_is_lower,
+    })
+}
+
+struct AtanBinarySplitState {
+    sum_numerator: BigInt,
+    common_denominator: BigInt,
+    last_product_numerator: Option<BigInt>,
+    value_numerator: BigInt,
+    numerator_squared: BigInt,
+    denominator_squared: BigInt,
+    term_count: u32,
+}
+
+impl AtanBinarySplitState {
+    fn into_bound(self, direction: BoundDirection) -> Result<Rational, IntervalError> {
+        if atan_series_sum_is_bound(self.term_count, direction)? {
+            rational_from_parts(self.sum_numerator, self.common_denominator)
+        } else {
+            self.into_adjacent()
+        }
+    }
+
+    fn into_bounds(self) -> Result<(Rational, Rational), IntervalError> {
+        let sum = rational_from_parts(self.sum_numerator.clone(), self.common_denominator.clone())?;
+        let adjacent = self.into_adjacent()?;
+        if compare_rationals(&sum, &adjacent) == Ordering::Less {
+            Ok((sum, adjacent))
+        } else {
+            Ok((adjacent, sum))
+        }
+    }
+
+    fn into_adjacent(self) -> Result<Rational, IntervalError> {
+        let last_product_numerator = self
+            .last_product_numerator
+            .expect("adjacent atan split retains the final term product");
+        let final_odd = self
+            .term_count
+            .checked_mul(2)
+            .and_then(|value| value.checked_add(1))
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        let next_odd = final_odd
+            .checked_add(2)
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        let next_denominator_factor = self.denominator_squared * next_odd;
+        let next_term_scaled_numerator =
+            -(self.value_numerator * last_product_numerator * self.numerator_squared * final_odd);
+        let adjacent_numerator =
+            self.sum_numerator * &next_denominator_factor + next_term_scaled_numerator;
+        rational_from_parts(
+            adjacent_numerator,
+            self.common_denominator * next_denominator_factor,
+        )
+    }
+}
+
+struct AtanBinarySplit {
+    product_numerator: Option<BigInt>,
+    product_denominator: BigInt,
+    sum_numerator: BigInt,
+}
+
+fn atan_binary_split_state(
+    value: &Rational,
+    term_count: u32,
+    include_adjacent: bool,
+) -> Result<AtanBinarySplitState, IntervalError> {
+    debug_assert!(!value.numerator.inner.is_one());
+    debug_assert!(term_count > 0);
+    let numerator = &value.numerator.inner;
+    let denominator = &value.denominator.inner.inner;
+    let numerator_squared = numerator * numerator;
+    let denominator_squared = denominator * denominator;
+    let split = atan_binary_split(
+        &numerator_squared,
+        &denominator_squared,
+        1,
+        term_count
+            .checked_add(1)
+            .ok_or(IntervalError::ExponentTooLarge)?,
+        include_adjacent,
+    )?;
+    let sum_numerator = numerator * (&split.product_denominator + &split.sum_numerator);
+    let common_denominator = denominator * &split.product_denominator;
+    Ok(AtanBinarySplitState {
+        sum_numerator,
+        common_denominator,
+        last_product_numerator: split.product_numerator,
+        value_numerator: numerator.clone(),
+        numerator_squared,
+        denominator_squared,
+        term_count,
+    })
+}
+
+fn atan_binary_split(
+    numerator_squared: &BigInt,
+    denominator_squared: &BigInt,
+    start: u32,
+    end: u32,
+    retain_product: bool,
+) -> Result<AtanBinarySplit, IntervalError> {
+    debug_assert!(start < end);
+    if end - start <= ATAN_BINARY_SPLIT_LEAF_TERMS {
+        let mut split =
+            atan_binary_split_leaf_block(numerator_squared, denominator_squared, start, end)?;
+        if !retain_product {
+            split.product_numerator = None;
+        }
+        return Ok(split);
+    }
+    let middle = start + (end - start) / 2;
+    let mut left = atan_binary_split(numerator_squared, denominator_squared, start, middle, true)?;
+    let mut right = atan_binary_split(numerator_squared, denominator_squared, middle, end, true)?;
+    let left_product = left
+        .product_numerator
+        .take()
+        .expect("internal atan split retains its product");
+    let right_product = right
+        .product_numerator
+        .take()
+        .expect("internal atan split retains its product");
+    left.sum_numerator *= &right.product_denominator;
+    right.sum_numerator *= &left_product;
+    left.sum_numerator += right.sum_numerator;
+    left.product_numerator = retain_product.then(|| left_product * right_product);
+    left.product_denominator *= right.product_denominator;
+    Ok(left)
+}
+
+fn atan_binary_split_leaf_block(
+    numerator_squared: &BigInt,
+    denominator_squared: &BigInt,
+    start: u32,
+    end: u32,
+) -> Result<AtanBinarySplit, IntervalError> {
+    let mut product_numerator = BigInt::one();
+    let mut product_denominator = BigInt::one();
+    let mut sum_numerator = BigInt::zero();
+    for index in start..end {
+        let odd_before = index
+            .checked_mul(2)
+            .and_then(|value| value.checked_sub(1))
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        let odd_after = index
+            .checked_mul(2)
+            .and_then(|value| value.checked_add(1))
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        let step_numerator = -(numerator_squared * odd_before);
+        let step_denominator = denominator_squared * odd_after;
+        sum_numerator *= &step_denominator;
+        sum_numerator += &product_numerator * &step_numerator;
+        product_numerator *= step_numerator;
+        product_denominator *= step_denominator;
+    }
+    Ok(AtanBinarySplit {
+        product_numerator: Some(product_numerator),
+        product_denominator,
+        sum_numerator,
+    })
 }
 
 fn inverse_sine_cosine_domain_bounds(
@@ -4504,6 +4701,102 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn atan_series_strategies_match_incremental_recurrence() {
+        for value in [
+            Rational::zero(),
+            rational(1, 7),
+            rational(1, 2),
+            rational(3, 10),
+            rational(7, 10),
+            Rational::one(),
+        ] {
+            for term_count in [
+                0,
+                1,
+                5,
+                20,
+                ATAN_BINARY_SPLIT_THRESHOLD - 1,
+                ATAN_BINARY_SPLIT_THRESHOLD,
+                ATAN_BINARY_SPLIT_THRESHOLD + 1,
+                series_terms(64).unwrap(),
+                series_terms(128).unwrap(),
+                series_terms(256).unwrap(),
+            ] {
+                let expected = if value.is_zero() {
+                    (Rational::zero(), Rational::zero())
+                } else {
+                    atan_series_recurrence_bounds(&value, term_count).unwrap()
+                };
+                assert_eq!(
+                    atan_series_common_denominator_bounds(&value, term_count).unwrap(),
+                    expected,
+                    "value={value:?}, term_count={term_count}",
+                );
+                assert_eq!(
+                    atan_series_common_denominator_bound(
+                        &value,
+                        term_count,
+                        BoundDirection::Lower,
+                    )
+                    .unwrap(),
+                    expected.0,
+                    "lower value={value:?}, term_count={term_count}",
+                );
+                assert_eq!(
+                    atan_series_common_denominator_bound(
+                        &value,
+                        term_count,
+                        BoundDirection::Upper,
+                    )
+                    .unwrap(),
+                    expected.1,
+                    "upper value={value:?}, term_count={term_count}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn atan_binary_split_dispatch_preserves_small_unit_and_directed_paths() {
+        let nonunit = rational(3, 10);
+        assert!(!atan_series_uses_binary_split(
+            &nonunit,
+            ATAN_BINARY_SPLIT_THRESHOLD - 1,
+        ));
+        assert!(atan_series_uses_binary_split(
+            &nonunit,
+            ATAN_BINARY_SPLIT_THRESHOLD,
+        ));
+        assert!(!atan_series_uses_binary_split(
+            &rational(1, 3),
+            series_terms(256).unwrap(),
+        ));
+        assert!(!atan_series_uses_binary_split(
+            &Rational::zero(),
+            series_terms(256).unwrap(),
+        ));
+
+        let sum_direction = if (ATAN_BINARY_SPLIT_THRESHOLD + 1).is_multiple_of(2) {
+            BoundDirection::Lower
+        } else {
+            BoundDirection::Upper
+        };
+        assert!(atan_series_sum_is_bound(ATAN_BINARY_SPLIT_THRESHOLD, sum_direction).unwrap());
+        let sum_only =
+            atan_binary_split_state(&nonunit, ATAN_BINARY_SPLIT_THRESHOLD, false).unwrap();
+        assert!(sum_only.last_product_numerator.is_none());
+        assert_eq!(
+            sum_only.into_bound(sum_direction).unwrap(),
+            atan_series_recurrence_bound(&nonunit, ATAN_BINARY_SPLIT_THRESHOLD, sum_direction,)
+                .unwrap(),
+        );
+        assert!(matches!(
+            atan_binary_split_state(&nonunit, u32::MAX, true),
+            Err(IntervalError::ExponentTooLarge),
+        ));
     }
 
     #[test]
