@@ -2070,6 +2070,16 @@ fn atan_series_recurrence_bounds(
     value: &Rational,
     term_count: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
+    if value.numerator.inner.is_one() {
+        return atan_series_unit_numerator_bounds(value, term_count);
+    }
+    atan_series_general_recurrence_bounds(value, term_count)
+}
+
+fn atan_series_general_recurrence_bounds(
+    value: &Rational,
+    term_count: u32,
+) -> Result<(Rational, Rational), IntervalError> {
     let value_numerator = &value.numerator.inner;
     let value_denominator = &value.denominator.inner.inner;
     let numerator_squared = value_numerator * value_numerator;
@@ -2141,6 +2151,17 @@ fn atan_series_recurrence_bound(
     term_count: u32,
     direction: BoundDirection,
 ) -> Result<Rational, IntervalError> {
+    if value.numerator.inner.is_one() {
+        return atan_series_unit_numerator_bound(value, term_count, direction);
+    }
+    atan_series_general_recurrence_bound(value, term_count, direction)
+}
+
+fn atan_series_general_recurrence_bound(
+    value: &Rational,
+    term_count: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
     let value_numerator = &value.numerator.inner;
     let value_denominator = &value.denominator.inner.inner;
     let numerator_squared = value_numerator * value_numerator;
@@ -2185,6 +2206,101 @@ fn atan_series_recurrence_bound(
         sum_numerator += next_correction;
     } else {
         sum_numerator -= next_correction;
+    }
+    rational_from_parts(sum_numerator, common_denominator * next_denominator_factor)
+}
+
+fn atan_series_unit_numerator_bounds(
+    value: &Rational,
+    term_count: u32,
+) -> Result<(Rational, Rational), IntervalError> {
+    debug_assert!(value.numerator.inner.is_one());
+    let value_denominator = &value.denominator.inner.inner;
+    let denominator_squared = value_denominator * value_denominator;
+    let mut sum_numerator = BigInt::one();
+    let mut odd_product = BigInt::one();
+    let mut common_denominator = value_denominator.clone();
+    for k in 1..=term_count {
+        let odd_denominator = k
+            .checked_mul(2)
+            .and_then(|value| value.checked_add(1))
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        let denominator_factor = &denominator_squared * odd_denominator;
+        sum_numerator *= &denominator_factor;
+        if k.is_multiple_of(2) {
+            sum_numerator += &odd_product;
+        } else {
+            sum_numerator -= &odd_product;
+        }
+        common_denominator *= denominator_factor;
+        odd_product *= odd_denominator;
+    }
+    let next_index = term_count
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let next_odd_denominator = next_index
+        .checked_mul(2)
+        .and_then(|value| value.checked_add(1))
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let next_denominator_factor = denominator_squared * next_odd_denominator;
+    let sum = rational_from_parts(sum_numerator.clone(), common_denominator.clone())?;
+    sum_numerator *= &next_denominator_factor;
+    if next_index.is_multiple_of(2) {
+        sum_numerator += odd_product;
+    } else {
+        sum_numerator -= odd_product;
+    }
+    let adjacent =
+        rational_from_parts(sum_numerator, common_denominator * next_denominator_factor)?;
+    if compare_rationals(&sum, &adjacent) == Ordering::Less {
+        Ok((sum, adjacent))
+    } else {
+        Ok((adjacent, sum))
+    }
+}
+
+fn atan_series_unit_numerator_bound(
+    value: &Rational,
+    term_count: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    debug_assert!(value.numerator.inner.is_one());
+    let value_denominator = &value.denominator.inner.inner;
+    let denominator_squared = value_denominator * value_denominator;
+    let mut sum_numerator = BigInt::one();
+    let mut odd_product = BigInt::one();
+    let mut common_denominator = value_denominator.clone();
+    for k in 1..=term_count {
+        let odd_denominator = k
+            .checked_mul(2)
+            .and_then(|value| value.checked_add(1))
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        let denominator_factor = &denominator_squared * odd_denominator;
+        sum_numerator *= &denominator_factor;
+        if k.is_multiple_of(2) {
+            sum_numerator += &odd_product;
+        } else {
+            sum_numerator -= &odd_product;
+        }
+        common_denominator *= denominator_factor;
+        odd_product *= odd_denominator;
+    }
+    let next_index = term_count
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    if atan_series_sum_is_bound(term_count, direction)? {
+        return rational_from_parts(sum_numerator, common_denominator);
+    }
+    let next_odd_denominator = next_index
+        .checked_mul(2)
+        .and_then(|value| value.checked_add(1))
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let next_denominator_factor = denominator_squared * next_odd_denominator;
+    sum_numerator *= &next_denominator_factor;
+    if next_index.is_multiple_of(2) {
+        sum_numerator += odd_product;
+    } else {
+        sum_numerator -= odd_product;
     }
     rational_from_parts(sum_numerator, common_denominator * next_denominator_factor)
 }
@@ -4728,7 +4844,7 @@ mod tests {
                 let expected = if value.is_zero() {
                     (Rational::zero(), Rational::zero())
                 } else {
-                    atan_series_recurrence_bounds(&value, term_count).unwrap()
+                    atan_series_general_recurrence_bounds(&value, term_count).unwrap()
                 };
                 assert_eq!(
                     atan_series_common_denominator_bounds(&value, term_count).unwrap(),
