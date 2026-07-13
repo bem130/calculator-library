@@ -1223,10 +1223,12 @@ At base commit `56c3721`, exact rational `1/2 < x < 1/sqrt(2)` used
 `pi/2-atan(sqrt(1-x^2)/x)`. Its atan argument exceeds one, so atan performed a
 second pi/2 reciprocal transform and the two independently certified pi terms
 were later cancelled. Commit `b12f7bf` selects the equivalent
-`atan(x/sqrt(1-x^2))` form in this whole region using exact integer-square
-comparison. The new directed interval is contained in the former enclosure for
-both signs; the upper transform region retains exact endpoint equality. Paired
-and directed endpoint evaluators use the same region selection.
+`atan(x/sqrt(1-x^2))` form for paired evaluation in this region using exact
+integer-square comparison; commit `14d6d9b` applies the same selection to
+directed endpoint evaluation. The new directed interval is contained in the
+former enclosure for both signs; the upper transform region retains exact
+endpoint equality. Paired and directed endpoint evaluators use the same region
+selection.
 
 On 2026-07-13 with `rustc 1.97.0`, `acos(5/8)` moved from 906,672 bytes / 4,695
 blocks to 730,664 / 3,899. Logical work remained 31 units. Separate 10-sample
