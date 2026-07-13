@@ -602,6 +602,7 @@ pub(crate) fn tan(
 ) -> Result<CertifiedInterval, IntervalError> {
     let lower = dyadic_to_rational(&value.lower)?;
     let upper = dyadic_to_rational(&value.upper)?;
+    validate_ordered_rational_bounds(&lower, &upper)?;
     let half_pi = periodic_half_pi_bounds(precision_bits)?;
     if contains_possible_tangent_pole(&lower, &upper, &half_pi)? {
         return Err(IntervalError::UnsupportedExpression);
@@ -676,6 +677,7 @@ pub(crate) fn sin(
 ) -> Result<CertifiedInterval, IntervalError> {
     let lower = dyadic_to_rational(&value.lower)?;
     let upper = dyadic_to_rational(&value.upper)?;
+    validate_ordered_rational_bounds(&lower, &upper)?;
     let half_pi = periodic_half_pi_bounds(precision_bits)?;
     if covers_full_trigonometric_period(&lower, &upper, &half_pi.1)? {
         return full_trigonometric_range(precision_bits);
@@ -701,6 +703,7 @@ pub(crate) fn cos(
 ) -> Result<CertifiedInterval, IntervalError> {
     let lower = dyadic_to_rational(&value.lower)?;
     let upper = dyadic_to_rational(&value.upper)?;
+    validate_ordered_rational_bounds(&lower, &upper)?;
     let half_pi = periodic_half_pi_bounds(precision_bits)?;
     if covers_full_trigonometric_period(&lower, &upper, &half_pi.1)? {
         return full_trigonometric_range(precision_bits);
@@ -3059,6 +3062,17 @@ fn ordered_rational_bounds(
         Ok((right, left))
     } else {
         Ok((left, right))
+    }
+}
+
+fn validate_ordered_rational_bounds(
+    lower: &Rational,
+    upper: &Rational,
+) -> Result<(), IntervalError> {
+    if compare_rationals(lower, upper) == Ordering::Greater {
+        Err(IntervalError::InvalidBounds)
+    } else {
+        Ok(())
     }
 }
 
@@ -6356,6 +6370,21 @@ mod tests {
                     "index={index}, precision={precision_bits}",
                 );
             }
+        }
+    }
+
+    #[test]
+    fn periodic_trig_rejects_invalid_bounds_before_pi_construction() {
+        let invalid = CertifiedInterval {
+            lower: exact_dyadic(2, 0),
+            upper: exact_dyadic(1, 0),
+        };
+        for result in [
+            sin(&invalid, u32::MAX),
+            cos(&invalid, u32::MAX),
+            tan(&invalid, u32::MAX),
+        ] {
+            assert_eq!(result, Err(IntervalError::InvalidBounds));
         }
     }
 
