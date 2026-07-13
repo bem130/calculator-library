@@ -1243,6 +1243,8 @@ limits retain the complete original canonical expression in a typed partial;
 the expression-node cap remains a typed input limit. Domain errors are not
 hidden, and no-float, scientific/enclosure, and DTO protocol contracts remain
 unchanged.
+Package check, example production build, and browser E2E passed; the browser
+regression enters the identity through the example UI and observes exact `1`.
 
 ## Shared Taylor plan for non-degenerate exponential endpoints
 

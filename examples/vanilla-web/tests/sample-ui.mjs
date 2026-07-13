@@ -129,6 +129,10 @@ async function runBrowserChecks(url, origin) {
         await assertRationalPowers(page);
         await assertExtendedFunctions(page);
 
+        await setExpression(page, "sin(1)^2+cos(1)^2");
+        await page.click("#calculate");
+        await waitForText(page, "#exact-output", "= 1");
+
         await setExpression(page, "");
         await page.click("#key-seven");
         await page.click("#key-plus");
