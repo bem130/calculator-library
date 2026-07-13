@@ -722,6 +722,9 @@ Benchmark definition v17 adds the primary non-degenerate unit-series case
 (818,486 bytes) and the candidate artifact above; both returned the exact
 `asin(1/3*sin(1))` with a 1,786-byte payload. Their single elapsed samples were
 48.5 ms and 38.8 ms respectively, but are recorded only as boundary coverage.
+The final CI-equivalent gate rebuilt both package and example artifacts at the
+same candidate SHA and 818,170-byte size, passed the package-size budget, and
+completed the browser E2E suite.
 
 ## Dyadic exponential common-denominator construction
 
