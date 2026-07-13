@@ -233,9 +233,10 @@ pub(crate) fn exp(
     let (lower, upper) = if lower == upper {
         exp_rational_bounds(&lower, precision_bits)?
     } else {
+        let term_count = exp_series_terms(precision_bits)?;
         (
-            exp_rational_bound(&lower, precision_bits, BoundDirection::Lower)?,
-            exp_rational_bound(&upper, precision_bits, BoundDirection::Upper)?,
+            exp_rational_bound_with_terms(&lower, term_count, BoundDirection::Lower)?,
+            exp_rational_bound_with_terms(&upper, term_count, BoundDirection::Upper)?,
         )
     };
     from_rational_bounds(&lower, &upper, precision_bits)
@@ -743,16 +744,30 @@ fn exp_rational_bound(
     if value.is_zero() {
         return Ok(Rational::one());
     }
+    exp_rational_bound_with_terms(value, exp_series_terms(precision_bits)?, direction)
+}
+
+fn exp_rational_bound_with_terms(
+    value: &Rational,
+    term_count: u32,
+    direction: BoundDirection,
+) -> Result<Rational, IntervalError> {
+    if value.is_zero() {
+        return Ok(Rational::one());
+    }
     if value.is_negative() {
         let reciprocal_direction = match direction {
             BoundDirection::Lower => BoundDirection::Upper,
             BoundDirection::Upper => BoundDirection::Lower,
         };
-        let positive =
-            exp_nonnegative_rational_bound(&value.negate(), precision_bits, reciprocal_direction)?;
+        let positive = exp_nonnegative_rational_bound_with_terms(
+            &value.negate(),
+            term_count,
+            reciprocal_direction,
+        )?;
         return reciprocal_nonzero_rational(&positive);
     }
-    exp_nonnegative_rational_bound(value, precision_bits, direction)
+    exp_nonnegative_rational_bound_with_terms(value, term_count, direction)
 }
 
 fn reciprocal_nonzero_rational(value: &Rational) -> Result<Rational, IntervalError> {
@@ -773,9 +788,9 @@ fn reciprocal_nonzero_rational(value: &Rational) -> Result<Rational, IntervalErr
     })
 }
 
-fn exp_nonnegative_rational_bound(
+fn exp_nonnegative_rational_bound_with_terms(
     value: &Rational,
-    precision_bits: u32,
+    term_count: u32,
     direction: BoundDirection,
 ) -> Result<Rational, IntervalError> {
     debug_assert!(!value.is_negative());
@@ -787,7 +802,7 @@ fn exp_nonnegative_rational_bound(
         reduced_storage = divide_rational_by_positive_u32(value, reduction)?;
         &reduced_storage
     };
-    let bound = exp_small_nonnegative_rational_bound(reduced, precision_bits, direction)?;
+    let bound = exp_series_rational_bound(reduced, term_count, direction)?;
     if reduction == 1 {
         Ok(bound)
     } else {
@@ -837,16 +852,6 @@ fn exp_small_nonnegative_rational_bounds(
     debug_assert!(!value.is_negative());
     debug_assert!(compare_rationals(value, &Rational::one()) != Ordering::Greater);
     exp_series_rational_bounds(value, exp_series_terms(precision_bits)?)
-}
-
-fn exp_small_nonnegative_rational_bound(
-    value: &Rational,
-    precision_bits: u32,
-    direction: BoundDirection,
-) -> Result<Rational, IntervalError> {
-    debug_assert!(!value.is_negative());
-    debug_assert!(compare_rationals(value, &Rational::one()) != Ordering::Greater);
-    exp_series_rational_bound(value, exp_series_terms(precision_bits)?, direction)
 }
 
 fn exp_series_rational_bounds(
@@ -3146,12 +3151,23 @@ mod tests {
                 rational(3, 2),
             ] {
                 let (lower, upper) = exp_rational_bounds(&value, precision_bits).unwrap();
+                let term_count = exp_series_terms(precision_bits).unwrap();
                 assert_eq!(
                     exp_rational_bound(&value, precision_bits, BoundDirection::Lower).unwrap(),
                     lower
                 );
                 assert_eq!(
                     exp_rational_bound(&value, precision_bits, BoundDirection::Upper).unwrap(),
+                    upper
+                );
+                assert_eq!(
+                    exp_rational_bound_with_terms(&value, term_count, BoundDirection::Lower)
+                        .unwrap(),
+                    lower
+                );
+                assert_eq!(
+                    exp_rational_bound_with_terms(&value, term_count, BoundDirection::Upper)
+                        .unwrap(),
                     upper
                 );
             }
