@@ -6672,6 +6672,46 @@ mod tests {
     }
 
     #[test]
+    fn trigonometric_square_complements_normalize_canonically() {
+        for (source, expected) in [
+            ("sin(1)^2+cos(1)^2", "1"),
+            ("cos(1)*cos(1)+sin(1)*sin(1)", "1"),
+            ("3*sin(1)^2+3*cos(1)^2", "3"),
+            ("-2*sin(1)^2-2*cos(1)^2", "-2"),
+            ("3*sin(1)^2+2*cos(1)^2", "sin(1)^2+2"),
+            ("-3*sin(1)^2-2*cos(1)^2", "-(2+sin(1)^2)"),
+            ("exp(1)*sin(1)^2+exp(1)*cos(1)^2", "exp(1)"),
+            ("sin(1)^2+cos(1)^2+sin(2)", "sin(2)+1"),
+            ("sin(1)^2-cos(1)^2", "sin(1)^2-cos(1)^2"),
+            ("sin(1)^2+cos(2)^2", "sin(1)^2+cos(2)^2"),
+        ] {
+            assert_eq!(exact_plain_text(source), expected, "{source}");
+        }
+
+        let mut degree_request = exact_only_request();
+        degree_request.semantics.angle_unit = AngleUnit::Degree;
+        assert_eq!(
+            exact_plain_text_with_request("sin(1)^2+cos(1)^2", &degree_request),
+            "1"
+        );
+
+        let mut context = EvaluationContext::default();
+        let error = calculate(
+            "sin(ln(-1))^2+cos(ln(-1))^2",
+            &exact_only_request(),
+            &mut context,
+        )
+        .expect_err("undefined argument must not be hidden by the identity");
+        assert_eq!(
+            error,
+            CalculatorError::Domain(DomainError {
+                kind: DomainErrorKind::LogarithmOfNonPositive,
+                span: None,
+            })
+        );
+    }
+
+    #[test]
     fn arithmetic_normalization_is_independent_of_order_and_factoring() {
         for equivalent_sources in [
             [

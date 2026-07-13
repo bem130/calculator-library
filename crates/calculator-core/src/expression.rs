@@ -1104,7 +1104,167 @@ fn exact_normalize_polynomial_terms(
         }
     }
     terms.retain(|term| !term.coefficient.is_zero());
+    let complement_work =
+        polynomial_trig_complement_work(&terms, |id| dag.structural_sizes[id.0 as usize]);
+    if !budget.consume_work(u64::try_from(complement_work).unwrap_or(u64::MAX)) {
+        return None;
+    }
+    reduce_trig_square_complements(dag, &mut terms);
     Some(BuilderPolynomial { terms })
+}
+
+fn polynomial_trig_complement_work(
+    terms: &[BuilderMonomial],
+    factor_weight: impl Fn(ExprId) -> usize + Copy,
+) -> usize {
+    terms
+        .iter()
+        .enumerate()
+        .fold(0usize, |work, (index, left)| {
+            terms[index + 1..].iter().fold(work, |work, right| {
+                work.saturating_add(
+                    monomial_structural_weight(left, factor_weight)
+                        .saturating_mul(monomial_structural_weight(right, factor_weight)),
+                )
+            })
+        })
+}
+
+fn reduce_trig_square_complements(dag: &ExactExpressionDag, terms: &mut Vec<BuilderMonomial>) {
+    loop {
+        let mut match_indices = None;
+        'pairs: for left_index in 0..terms.len() {
+            for right_index in left_index + 1..terms.len() {
+                for left_factor in 0..terms[left_index].factors.len() {
+                    let Some((left_function, left_argument)) =
+                        trig_square_factor(dag, &terms[left_index], left_factor)
+                    else {
+                        continue;
+                    };
+                    for right_factor in 0..terms[right_index].factors.len() {
+                        let Some((right_function, right_argument)) =
+                            trig_square_factor(dag, &terms[right_index], right_factor)
+                        else {
+                            continue;
+                        };
+                        if !trig_functions_are_complements(left_function, right_function)
+                            || compare_exact_expressions(dag, left_argument, right_argument)
+                                != Ordering::Equal
+                            || !monomial_factors_equal_without(
+                                dag,
+                                &terms[left_index],
+                                left_factor,
+                                &terms[right_index],
+                                right_factor,
+                            )
+                        {
+                            continue;
+                        }
+                        let Some(coefficient) = common_signed_coefficient(
+                            &terms[left_index].coefficient,
+                            &terms[right_index].coefficient,
+                        ) else {
+                            continue;
+                        };
+                        match_indices = Some((left_index, right_index, left_factor, coefficient));
+                        break 'pairs;
+                    }
+                }
+            }
+        }
+
+        let Some((left_index, right_index, left_factor, coefficient)) = match_indices else {
+            break;
+        };
+        let mut common_factors = terms[left_index].factors.clone();
+        common_factors.remove(left_factor);
+        terms[left_index].coefficient = terms[left_index].coefficient.subtract(&coefficient);
+        terms[right_index].coefficient = terms[right_index].coefficient.subtract(&coefficient);
+        terms.push(BuilderMonomial {
+            coefficient,
+            factors: common_factors,
+        });
+        terms.retain(|term| !term.coefficient.is_zero());
+        terms.sort_by(|left, right| compare_exact_monomials(dag, left, right));
+        let mut merged = Vec::<BuilderMonomial>::new();
+        for term in terms.drain(..) {
+            if let Some(existing) = merged.last_mut() {
+                if exact_monomials_equal(dag, existing, &term) {
+                    existing.coefficient = existing.coefficient.add(&term.coefficient);
+                    continue;
+                }
+            }
+            merged.push(term);
+        }
+        merged.retain(|term| !term.coefficient.is_zero());
+        *terms = merged;
+    }
+}
+
+fn trig_square_factor(
+    dag: &ExactExpressionDag,
+    term: &BuilderMonomial,
+    factor_index: usize,
+) -> Option<(Function, ExprId)> {
+    let (base, exponent) = term.factors[factor_index];
+    if exponent != 2 {
+        return None;
+    }
+    let ExpressionNode::Function { function, argument } = dag.semantic_node(base) else {
+        return None;
+    };
+    matches!(function, Function::Sin | Function::Cos).then_some((*function, *argument))
+}
+
+fn trig_functions_are_complements(left: Function, right: Function) -> bool {
+    matches!(
+        (left, right),
+        (Function::Sin, Function::Cos) | (Function::Cos, Function::Sin)
+    )
+}
+
+fn monomial_factors_equal_without(
+    dag: &ExactExpressionDag,
+    left: &BuilderMonomial,
+    left_skip: usize,
+    right: &BuilderMonomial,
+    right_skip: usize,
+) -> bool {
+    if left.factors.len() != right.factors.len() {
+        return false;
+    }
+    left.factors
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| *index != left_skip)
+        .zip(
+            right
+                .factors
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| *index != right_skip),
+        )
+        .all(|((_, left), (_, right))| {
+            left.1 == right.1 && compare_exact_expressions(dag, left.0, right.0) == Ordering::Equal
+        })
+}
+
+fn common_signed_coefficient(left: &Rational, right: &Rational) -> Option<Rational> {
+    if left.is_negative() && right.is_negative() {
+        Some(if left.compare(right) == Ordering::Greater {
+            left.clone()
+        } else {
+            right.clone()
+        })
+    } else if !left.is_negative() && !right.is_negative() {
+        Some(if left.compare(right) == Ordering::Less {
+            left.clone()
+        } else {
+            right.clone()
+        })
+    } else {
+        None
+    }
 }
 
 fn polynomial_factor_product_work(
@@ -8983,10 +9143,130 @@ impl DagBuilder {
             terms.push(term);
         }
         terms.retain(|term| !term.coefficient.is_zero());
+        budget.reserve(
+            0,
+            polynomial_trig_complement_work(&terms, |id| self.structural_sizes[id.0 as usize]),
+        )?;
+        self.reduce_trig_square_complements(&mut terms);
         if terms.len() > self.canonical_term_limit {
             return Err(ComputationLimitKind::LogicalWorkUnits);
         }
         Ok(BuilderPolynomial { terms })
+    }
+
+    fn reduce_trig_square_complements(&self, terms: &mut Vec<BuilderMonomial>) {
+        loop {
+            let mut matched = None;
+            'pairs: for left_index in 0..terms.len() {
+                for right_index in left_index + 1..terms.len() {
+                    for left_factor in 0..terms[left_index].factors.len() {
+                        let Some((left_function, left_argument)) =
+                            self.trig_square_factor(&terms[left_index], left_factor)
+                        else {
+                            continue;
+                        };
+                        for right_factor in 0..terms[right_index].factors.len() {
+                            let Some((right_function, right_argument)) =
+                                self.trig_square_factor(&terms[right_index], right_factor)
+                            else {
+                                continue;
+                            };
+                            if !trig_functions_are_complements(left_function, right_function)
+                                || self.compare_expressions(left_argument, right_argument)
+                                    != Ordering::Equal
+                                || !self.monomial_factors_equal_without(
+                                    &terms[left_index],
+                                    left_factor,
+                                    &terms[right_index],
+                                    right_factor,
+                                )
+                            {
+                                continue;
+                            }
+                            let Some(coefficient) = common_signed_coefficient(
+                                &terms[left_index].coefficient,
+                                &terms[right_index].coefficient,
+                            ) else {
+                                continue;
+                            };
+                            matched = Some((left_index, right_index, left_factor, coefficient));
+                            break 'pairs;
+                        }
+                    }
+                }
+            }
+
+            let Some((left_index, right_index, left_factor, coefficient)) = matched else {
+                break;
+            };
+            let mut common_factors = terms[left_index].factors.clone();
+            common_factors.remove(left_factor);
+            terms[left_index].coefficient = terms[left_index].coefficient.subtract(&coefficient);
+            terms[right_index].coefficient = terms[right_index].coefficient.subtract(&coefficient);
+            terms.push(BuilderMonomial {
+                coefficient,
+                factors: common_factors,
+            });
+            terms.retain(|term| !term.coefficient.is_zero());
+            terms.sort_by(|left, right| {
+                self.compare_monomial_factors(&left.factors, &right.factors)
+            });
+            let mut merged = Vec::<BuilderMonomial>::with_capacity(terms.len());
+            for term in terms.drain(..) {
+                if let Some(last) = merged.last_mut() {
+                    if self.compare_monomial_factors(&last.factors, &term.factors)
+                        == Ordering::Equal
+                    {
+                        last.coefficient = last.coefficient.add(&term.coefficient);
+                        continue;
+                    }
+                }
+                merged.push(term);
+            }
+            merged.retain(|term| !term.coefficient.is_zero());
+            *terms = merged;
+        }
+    }
+
+    fn trig_square_factor(
+        &self,
+        term: &BuilderMonomial,
+        factor_index: usize,
+    ) -> Option<(Function, ExprId)> {
+        let (base, exponent) = term.factors[factor_index];
+        if exponent != 2 {
+            return None;
+        }
+        let ExpressionNode::Function { function, argument } = self.nodes[base.0 as usize] else {
+            return None;
+        };
+        matches!(function, Function::Sin | Function::Cos).then_some((function, argument))
+    }
+
+    fn monomial_factors_equal_without(
+        &self,
+        left: &BuilderMonomial,
+        left_skip: usize,
+        right: &BuilderMonomial,
+        right_skip: usize,
+    ) -> bool {
+        if left.factors.len() != right.factors.len() {
+            return false;
+        }
+        left.factors
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != left_skip)
+            .zip(
+                right
+                    .factors
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| *index != right_skip),
+            )
+            .all(|((_, left), (_, right))| {
+                left.1 == right.1 && self.compare_expressions(left.0, right.0) == Ordering::Equal
+            })
     }
 
     fn compare_monomial_factors(
