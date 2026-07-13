@@ -710,6 +710,13 @@ that regression. Exact oracle tests cover unit and nonunit numerators, zero,
 0/1/5/20/64/128/256-term plans, paired/directed bounds, and checked oversized
 term counts against the former materialized-coefficient recurrence.
 
+The focused one-iteration/one-warmup Wasm/npm boundary smoke completed
+`asin(1/3)` with the unchanged 1,772-byte payload using artifact
+`ad8b8fb362a50dce605ae1e12986afa255078f6ba394e9841d34d5d037e55711`
+(818,170 bytes). This is 316 bytes smaller than the `9d0f271` artifact and below
+the 860,000-byte package budget; the single elapsed sample verifies boundary
+integration and is not used as a timing claim.
+
 ## Dyadic exponential common-denominator construction
 
 The exponential Taylor state previously updated a second growing product for its
