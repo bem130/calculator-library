@@ -2768,9 +2768,9 @@ fn asin_common_denominator_bound(
 }
 
 fn advance_asin_term(term: &mut BigInt, numerator_squared: &BigInt, odd: u32) {
+    let odd = u64::from(odd);
     *term *= numerator_squared;
-    *term *= odd;
-    *term *= odd;
+    *term *= odd * odd;
 }
 
 fn asin_term_odd_and_denominator_factor(
