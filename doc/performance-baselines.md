@@ -2178,6 +2178,11 @@ Total bytes fell by about 25.6%, 20.8%, and 18.7%; short-lived tree temporaries
 increased block counts while peak live allocation was unchanged. Unit/small
 controls remained 22,046 / 820 for `atan(1/2)` and 49,402 / 1,145 for `atan(2)`.
 
+A full-balanced one-term-leaf experiment reduced the target further to 395,114
+bytes / 2,666 blocks, but its Criterion midpoint was 15.780 ms, about 13.9%
+slower than the selected 32-term leaf's 13.853 ms. It was rejected because the
+extra product-tree temporaries traded away most of the target's timing gain.
+
 A saved-baseline ten-sample Criterion comparison moved the target midpoint from
 16.087 ms to 13.853 ms (about 13.9%). Its distribution estimate was a nonsignificant
 6.3% reduction (`p=0.29`), so the claim is deterministic allocation reduction
@@ -2191,7 +2196,8 @@ The three-iteration/one-warmup Wasm/npm runs used base artifact
 `00a75a0925f83f664b5c1ffe23ac15ef2dd20cd192a15ed2ebb8e328c5ba76ca`
 (816,896 bytes), below the 860,000-byte budget. Broad control movement showed host
 contention, so these runs establish boundary integration, payload stability, and
-size rather than a Wasm speed claim. Exact oracle tests cover threshold-adjacent
+size rather than a Wasm speed claim. Target payloads remained 1,776 bytes for atan,
+1,788 for asin, and 1,794 for acos. Exact oracle tests cover threshold-adjacent
 and 64/128/256-bit plans, paired/directed parity, legacy recurrence agreement,
 zero/unit/small dispatch, and checked term-count overflow.
 
