@@ -1637,7 +1637,7 @@ fn log_series_common_denominator_bounds(
     z: &Rational,
     term_count: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
-    log_series_evaluation(z, term_count)?.into_bounds()
+    log_series_evaluation(z, term_count, true)?.into_bounds()
 }
 
 fn log_series_common_denominator_bound(
@@ -1645,7 +1645,7 @@ fn log_series_common_denominator_bound(
     term_count: u32,
     direction: BoundDirection,
 ) -> Result<Rational, IntervalError> {
-    let state = log_series_evaluation(z, term_count)?;
+    let state = log_series_evaluation(z, term_count, matches!(direction, BoundDirection::Upper))?;
     match direction {
         BoundDirection::Lower => state.into_lower(),
         BoundDirection::Upper => state.into_upper(),
@@ -1723,9 +1723,11 @@ impl LogSeriesState {
 fn log_series_evaluation(
     z: &Rational,
     term_count: u32,
+    include_upper: bool,
 ) -> Result<LogSeriesEvaluation, IntervalError> {
     if !z.is_zero() && !z.numerator.inner.is_one() && term_count >= LOG_BINARY_SPLIT_THRESHOLD {
-        return log_binary_split_state(z, term_count).map(LogSeriesEvaluation::BinarySplit);
+        return log_binary_split_state(z, term_count, include_upper)
+            .map(LogSeriesEvaluation::BinarySplit);
     }
     log_series_recurrence_state(z, term_count).map(LogSeriesEvaluation::Recurrence)
 }
@@ -1784,7 +1786,7 @@ fn log_series_recurrence_state(
 struct LogBinarySplitState {
     sum_numerator: BigInt,
     common_denominator: BigInt,
-    last_product_numerator: BigInt,
+    last_product_numerator: Option<BigInt>,
     value_numerator: BigInt,
     numerator_squared: BigInt,
     denominator_squared: BigInt,
@@ -1797,6 +1799,9 @@ impl LogBinarySplitState {
     }
 
     fn into_upper(self) -> Result<Rational, IntervalError> {
+        let last_product_numerator = self
+            .last_product_numerator
+            .expect("upper log split retains the final term product");
         let final_odd = self
             .term_count
             .checked_mul(2)
@@ -1807,7 +1812,7 @@ impl LogBinarySplitState {
             .ok_or(IntervalError::ExponentTooLarge)?;
         let next_denominator_factor = self.denominator_squared * next_odd;
         let next_term_scaled_numerator =
-            self.value_numerator * self.last_product_numerator * self.numerator_squared * final_odd;
+            self.value_numerator * last_product_numerator * self.numerator_squared * final_odd;
         let upper_numerator = self.sum_numerator * &next_denominator_factor * 2_u8
             + next_term_scaled_numerator * 4_u8;
         rational_from_parts(
@@ -1827,7 +1832,7 @@ impl LogBinarySplitState {
 struct LogBinarySplit {
     // For a segment of recurrence indices, P/Q is the product of all term
     // ratios and T/Q is the sum of the segment's cumulative products.
-    product_numerator: BigInt,
+    product_numerator: Option<BigInt>,
     product_denominator: BigInt,
     sum_numerator: BigInt,
 }
@@ -1835,6 +1840,7 @@ struct LogBinarySplit {
 fn log_binary_split_state(
     z: &Rational,
     term_count: u32,
+    include_upper: bool,
 ) -> Result<LogBinarySplitState, IntervalError> {
     debug_assert!(!z.numerator.inner.is_one());
     debug_assert!(term_count > 0);
@@ -1849,6 +1855,7 @@ fn log_binary_split_state(
         term_count
             .checked_add(1)
             .ok_or(IntervalError::ExponentTooLarge)?,
+        include_upper,
     )?;
     let sum_numerator = numerator * (&split.product_denominator + &split.sum_numerator);
     let common_denominator = denominator * &split.product_denominator;
@@ -1868,18 +1875,32 @@ fn log_binary_split(
     denominator_squared: &BigInt,
     start: u32,
     end: u32,
+    retain_product: bool,
 ) -> Result<LogBinarySplit, IntervalError> {
     debug_assert!(start < end);
     if end - start <= LOG_BINARY_SPLIT_LEAF_TERMS {
-        return log_binary_split_leaf_block(numerator_squared, denominator_squared, start, end);
+        let mut split =
+            log_binary_split_leaf_block(numerator_squared, denominator_squared, start, end)?;
+        if !retain_product {
+            split.product_numerator = None;
+        }
+        return Ok(split);
     }
     let middle = start + (end - start) / 2;
-    let mut left = log_binary_split(numerator_squared, denominator_squared, start, middle)?;
-    let mut right = log_binary_split(numerator_squared, denominator_squared, middle, end)?;
+    let mut left = log_binary_split(numerator_squared, denominator_squared, start, middle, true)?;
+    let mut right = log_binary_split(numerator_squared, denominator_squared, middle, end, true)?;
+    let left_product = left
+        .product_numerator
+        .take()
+        .expect("internal log split retains its product");
+    let right_product = right
+        .product_numerator
+        .take()
+        .expect("internal log split retains its product");
     left.sum_numerator *= &right.product_denominator;
-    right.sum_numerator *= &left.product_numerator;
+    right.sum_numerator *= &left_product;
     left.sum_numerator += right.sum_numerator;
-    left.product_numerator *= right.product_numerator;
+    left.product_numerator = retain_product.then(|| left_product * right_product);
     left.product_denominator *= right.product_denominator;
     Ok(left)
 }
@@ -1910,7 +1931,7 @@ fn log_binary_split_leaf_block(
         product_denominator *= step_denominator;
     }
     Ok(LogBinarySplit {
-        product_numerator,
+        product_numerator: Some(product_numerator),
         product_denominator,
         sum_numerator,
     })
@@ -5004,6 +5025,9 @@ mod tests {
                 1,
                 5,
                 20,
+                LOG_BINARY_SPLIT_THRESHOLD - 1,
+                LOG_BINARY_SPLIT_THRESHOLD,
+                LOG_BINARY_SPLIT_THRESHOLD + 1,
                 log_series_terms(64).unwrap(),
                 log_series_terms(128).unwrap(),
                 log_series_terms(256).unwrap(),
@@ -5031,23 +5055,29 @@ mod tests {
     fn log_binary_split_dispatch_keeps_small_and_unit_recurrences() {
         let nonunit = rational(3, 10);
         assert!(matches!(
-            log_series_evaluation(&nonunit, LOG_BINARY_SPLIT_THRESHOLD - 1).unwrap(),
+            log_series_evaluation(&nonunit, LOG_BINARY_SPLIT_THRESHOLD - 1, false).unwrap(),
             LogSeriesEvaluation::Recurrence(_),
         ));
         assert!(matches!(
-            log_series_evaluation(&nonunit, LOG_BINARY_SPLIT_THRESHOLD).unwrap(),
+            log_series_evaluation(&nonunit, LOG_BINARY_SPLIT_THRESHOLD, true).unwrap(),
             LogSeriesEvaluation::BinarySplit(_),
         ));
+        let LogSeriesEvaluation::BinarySplit(lower_only) =
+            log_series_evaluation(&nonunit, LOG_BINARY_SPLIT_THRESHOLD, false).unwrap()
+        else {
+            panic!("threshold nonunit log must use binary splitting");
+        };
+        assert!(lower_only.last_product_numerator.is_none());
         assert!(matches!(
-            log_series_evaluation(&rational(1, 3), log_series_terms(256).unwrap()).unwrap(),
+            log_series_evaluation(&rational(1, 3), log_series_terms(256).unwrap(), true,).unwrap(),
             LogSeriesEvaluation::Recurrence(_),
         ));
         assert!(matches!(
-            log_series_evaluation(&Rational::zero(), log_series_terms(256).unwrap()).unwrap(),
+            log_series_evaluation(&Rational::zero(), log_series_terms(256).unwrap(), true).unwrap(),
             LogSeriesEvaluation::Recurrence(_),
         ));
         assert!(matches!(
-            log_binary_split_state(&nonunit, u32::MAX),
+            log_binary_split_state(&nonunit, u32::MAX, true),
             Err(IntervalError::ExponentTooLarge),
         ));
     }
