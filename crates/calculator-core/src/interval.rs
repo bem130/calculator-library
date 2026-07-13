@@ -1501,6 +1501,10 @@ fn asin_rational_bound_with_pi(
         BoundDirection::Lower => sqrt_rational_upper(&one_minus_square, precision_bits)?,
         BoundDirection::Upper => sqrt_rational_lower(&one_minus_square, precision_bits)?,
     };
+    if rational_square_is_below_half(value) {
+        let ratio = divide_rational(value, &dyadic_to_rational(&numerator)?)?;
+        return atan_rational_bound(&ratio, precision_bits, direction);
+    }
     let ratio = divide_rational(&dyadic_to_rational(&numerator)?, value)?;
     let atan_direction = match direction {
         BoundDirection::Lower => BoundDirection::Upper,
@@ -3238,7 +3242,16 @@ mod tests {
 
         for precision_bits in [1, 64, 128] {
             let pi = pi_bounds(precision_bits).unwrap();
-            for positive in [rational(3, 4), rational(999, 1_000)] {
+            for (value, expected) in [
+                (rational(1, 2), true),
+                (rational(501, 1_000), true),
+                (rational(707, 1_000), true),
+                (rational(708, 1_000), false),
+                (Rational::one(), false),
+            ] {
+                assert_eq!(rational_square_is_below_half(&value), expected);
+            }
+            for positive in [rational(708, 1_000), rational(3, 4), rational(999, 1_000)] {
                 let former = former_positive_bounds(&positive, precision_bits);
                 assert_eq!(
                     asin_rational_bounds_with_pi(&positive, precision_bits, Some(&pi)).unwrap(),
@@ -3266,17 +3279,22 @@ mod tests {
                 );
             }
 
-            let positive = rational(5, 8);
-            let former = former_positive_bounds(&positive, precision_bits);
-            let actual =
-                asin_rational_bounds_with_pi(&positive, precision_bits, Some(&pi)).unwrap();
-            assert!(compare_rationals(&actual.0, &former.0) != Ordering::Less);
-            assert!(compare_rationals(&actual.1, &former.1) != Ordering::Greater);
-            let negative = positive.negate();
-            let negative_actual =
-                asin_rational_bounds_with_pi(&negative, precision_bits, Some(&pi)).unwrap();
-            assert!(compare_rationals(&negative_actual.0, &former.1.negate()) != Ordering::Less);
-            assert!(compare_rationals(&negative_actual.1, &former.0.negate()) != Ordering::Greater);
+            for positive in [rational(501, 1_000), rational(5, 8), rational(707, 1_000)] {
+                let former = former_positive_bounds(&positive, precision_bits);
+                let actual =
+                    asin_rational_bounds_with_pi(&positive, precision_bits, Some(&pi)).unwrap();
+                assert!(compare_rationals(&actual.0, &former.0) != Ordering::Less);
+                assert!(compare_rationals(&actual.1, &former.1) != Ordering::Greater);
+                let negative = positive.negate();
+                let negative_actual =
+                    asin_rational_bounds_with_pi(&negative, precision_bits, Some(&pi)).unwrap();
+                assert!(
+                    compare_rationals(&negative_actual.0, &former.1.negate()) != Ordering::Less
+                );
+                assert!(
+                    compare_rationals(&negative_actual.1, &former.0.negate()) != Ordering::Greater
+                );
+            }
         }
     }
 

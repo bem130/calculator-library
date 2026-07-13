@@ -1225,7 +1225,8 @@ second pi/2 reciprocal transform and the two independently certified pi terms
 were later cancelled. Commit `b12f7bf` selects the equivalent
 `atan(x/sqrt(1-x^2))` form in this whole region using exact integer-square
 comparison. The new directed interval is contained in the former enclosure for
-both signs; the upper transform region retains exact endpoint equality.
+both signs; the upper transform region retains exact endpoint equality. Paired
+and directed endpoint evaluators use the same region selection.
 
 On 2026-07-13 with `rustc 1.97.0`, `acos(5/8)` moved from 906,672 bytes / 4,695
 blocks to 730,664 / 3,899. Logical work remained 31 units. Separate 10-sample
