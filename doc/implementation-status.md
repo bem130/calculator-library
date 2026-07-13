@@ -118,6 +118,7 @@ unit cosine級数は負入力だけをowned negateし、非負canonical Rational
 asin変換域の`1-x^2`はcanonical `x=n/d`から`(d^2-n^2)/d^2`を直接構築し、一度だけcanonical化する。`x*x`とRational減算の二段正規化を除き、sqrt domainとdirected boundsを維持する。
 同complement squareは`gcd(n,d)=1`から非zeroの分子・分母が既約であることを利用し、汎用GCDを通さずcanonical Rationalを直接構築する。±1のzeroだけ`0/1`へ正規化する。
 log2のbinary exponent係数は有界signed primitiveをcanonical Rational分子へ直接掛け、一度だけcanonical化する。係数Rationalの構築、汎用乗算、負係数用の追加negateをlog compositionとlarge-exp residualから除く。
+非退化intervalの周期sin/cos extrema scanとtan pole scanは、precisionだけで決まる同一の保証付きhalf-π enclosureを呼出しごとに一度だけ構築し、全周期判定、scan上限、全half-π multiple候補へ共有する。各indexでMachin π recurrenceを再実行せず、共有half-πを有界signed primitiveでscaleする。extrema/poleの包含・uncertain分類、scan上限、endpoint評価、directed enclosure、logical-work契約、公開protocolを変更しない。
 
 ## Deliberately Not Contract
 

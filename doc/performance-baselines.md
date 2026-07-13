@@ -673,6 +673,60 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Shared half-pi periodic trigonometric scans
+
+At base commit `f83ed66`, non-degenerate periodic `sin`, `cos`, and `tan`
+recomputed the same Machin-formula π enclosure for the full-period check, scan
+limit, and every half-π extremum or pole candidate. The retained path constructs
+one certified half-π pair per public interval call and scales that pair by each
+signed primitive index. Candidate containment, uncertain fallback, scan limits,
+endpoint evaluation, and directed enclosures are unchanged.
+
+On 2026-07-13 with `rustc 1.97.0`, deterministic one-calculation allocation
+changed as follows:
+
+| Case | Bytes | Blocks | Peak bytes / blocks |
+| --- | ---: | ---: | ---: |
+| `sin(100+sin(1))` | 1,823,111 / 477,423 | 25,150 / 5,028 | 9,507 / 48 → 10,211 / 52 |
+| `tan(100+sin(1)/100)` | 1,908,536 / 619,224 | 25,069 / 5,805 | 18,218 / 64 → 18,922 / 68 |
+
+This removes about 74%/68% of allocated bytes and 80%/77% of allocation blocks.
+Keeping the shared half-π pair live adds 704 peak bytes and four peak blocks; the
+tradeoff is recorded rather than hidden. Logical work remained exactly 400,353
+and 400,517 units. Ten instrumented calculations alternated on the same host in
+2.49/2.26/2.30 seconds for base and 0.92/0.86/0.80 seconds for the candidate.
+Saved-baseline native Criterion samples had wide, overlapping confidence
+intervals and detected no change, so they are not used as a native timing claim.
+
+Wasm/npm benchmark definition v18 exercises the same public facade paths. With
+three iterations and one warmup, base artifact
+`3bd844de7f84cd4f357c7b916fb3057700ac421744a74fa85dc5828c46fc5b1e`
+(818,132 bytes) measured 302.1 ms/iteration for sine and 265.2 ms/iteration for
+tangent. Candidate artifact
+`b901906f0d96886ad164735667826846b4341820602de3bf5b3b27eaeb7129b6`
+(818,191 bytes) measured 55.6 and 57.5 ms/iteration. Payloads remained 1,784 and
+1,802 bytes, and both artifacts stayed below the 860,000-byte budget.
+
+Reproduce with:
+
+```sh
+for case in approximate_sin_periodic_non_degenerate \
+  approximate_tan_periodic_non_degenerate
+do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/sin_periodic_non_degenerate --sample-size 10
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_CASE=sin_periodic_non_degenerate \
+  CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
+
 ## Primitive squared arcsine coefficients
 
 At base commit `9d0f271`, every arcsine Taylor step materialized
