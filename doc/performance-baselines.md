@@ -1217,6 +1217,30 @@ SHA-256 `721cd6720b8af23ec51372d6fb543fdd6d7ee15f1a964bbfdef080013e3dbb19`.
 Package check, example production build, and browser E2E passed for the
 implementation artifact, confirming unchanged npm and example-ui presentation.
 
+## Region-selected exact asin transform
+
+At base commit `56c3721`, exact rational `1/2 < x < 1/sqrt(2)` used
+`pi/2-atan(sqrt(1-x^2)/x)`. Its atan argument exceeds one, so atan performed a
+second pi/2 reciprocal transform and the two independently certified pi terms
+were later cancelled. Commit `b12f7bf` selects the equivalent
+`atan(x/sqrt(1-x^2))` form in this whole region using exact integer-square
+comparison. The new directed interval is contained in the former enclosure for
+both signs; the upper transform region retains exact endpoint equality.
+
+On 2026-07-13 with `rustc 1.97.0`, `acos(5/8)` moved from 906,672 bytes / 4,695
+blocks to 730,664 / 3,899. Logical work remained 31 units. Separate 10-sample
+Criterion midpoint estimates moved from 28.72 ms to 12.37 ms, about 57%.
+Resource accounting, no-float policy, and protocol are unchanged.
+
+Wasm/npm benchmark definition v13 retained the 1,772-byte payload. One-iteration
+boundary smokes moved from 304.85 ms at base artifact
+`6c1b637bfea87ed28ee835cc7dfbe11109b3bb62802599955f814aef6728e539`
+(793,396 bytes) to 66.35 ms at implementation artifact
+`6d4bd640cf3bf1e48801f21646bfde10feca7833a87c2ed6c781eacd38a301f7`
+(794,277 bytes). This is not a powered Wasm timing claim.
+CLI stdout remained byte-identical, SHA-256
+`79b1b4204a05f5a6f97dde50d7af06222b613a03fcc61f984c83f72c84156913`.
+
 ## Direct unit-range trigonometric pair
 
 At base commit `f12fc66`, the paired trigonometric evaluator initialized the
