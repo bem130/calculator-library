@@ -10,6 +10,7 @@ fn main() {
             "12345678901234567890/7 + 98765432109876543210/11",
         ),
         ("exact_symbolic", "(exp(1)+sin(1))*cos(1)-exp(1)*cos(1)"),
+        ("exact_trig_identity", "sin(1)^2+cos(1)^2"),
         ("approximate", "sin(1)+ln(2)+2^sqrt(2)"),
         ("euler", "e"),
         ("exp_negative_10000", "exp(-10000)"),

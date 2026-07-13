@@ -23,6 +23,7 @@ fn main() {
             "12345678901234567890/7 + 98765432109876543210/11",
         )),
         "exact_symbolic" => Some(String::from("(exp(1)+sin(1))*cos(1)-exp(1)*cos(1)")),
+        "exact_trig_identity" => Some(String::from("sin(1)^2+cos(1)^2")),
         "approximate" => Some(String::from("sin(1)+ln(2)+2^sqrt(2)")),
         "approximate_euler" => Some(String::from("e")),
         "approximate_exp_one" => Some(String::from("exp(1)")),
