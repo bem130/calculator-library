@@ -10,6 +10,7 @@ import {
 
 const iterations = positiveInteger(process.env.CALCULATOR_BENCH_ITERATIONS, 10);
 const warmup = nonNegativeInteger(process.env.CALCULATOR_BENCH_WARMUP, 2);
+const selectedCase = process.env.CALCULATOR_BENCH_CASE;
 
 const wasmBytes = await readFile(new URL("../wasm/calculator_wasm_bg.wasm", import.meta.url));
 await init({ module_or_path: wasmBytes });
@@ -46,6 +47,7 @@ const cases = [
 
 const results = [];
 for (const [name, source, expectedExact] of cases) {
+    if (selectedCase !== undefined && name !== selectedCase) continue;
     results.push(measure(name, () => {
         const result = calculator.calculate(source, defaultCalculationRequest);
         if (result.tag !== "ok") throw new Error(`${name} failed: ${result.error.tag}.${result.error.code}`);
@@ -56,11 +58,13 @@ for (const [name, source, expectedExact] of cases) {
         return result;
     }));
 }
-results.push(measure("session_dispatch_sequence", dispatchSessionSequence));
+if (selectedCase === undefined || selectedCase === "session_dispatch_sequence") {
+    results.push(measure("session_dispatch_sequence", dispatchSessionSequence));
+}
 
 process.stdout.write(`${JSON.stringify({
     schemaVersion: 1,
-    benchmarkDefinition: "representative-paths-v15",
+    benchmarkDefinition: "representative-paths-v16",
     artifact: {
         wasmSha256: createHash("sha256").update(wasmBytes).digest("hex"),
         wasmBytes: wasmBytes.byteLength,
