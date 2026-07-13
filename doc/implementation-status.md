@@ -64,6 +64,7 @@ expの共通分母Taylor recurrenceは、項番号`n`、tail index、tail係数2
 同recurrenceの部分和は所有BigIntへ分母factorをin-place乗算してから次項を加える。`term*a`は部分和補正と次iterationのtermで同じ値なので一度だけ構築して所有権を移し、従来の重複多倍長乗算を除く。upper tailも所有積へ補正項をin-place加算する。
 同recurrenceの次項は直前termの所有BigInt bufferへ`term *= a`として更新し、新しい積へ移して旧bufferを捨てる処理を除く。部分和には更新済みtermを借用して加え、recurrenceとtailを維持する。
 directed upper-only exp endpointのtail補正はrecurrence stateを消費し、部分和、term、共通分母の所有BigInt bufferをin-place更新する。lowerも必要なpaired exact boundsは借用計算を維持し、tail式と方向付き保証を変更しない。
+exp Taylor recurrenceのraw分子・正分母が直ちに公開ExactDyadicへ丸められる場合は、canonical RationalのGCD・除算を挟まず同じ比を直接directed roundingする。`0 <= x <= 1`のexact point、非退化endpoint、binary-scaled residualを対象とし、range reduction後の整数冪、負値reciprocal、Rationalを後続処理で使う経路は従来のcanonicalizationを維持する。
 exp/log/e/trig/atanの項数・tail境界補助は、checked `u32` indexと固定`u8`係数を所有BigIntへ変換せずprimitive scalarとしてBigIntへ乗算する。比較対象のfactorial・3冪・逆数分母だけを多倍長で保持し、最小項数を定める不等式は変更しない。
 reduced logの正項級数は`z=a/b`に対し、`b^(2k+1)`と既出奇数分母の積を共通分母として部分和・現在冪・奇数積をBigInt recurrenceで更新する。loop内のRational乗算・除算・加算ごとのGCDを除き、lowerと最初の未加算項を含むupperだけを最終canonical化する。
 負の通常range expは、正側で得たcanonicalな正Rational boundの分子・分母を交換して逆数boundを構築する。`1/bound`を汎用除算へ戻す重複GCDを除き、lower/upper方向の反転とzero防御を維持する。

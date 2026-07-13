@@ -237,44 +237,64 @@ pub(crate) fn exp(
             upper: exp_binary_scaled_bound(&upper, precision_bits, BoundDirection::Upper)?,
         });
     }
-    let (lower, upper) = if lower == upper {
-        exp_rational_bounds(&lower, precision_bits)?
-    } else {
+    if lower == upper && exp_can_round_series_directly(&lower) {
         let series_plan = exp_series_plan(precision_bits)?;
-        let term_count = series_plan.term_count;
-        if lower.denominator == upper.denominator
-            && !lower.is_negative()
-            && !upper.is_negative()
-            && ceil_nonnegative_rational_to_u32(&lower)? == 1
-            && ceil_nonnegative_rational_to_u32(&upper)? == 1
-        {
-            let common_denominator = exp_series_common_denominator_with_factorial(
-                &lower.denominator.inner.inner,
+        return exp_series_dyadic_bounds_with_plan(&lower, &series_plan, precision_bits);
+    }
+    if lower == upper {
+        let (lower, upper) = exp_rational_bounds(&lower, precision_bits)?;
+        return from_rational_bounds(&lower, &upper, precision_bits);
+    }
+    let series_plan = exp_series_plan(precision_bits)?;
+    let term_count = series_plan.term_count;
+    let (lower, upper) = if lower.denominator == upper.denominator
+        && exp_can_round_series_directly(&lower)
+        && exp_can_round_series_directly(&upper)
+    {
+        let common_denominator = exp_series_common_denominator_with_factorial(
+            &lower.denominator.inner.inner,
+            term_count,
+            &series_plan.factorial,
+        )?;
+        (
+            exp_series_dyadic_bound_with_common_denominator(
+                &lower,
                 term_count,
-                &series_plan.factorial,
-            )?;
-            (
-                exp_series_rational_bound_with_common_denominator(
-                    &lower,
-                    term_count,
-                    BoundDirection::Lower,
-                    common_denominator.clone(),
-                )?,
-                exp_series_rational_bound_with_common_denominator(
-                    &upper,
-                    term_count,
-                    BoundDirection::Upper,
-                    common_denominator,
-                )?,
-            )
-        } else {
-            (
-                exp_rational_bound_with_plan(&lower, &series_plan, BoundDirection::Lower)?,
-                exp_rational_bound_with_plan(&upper, &series_plan, BoundDirection::Upper)?,
-            )
-        }
+                BoundDirection::Lower,
+                common_denominator.clone(),
+                precision_bits,
+            )?,
+            exp_series_dyadic_bound_with_common_denominator(
+                &upper,
+                term_count,
+                BoundDirection::Upper,
+                common_denominator,
+                precision_bits,
+            )?,
+        )
+    } else {
+        (
+            exp_dyadic_bound_with_plan(
+                &lower,
+                &series_plan,
+                BoundDirection::Lower,
+                precision_bits,
+            )?,
+            exp_dyadic_bound_with_plan(
+                &upper,
+                &series_plan,
+                BoundDirection::Upper,
+                precision_bits,
+            )?,
+        )
     };
-    from_rational_bounds(&lower, &upper, precision_bits)
+    Ok(CertifiedInterval { lower, upper })
+}
+
+fn exp_can_round_series_directly(value: &Rational) -> bool {
+    !value.is_negative()
+        && !value.is_zero()
+        && value.numerator.inner.magnitude() <= value.denominator.inner.inner.magnitude()
 }
 
 fn exp_uses_binary_scaling(value: &Rational) -> bool {
@@ -371,21 +391,30 @@ fn exp_binary_scaled_bound_with_plan(
             &scale_rational_by_i64(&plan.log_two_lower, plan.binary_exponent)?,
         ),
     };
-    let bound = exp_rational_bound_with_plan(&residual, &plan.series_plan, direction)?;
-    let exponent_two = -BigInt::from(plan.working_precision);
-    let mut dyadic = match direction {
-        BoundDirection::Lower => {
-            rational_to_dyadic_lower(&bound, plan.working_precision, exponent_two)
-        }
-        BoundDirection::Upper => {
-            rational_to_dyadic_upper(&bound, plan.working_precision, exponent_two)
-        }
-    };
+    let mut dyadic = exp_dyadic_bound_with_plan(
+        &residual,
+        &plan.series_plan,
+        direction,
+        plan.working_precision,
+    )?;
     dyadic.exponent_two.inner += BigInt::from(plan.binary_exponent);
     Ok(normalize_dyadic(
         dyadic.coefficient.inner,
         dyadic.exponent_two.inner,
     ))
+}
+
+fn exp_dyadic_bound_with_plan(
+    value: &Rational,
+    plan: &ExpSeriesPlan,
+    direction: BoundDirection,
+    precision_bits: u32,
+) -> Result<ExactDyadic, IntervalError> {
+    if exp_can_round_series_directly(value) {
+        return exp_series_dyadic_bound_with_plan(value, plan, direction, precision_bits);
+    }
+    let bound = exp_rational_bound_with_plan(value, plan, direction)?;
+    Ok(rational_to_dyadic_bound(&bound, precision_bits, direction))
 }
 
 pub(crate) fn log(
@@ -1037,6 +1066,42 @@ fn exp_series_rational_bounds_with_plan(
     state.into_bounds()
 }
 
+fn exp_series_dyadic_bounds_with_plan(
+    value: &Rational,
+    plan: &ExpSeriesPlan,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    let tail_index = plan
+        .term_count
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    if value.is_zero() {
+        let one = ExactDyadic {
+            coefficient: Integer::one(),
+            exponent_two: Integer::zero(),
+        };
+        return Ok(CertifiedInterval {
+            lower: one.clone(),
+            upper: one,
+        });
+    }
+    let state = exp_series_state_with_plan(value, plan, tail_index)?;
+    let (upper_numerator, upper_denominator) = state.upper_parts();
+    let lower = fraction_to_dyadic_bound(
+        &state.sum_numerator,
+        &state.common_denominator,
+        precision_bits,
+        BoundDirection::Lower,
+    );
+    let upper = fraction_to_dyadic_bound(
+        &upper_numerator,
+        &upper_denominator,
+        precision_bits,
+        BoundDirection::Upper,
+    );
+    Ok(CertifiedInterval { lower, upper })
+}
+
 #[cfg(test)]
 fn exp_series_rational_bound(
     value: &Rational,
@@ -1072,6 +1137,33 @@ fn exp_series_rational_bound_with_plan(
     }
 }
 
+fn exp_series_dyadic_bound_with_plan(
+    value: &Rational,
+    plan: &ExpSeriesPlan,
+    direction: BoundDirection,
+    precision_bits: u32,
+) -> Result<ExactDyadic, IntervalError> {
+    let tail_index = plan
+        .term_count
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    if value.is_zero() {
+        return Ok(ExactDyadic {
+            coefficient: Integer::one(),
+            exponent_two: Integer::zero(),
+        });
+    }
+    let state = exp_series_state_with_plan(value, plan, tail_index)?;
+    let (numerator, denominator) = state.into_parts(direction);
+    Ok(fraction_to_dyadic_bound(
+        &numerator,
+        &denominator,
+        precision_bits,
+        direction,
+    ))
+}
+
+#[cfg(test)]
 fn exp_series_rational_bound_with_common_denominator(
     value: &Rational,
     term_count: u32,
@@ -1087,6 +1179,27 @@ fn exp_series_rational_bound_with_common_denominator(
         BoundDirection::Lower => state.into_lower(),
         BoundDirection::Upper => state.into_upper(),
     }
+}
+
+fn exp_series_dyadic_bound_with_common_denominator(
+    value: &Rational,
+    term_count: u32,
+    direction: BoundDirection,
+    common_denominator: BigInt,
+    precision_bits: u32,
+) -> Result<ExactDyadic, IntervalError> {
+    let tail_index = term_count
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?;
+    let state =
+        exp_series_state_with_common_denominator(value, term_count, tail_index, common_denominator);
+    let (numerator, denominator) = state.into_parts(direction);
+    Ok(fraction_to_dyadic_bound(
+        &numerator,
+        &denominator,
+        precision_bits,
+        direction,
+    ))
 }
 
 struct ExpSeriesState<'a> {
@@ -1121,11 +1234,28 @@ impl ExpSeriesState<'_> {
     }
 
     fn upper(&self) -> Result<Rational, IntervalError> {
+        let (upper_numerator, upper_denominator) = self.upper_parts();
+        rational_from_parts(upper_numerator, upper_denominator)
+    }
+
+    fn into_parts(mut self, direction: BoundDirection) -> (BigInt, BigInt) {
+        if matches!(direction, BoundDirection::Upper) {
+            let next_denominator_factor = self.value_denominator * self.tail_index;
+            self.sum_numerator *= &next_denominator_factor;
+            self.term_numerator *= self.value_numerator;
+            self.term_numerator *= 2_u8;
+            self.sum_numerator += self.term_numerator;
+            self.common_denominator *= next_denominator_factor;
+        }
+        (self.sum_numerator, self.common_denominator)
+    }
+
+    fn upper_parts(&self) -> (BigInt, BigInt) {
         let next_denominator_factor = self.value_denominator * self.tail_index;
         let mut upper_numerator = &self.sum_numerator * &next_denominator_factor;
         upper_numerator += &self.term_numerator * self.value_numerator * 2_u8;
         let upper_denominator = &self.common_denominator * next_denominator_factor;
-        rational_from_parts(upper_numerator, upper_denominator)
+        (upper_numerator, upper_denominator)
     }
 }
 
@@ -2604,6 +2734,33 @@ fn rational_to_dyadic_upper(
     normalize_dyadic(scaled_numerator.div_ceil(denominator), exponent_two)
 }
 
+fn rational_to_dyadic_bound(
+    rational: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+) -> ExactDyadic {
+    let exponent_two = -BigInt::from(precision_bits);
+    match direction {
+        BoundDirection::Lower => rational_to_dyadic_lower(rational, precision_bits, exponent_two),
+        BoundDirection::Upper => rational_to_dyadic_upper(rational, precision_bits, exponent_two),
+    }
+}
+
+fn fraction_to_dyadic_bound(
+    numerator: &BigInt,
+    denominator: &BigInt,
+    precision_bits: u32,
+    direction: BoundDirection,
+) -> ExactDyadic {
+    debug_assert!(denominator.is_positive());
+    let scaled_numerator = numerator << precision_bits;
+    let coefficient = match direction {
+        BoundDirection::Lower => scaled_numerator.div_floor(denominator),
+        BoundDirection::Upper => scaled_numerator.div_ceil(denominator),
+    };
+    normalize_dyadic(coefficient, -BigInt::from(precision_bits))
+}
+
 fn reciprocal_interval(
     interval: &CertifiedInterval,
     precision_bits: u32,
@@ -3507,6 +3664,87 @@ mod tests {
                 )
                 .unwrap()
             );
+        }
+    }
+
+    #[test]
+    fn raw_exponential_dyadic_rounding_matches_canonical_rational_route() {
+        fn canonical_binary_bound(
+            value: &Rational,
+            direction: BoundDirection,
+            plan: &ExpBinaryScalingPlan,
+        ) -> ExactDyadic {
+            let residual = match (plan.binary_exponent.is_negative(), direction) {
+                (false, BoundDirection::Lower) | (true, BoundDirection::Upper) => value.subtract(
+                    &scale_rational_by_i64(&plan.log_two_upper, plan.binary_exponent).unwrap(),
+                ),
+                (false, BoundDirection::Upper) | (true, BoundDirection::Lower) => value.subtract(
+                    &scale_rational_by_i64(&plan.log_two_lower, plan.binary_exponent).unwrap(),
+                ),
+            };
+            let bound =
+                exp_rational_bound_with_plan(&residual, &plan.series_plan, direction).unwrap();
+            let mut dyadic = rational_to_dyadic_bound(&bound, plan.working_precision, direction);
+            dyadic.exponent_two.inner += BigInt::from(plan.binary_exponent);
+            normalize_dyadic(dyadic.coefficient.inner, dyadic.exponent_two.inner)
+        }
+
+        for precision_bits in [64, 128] {
+            for value in [
+                rational(-2, 1),
+                rational(-1, 2),
+                Rational::zero(),
+                rational(1, 2),
+                Rational::one(),
+                rational(2, 1),
+            ] {
+                let input = from_rational(&value, precision_bits);
+                let input_value = dyadic_to_rational(&input.lower).unwrap();
+                let (lower, upper) = exp_rational_bounds(&input_value, precision_bits).unwrap();
+                assert_eq!(
+                    exp(&input, precision_bits).unwrap(),
+                    from_rational_bounds(&lower, &upper, precision_bits).unwrap(),
+                );
+            }
+
+            for (lower, upper) in [
+                (rational(1, 8), rational(3, 8)),
+                (rational(1, 3), rational(2, 3)),
+                (rational(-2, 3), rational(-1, 3)),
+                (rational(-1, 3), rational(1, 3)),
+                (rational(3, 2), rational(5, 2)),
+            ] {
+                let input = from_rational_bounds(&lower, &upper, precision_bits).unwrap();
+                let input_lower = dyadic_to_rational(&input.lower).unwrap();
+                let input_upper = dyadic_to_rational(&input.upper).unwrap();
+                let canonical_lower =
+                    exp_rational_bound(&input_lower, precision_bits, BoundDirection::Lower)
+                        .unwrap();
+                let canonical_upper =
+                    exp_rational_bound(&input_upper, precision_bits, BoundDirection::Upper)
+                        .unwrap();
+                assert_eq!(
+                    exp(&input, precision_bits).unwrap(),
+                    from_rational_bounds(&canonical_lower, &canonical_upper, precision_bits,)
+                        .unwrap(),
+                );
+            }
+
+            for value in [
+                rational(-10_000, 1),
+                rational(-65, 1),
+                rational(65, 1),
+                rational(10_000, 1),
+            ] {
+                let input = from_rational(&value, precision_bits);
+                let input_value = dyadic_to_rational(&input.lower).unwrap();
+                let plan = exp_binary_scaling_plan(&input_value, precision_bits).unwrap();
+                let expected = CertifiedInterval {
+                    lower: canonical_binary_bound(&input_value, BoundDirection::Lower, &plan),
+                    upper: canonical_binary_bound(&input_value, BoundDirection::Upper, &plan),
+                };
+                assert_eq!(exp(&input, precision_bits).unwrap(), expected);
+            }
         }
     }
 

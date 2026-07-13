@@ -1903,6 +1903,35 @@ bytes, and for `exp(sqrt(2)*ln(2))` from 11,708 to 10,812 bytes. Total bytes and
 blocks were unchanged, as were `exp(1)` and `exp(±10000)`. Paired exact bounds keep
 the non-consuming tail path. Directed bounds and logical-work values are unchanged.
 
+## Raw exponential fraction to directed dyadic rounding
+
+The exponential Taylor recurrence already holds its final positive ratio as a
+raw numerator and denominator. When that ratio is immediately rounded to the
+public `ExactDyadic` interval, constructing a canonical `Rational` first performs
+a GCD and exact divisions whose result does not affect floor/ceiling division.
+The direct path now rounds the raw ratio for `0 <= x <= 1` exact points,
+non-degenerate endpoints, and binary-scaled residuals. Integer-power range
+reconstruction and negative-residual reciprocal paths retain canonical rationals.
+
+Against commit `75bfc3b`, deterministic one-calculation allocation changed as
+follows on 2026-07-13 with `rustc 1.97.0`:
+
+| Case | Before | After |
+| --- | ---: | ---: |
+| `exp(1)` | 16,861 bytes / 600 blocks | 16,421 / 583 |
+| `2^sqrt(2)` | 171,022 / 2,245 | 156,814 / 2,221 |
+| `exp(sqrt(2)*ln(2))` | 204,974 / 3,761 | 190,766 / 3,737 |
+| `exp(-10000)` | 526,160 / 1,841 | 512,640 / 1,814 |
+| `exp(10000)` | 498,896 / 1,771 | 489,992 / 1,744 |
+
+Peak live allocation for general power fell from 10,743 to 8,551 bytes; its
+cumulative exp stage fell from 10,812 to 8,620. Large-exp peak values were
+unchanged. Exact-output regressions compare the direct result with the former
+canonical route at 64 and 128 bits for ordinary exact values, non-degenerate
+positive/negative/mixed intervals, and binary-scaled `exp(±65)`/`exp(±10000)`.
+This slice claims deterministic allocation reduction; directed bounds,
+precision, logical-work charging, and public protocol are unchanged.
+
 ## Shared binary logarithm composition
 
 Non-degenerate logarithm intervals require endpoint-specific range reduction and
