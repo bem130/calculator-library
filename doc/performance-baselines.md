@@ -1230,9 +1230,10 @@ On 2026-07-13 with `rustc 1.97.0`, deterministic allocation for `2^sqrt(2)`
 moved from 208,062 bytes / 2,310 blocks to 207,982 / 2,306. The cumulative
 `exp(sqrt(2)*ln(2))` path moved from 242,014 / 3,826 to 241,934 / 3,822.
 Twenty-sample general-power Criterion midpoint estimates were 703.19 µs and
-618.61 µs, but this small planning change does not establish that host-sensitive
-timing movement as a speedup. The approximate logical-work boundary remained
-400,447 units.
+618.61 µs. The corresponding cumulative `exp(sqrt(2)*ln(2))` midpoint estimates
+were 777.23 µs and 797.12 µs. These inconsistent host-sensitive movements do not
+establish a timing speedup for this small planning change. The approximate
+logical-work boundary remained 400,447 units.
 
 One-iteration Wasm/npm boundary smokes retained the 1,812-byte approximate
 payload and moved from 7.96 ms at base artifact
@@ -1241,6 +1242,8 @@ payload and moved from 7.96 ms at base artifact
 `d848924afe25a40f477ad509e6fe189407cdc7c387f60c5b010e7475f7b7ad23`
 (794,742 bytes). This is not a powered Wasm timing claim. Directed enclosure,
 resource accounting, no-float policy, and public protocol are unchanged.
+Package check, example production build, and browser E2E passed for the
+implementation artifact, confirming unchanged npm and example-ui presentation.
 
 ## Shared integer-root search for exact sqrt bounds
 
