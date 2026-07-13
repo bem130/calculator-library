@@ -2017,6 +2017,9 @@ follows on 2026-07-13 with `rustc 1.97.0`:
 unchanged in every case. Twenty-sample reruns detected no timing change for the
 `exp(1)` control or `ln(2)`; host load varied substantially during the much longer
 non-degenerate log sample, so this slice claims only deterministic allocation.
+Logical work was unchanged: `approximate` remained 400,447 units,
+`log_non_degenerate` 200,225, `exp_negative_10000` 586, and
+`exp_positive_10000` 582.
 Exact tests cover `z=1/3`, `1/4`, `1/5`, `1/7`, nonunit `3/10`, zero, term counts
 0/1/5/20, and the 64/128-bit term plans against the former general recurrence and
 the independent Rational definition.
