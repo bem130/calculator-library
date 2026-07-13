@@ -39,6 +39,8 @@ author は `bem130`、license は `MIT` とする。license 本文は repository
 
 自然指数factorを統合した後の平方根は`sqrt(exp(a))=exp(a/2)`で正規化する。したがって`sqrt(exp(a)^2)`は、構文を温存する特例ではなく`exp(2*a)`を経て`exp(a)`になる。
 
+同じcanonical radian引数を持つ三角関数平方は、実数領域での定義済み性を維持したまま`sin(x)^2+cos(x)^2=1`として正規化する。共通係数・共通factorを持つ項にも同じ恒等式を適用し、係数が異なる場合は同符号の共通部分だけを縮約する。現行構文は`sin(x)^2`を使用し、`sin^2(x)`という別構文は導入しない。
+
 商のfactor相殺、零係数項の除去、分配後の相殺は、消える部分式の定義済み性と必要な非零性を証明できる場合だけ行う。消去条件は`Defined` / `NonZero` domain obligationとしてDAGに保持し、値の簡約より先に検証する。exact reductionによって子の値が確定した後も親のcanonical factor viewを再構築し、stored exact valueの構造的等値をfactor比較に使用する。canonical expansionがresource limitへ達した場合、部分的な展開結果を完全簡約として返さずtyped partialにする。
 
 相殺、零倍、因子消去によって部分式を消す変形は、その部分式が実数領域で定義済みと証明できる場合だけ適用する。定義済みか不明なら式を保持し、未定義と判明した場合はtyped domain errorを返す。構造が同じという理由だけで、`ln(sin(-1))-ln(sin(-1))`や`0*ln(sin(-1))`を0にしてはならない。

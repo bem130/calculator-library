@@ -1052,6 +1052,25 @@ mod tests {
     }
 
     #[test]
+    fn wasm_dto_normalizes_trigonometric_square_identity() {
+        let result = calculate_dto("sin(1)^2+cos(1)^2", exact_only_request());
+        let ApiResultDto::Ok {
+            value:
+                CalculationOutcomeDto::Complete {
+                    calculation:
+                        CalculationDto {
+                            exact: ExactOutputDto::Included { value: exact },
+                            ..
+                        },
+                },
+        } = result
+        else {
+            panic!("expected exact successful calculation");
+        };
+        assert_eq!(exact.plain_text, "1");
+    }
+
+    #[test]
     fn wasm_dto_calculates_exact_rational_power_expressions() {
         for (source, expected) in [
             ("(-8)^(1/3)", "-2"),
@@ -2329,6 +2348,14 @@ pub mod wasm_tests {
     fn wasm32_calculates_exact_rational_expression() {
         let result = calculate_dto("0.1 + 0.2", exact_only_request());
         assert_eq!(exact_plain_text(result), "3/10");
+    }
+
+    #[wasm_bindgen_test]
+    fn wasm32_normalizes_trigonometric_square_identity() {
+        assert_eq!(
+            exact_plain_text(calculate_dto("sin(1)^2+cos(1)^2", exact_only_request())),
+            "1"
+        );
     }
 
     #[wasm_bindgen_test]

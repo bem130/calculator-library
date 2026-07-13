@@ -97,6 +97,7 @@ exact transformed asinはsqrt enclosureから得た上下ratioに対し、最終
 exact rationalおよびdirected endpointの`1/2<|x|<1/sqrt(2)` asinは`atan(x/sqrt(1-x^2))`を選び、従来の`pi/2-atan(sqrt(1-x^2)/x)`がreciprocal atan内部でpiを再構築・相殺する経路を避ける。領域はcanonical integer square比較で決定し、paired/direct一致、旧保証区間の包含改善、負値方向、logical-work契約を維持する。
 exact-point sqrtのscaled lower/upperは高々1だけ異なるため、lowerのinteger floor rootを一度だけ探索し、その平方とscaled upperの比較でupper rootが同じ整数か次の整数かを決定する。上下で独立した大整数平方根探索を行わず、perfect square、zero、non-squareのdirected boundsとlogical-work契約を維持する。
 通常範囲の非退化expはprecisionだけで決まるTaylor項数を一度だけ計画し、lower endpointのlower boundとupper endpointのupper boundへ共有する。endpointごとにworking precisionが変わり得るbinary-scalingは独立計画を維持し、exact-pointの単一recurrence共有、range reduction、負値reciprocal方向、logical-work契約を変更しない。
+canonical sparse polynomialは同じcanonical radian引数と残余factorを持つ`sin(arg)^2`/`cos(arg)^2`項から、同符号の共通Rational係数を抽出して恒等式1へ縮約する。source順序、積と二乗、分配形、正負・不均等係数、複数identityに依存せず、異引数・異符号・平方以外は保持する。実行前にcompatible pairの存在を確認し、生成common monomialの連鎖を含むrewrite回数、反復scan/sort/merge、Rational係数構造costを保守的に予約する。定義済み性、atomic limit fallback、no-float、公開protocolを維持する。
 unit cosine級数は負入力だけをowned negateし、非負canonical Rationalは借用する。偶関数正規化のために正入力までcloneする処理を除き、tailとlogical-work契約を維持する。
 asin変換域の`1-x^2`はcanonical `x=n/d`から`(d^2-n^2)/d^2`を直接構築し、一度だけcanonical化する。`x*x`とRational減算の二段正規化を除き、sqrt domainとdirected boundsを維持する。
 同complement squareは`gcd(n,d)=1`から非zeroの分子・分母が既約であることを利用し、汎用GCDを通さずcanonical Rationalを直接構築する。±1のzeroだけ`0/1`へ正規化する。

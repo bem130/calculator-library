@@ -1217,6 +1217,33 @@ SHA-256 `721cd6720b8af23ec51372d6fb543fdd6d7ee15f1a964bbfdef080013e3dbb19`.
 Package check, example production build, and browser E2E passed for the
 implementation artifact, confirming unchanged npm and example-ui presentation.
 
+## Domain-safe trigonometric square identity
+
+At base commit `152e3c2`, `sin(1)^2+cos(1)^2` remained a two-term symbolic
+polynomial and both transcendental components were evaluated for requested
+numeric outputs. The implementation recognizes complementary square factors in
+canonical sparse polynomial terms and materializes exact `1`. Equal common
+factors and same-sign Rational coefficient portions are handled independently of
+source order, multiplication spelling, distribution, and nested identity chains.
+
+On 2026-07-13 with `rustc 1.97.0`, one public calculation moved from 40,632
+bytes / 1,347 blocks to 29,190 / 984. Separate 20-sample Criterion midpoint
+estimates moved from 204.13 µs to 63.96 µs. Conservative logical work increased
+from 400,483 to 400,653 units because compatible-pair discovery, cascade closure,
+repeated sort/merge, and arbitrary-precision coefficient operations are now
+reserved before mutation; unrelated benchmark boundaries remained unchanged.
+
+Wasm/npm benchmark definition v14 added the same public case. One-iteration
+boundary smokes moved from 1.74 ms with a 1,784-byte payload at base artifact
+`d848924afe25a40f477ad509e6fe189407cdc7c387f60c5b010e7475f7b7ad23`
+(794,742 bytes) to 1.72 ms with the exact-one 1,720-byte payload at implementation
+artifact `3289f606a208b1ed3cdef28bf6debfee37812e20c853e05ff8f44dadc6418e36`
+(805,831 bytes). This is not a powered Wasm timing claim. Tight rewrite/logical
+limits retain the complete original canonical expression in a typed partial;
+the expression-node cap remains a typed input limit. Domain errors are not
+hidden, and no-float, scientific/enclosure, and DTO protocol contracts remain
+unchanged.
+
 ## Shared Taylor plan for non-degenerate exponential endpoints
 
 At base commit `85065dd`, ordinary non-degenerate exponential evaluation chose
