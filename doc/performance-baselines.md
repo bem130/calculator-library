@@ -1909,16 +1909,18 @@ The exponential Taylor recurrence already holds its final positive ratio as a
 raw numerator and denominator. When that ratio is immediately rounded to the
 public `ExactDyadic` interval, constructing a canonical `Rational` first performs
 a GCD and exact divisions whose result does not affect floor/ceiling division.
-The direct path now rounds the raw ratio for `0 <= x <= 1` exact points,
-non-degenerate endpoints, and binary-scaled residuals. Integer-power range
-reconstruction and negative-residual reciprocal paths retain canonical rationals.
+The direct path now rounds the raw ratio for non-integral `0 < x <= 1` exact
+points, non-degenerate endpoints, and binary-scaled residuals. Integer inputs
+retain canonicalization because their recurrence ratio shares large factorial
+factors and reducing those factors first makes the final division substantially
+cheaper. Integer-power range reconstruction and negative-residual reciprocal
+paths also retain canonical rationals.
 
 Against commit `75bfc3b`, deterministic one-calculation allocation changed as
 follows on 2026-07-13 with `rustc 1.97.0`:
 
 | Case | Before | After |
 | --- | ---: | ---: |
-| `exp(1)` | 16,861 bytes / 600 blocks | 16,421 / 583 |
 | `2^sqrt(2)` | 171,022 / 2,245 | 156,814 / 2,221 |
 | `exp(sqrt(2)*ln(2))` | 204,974 / 3,761 | 190,766 / 3,737 |
 | `exp(-10000)` | 526,160 / 1,841 | 512,640 / 1,814 |
@@ -1929,8 +1931,14 @@ cumulative exp stage fell from 10,812 to 8,620. Large-exp peak values were
 unchanged. Exact-output regressions compare the direct result with the former
 canonical route at 64 and 128 bits for ordinary exact values, non-degenerate
 positive/negative/mixed intervals, and binary-scaled `exp(±65)`/`exp(±10000)`.
-This slice claims deterministic allocation reduction; directed bounds,
-precision, logical-work charging, and public protocol are unchanged.
+`exp(1)` remains at 16,861 bytes / 600 blocks. An initial raw-integer variant
+reduced its allocation by 440 bytes but regressed the Criterion midpoint from the
+cached 30.7 µs to 53.1 µs, so that variant was rejected. The accepted path measured
+32.8 µs for the unchanged `exp(1)` control, 630 µs for general power, and 1.00 ms
+for `exp(-10000)` in 10-sample snapshots. The two target cases improved against
+their cached controls. This slice claims the deterministic allocation reduction;
+directed bounds, precision, logical-work charging, and public protocol are
+unchanged.
 
 ## Shared binary logarithm composition
 

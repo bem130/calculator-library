@@ -294,6 +294,7 @@ pub(crate) fn exp(
 fn exp_can_round_series_directly(value: &Rational) -> bool {
     !value.is_negative()
         && !value.is_zero()
+        && !value.denominator.inner.inner.is_one()
         && value.numerator.inner.magnitude() <= value.denominator.inner.inner.magnitude()
 }
 
