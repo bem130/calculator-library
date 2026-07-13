@@ -6684,6 +6684,7 @@ mod tests {
             ("sin(1)^2+cos(1)^2+sin(2)", "sin(2)+1"),
             ("sin(1)^2+cos(1)^2+sin(2)^2+cos(2)^2", "2"),
             ("(sin(1)^2+cos(1)^2)*exp(1)", "exp(1)"),
+            ("sin(1)^2*sin(2)^2+cos(1)^2*sin(2)^2+cos(2)^2", "1"),
             ("sin(1)^2-cos(1)^2", "sin(1)^2-cos(1)^2"),
             ("sin(1)^2+cos(2)^2", "sin(1)^2+cos(2)^2"),
         ] {
@@ -6733,7 +6734,7 @@ mod tests {
             };
             let mut context = EvaluationContext::default();
             let outcome = calculate(
-                "sin(1)^2+cos(1)^2+sin(2)^2+cos(2)^2",
+                "sin(1)^2*sin(2)^2+cos(1)^2*sin(2)^2+cos(2)^2",
                 &request,
                 &mut context,
             )
@@ -6756,8 +6757,28 @@ mod tests {
             let ExactOutput::Included(exact) = calculation.exact else {
                 panic!("the original exact expression must be retained");
             };
-            assert_eq!(exact.plain_text, "sin(1)^2+sin(2)^2+cos(1)^2+cos(2)^2");
+            assert_eq!(
+                exact.plain_text,
+                "cos(2)^2+sin(1)^2*sin(2)^2+sin(2)^2*cos(1)^2"
+            );
         }
+
+        let node_limited_request = CalculationRequest {
+            scientific_output: ScientificOutputRequest::Omit,
+            enclosure_output: EnclosureOutputRequest::Omit,
+            limits: ResourceLimitRequest::Custom(ResourceLimits {
+                max_expression_nodes: 1,
+                ..ResourceLimits::default()
+            }),
+            ..CalculationRequest::default()
+        };
+        let mut context = EvaluationContext::default();
+        assert_eq!(
+            calculate("sin(1)^2+cos(1)^2", &node_limited_request, &mut context),
+            Err(CalculatorError::InputLimit(InputLimitError {
+                kind: InputLimitErrorKind::ExpressionTooLarge,
+            }))
+        );
     }
 
     #[test]
@@ -7400,23 +7421,6 @@ mod tests {
                 "{source}"
             );
         }
-
-        let node_limited_request = CalculationRequest {
-            scientific_output: ScientificOutputRequest::Omit,
-            enclosure_output: EnclosureOutputRequest::Omit,
-            limits: ResourceLimitRequest::Custom(ResourceLimits {
-                max_expression_nodes: 1,
-                ..ResourceLimits::default()
-            }),
-            ..CalculationRequest::default()
-        };
-        let mut context = EvaluationContext::default();
-        assert_eq!(
-            calculate("sin(1)^2+cos(1)^2", &node_limited_request, &mut context),
-            Err(CalculatorError::InputLimit(InputLimitError {
-                kind: InputLimitErrorKind::ExpressionTooLarge,
-            }))
-        );
     }
 
     #[test]

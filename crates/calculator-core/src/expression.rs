@@ -1146,7 +1146,7 @@ fn polynomial_trig_complement_plan(
     if sines == 0 || cosines == 0 {
         return (0, 0);
     }
-    let rewrite_bound = terms
+    let compatible_pairs = terms
         .iter()
         .enumerate()
         .map(|(index, left)| {
@@ -1156,6 +1156,12 @@ fn polynomial_trig_complement_plan(
                 .count()
         })
         .sum::<usize>();
+    let candidate_count = sines.saturating_add(cosines);
+    let rewrite_bound = if compatible_pairs == 0 {
+        0
+    } else {
+        candidate_count.saturating_sub(1)
+    };
     let scan_work = terms
         .iter()
         .enumerate()
