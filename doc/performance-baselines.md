@@ -1247,6 +1247,8 @@ payload and moved from 10.55 ms at base artifact
 `72cdee12bd04cf0a9977eb272a6b49c234f5072c73040492de1e2f82fa799fe7`
 (794,661 bytes). This is not a powered Wasm timing claim. Directed enclosure,
 resource accounting, no-float policy, and public protocol are unchanged.
+Package check, example production build, and browser E2E passed for the
+implementation artifact, confirming unchanged npm and example-ui presentation.
 
 ## Region-selected exact asin transform
 

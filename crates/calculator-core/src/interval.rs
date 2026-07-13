@@ -4162,6 +4162,20 @@ mod tests {
                     )
                 );
             }
+
+            let subscale_denominator = BigInt::one() << (2 * precision_bits + 1);
+            for numerator in [1, 3] {
+                let value =
+                    rational_from_parts(BigInt::from(numerator), subscale_denominator.clone())
+                        .unwrap();
+                assert_eq!(
+                    sqrt_rational_bounds(&value, precision_bits).unwrap(),
+                    (
+                        sqrt_rational_lower(&value, precision_bits).unwrap(),
+                        sqrt_rational_upper(&value, precision_bits).unwrap()
+                    )
+                );
+            }
         }
         assert_eq!(
             sqrt_dyadic_bounds(&from_rational(&rational(2, 1), 1).lower, u32::MAX),
