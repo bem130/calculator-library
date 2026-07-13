@@ -754,6 +754,13 @@ rational and integral inputs, indices 2/3/5/17, precisions 0/1/32/64, perfect an
 non-perfect powers, and negative odd roots. Domain, precision, stopping behavior,
 logical work, no-float, and public protocol are unchanged.
 
+The focused one-iteration/one-warmup Wasm/npm smoke completed the algebraic case
+with the unchanged 1,792-byte payload using artifact
+`3bd844de7f84cd4f357c7b916fb3057700ac421744a74fa85dc5828c46fc5b1e`
+(818,132 bytes), 38 bytes smaller than the `7b9e5c0` artifact and below the
+860,000-byte budget. The single elapsed sample verifies boundary integration and
+is not used as a timing claim.
+
 ## Dyadic exponential common-denominator construction
 
 The exponential Taylor state previously updated a second growing product for its
