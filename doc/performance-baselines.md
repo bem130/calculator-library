@@ -2137,20 +2137,22 @@ count reflects short-lived chunk temporaries, while peak live allocation remaine
 `exp(sqrt(2)*ln(2))` 185,294 / 3,572, `exp(-10000)` 511,776 / 1,765,
 `exp(10000)` 489,112 / 1,695, and `exp(1)` 16,581 / 565.
 
-A same-host saved-baseline ten-sample Criterion comparison moved the
+A same-host saved-baseline ten-sample Criterion comparison at `c8d4411` moved the
 non-degenerate-log midpoint from 4.272 ms to 3.634 ms (about 14.9%); Criterion's
 distribution estimate was a 19.4% reduction (`p<0.01`).
 `ln(2)` had no detected change. A three-iteration/one-warmup Wasm/npm comparison
-using separate builds of the same candidate revision with the compile-time
+at `c8d4411`, using separate builds of that revision with the compile-time
 threshold disabled/enabled moved the non-degenerate case from 45.1 to 30.6 ms per
 iteration. Payload size remained
-1,772 bytes and retained JS heap remained 9,568 bytes. The candidate artifact was
-`11b9c3423a836bdb19345f7fae8f7ba0cd99537e5c468c0fb8e11efc096cd1ec`
-(813,416 bytes), 1,918 bytes (about 0.24%) above the `12fa2b1` artifact's
-811,498 bytes and below the 860,000-byte package budget. The candidate example
-build and package-size gate use the same 813,416-byte artifact. Wasm timing is a
-small same-host diagnostic; native Criterion and deterministic allocation provide
-the primary evidence.
+1,772 bytes and retained JS heap remained 9,568 bytes. That timing artifact was
+813,416 bytes. After the directed lower-tail review correction, the final
+`945bfb3` example/package build produced
+`7cac7fc1f881194390f70c00097090ad4624fac84d4360bd13b093ef50effb6d`
+(814,038 bytes), 2,540 bytes (about 0.31%) above the `12fa2b1` artifact's
+811,498 bytes and below the 860,000-byte package budget. The final example build
+and package-size gate used that same 814,038-byte artifact. Wasm timing is a small
+same-host diagnostic from the stated measurement commit; native Criterion and
+deterministic final-tip allocation provide the primary evidence.
 
 Logical work remains 200,225 units for the non-degenerate log. Exact regressions
 cover the old incremental recurrence at small, threshold, 64-, 128-, and 256-bit
