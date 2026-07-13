@@ -969,6 +969,7 @@ fn exp_series_state(
 ) -> Result<ExpSeriesState<'_>, IntervalError> {
     let value_numerator = &value.numerator.inner;
     let value_denominator = &value.denominator.inner.inner;
+    let common_denominator = exp_series_common_denominator(value_denominator, term_count)?;
     let mut sum_numerator = BigInt::one();
     let mut term_numerator = BigInt::one();
     for next_n in 1..=term_count {
@@ -981,7 +982,7 @@ fn exp_series_state(
     Ok(ExpSeriesState {
         sum_numerator,
         term_numerator,
-        common_denominator: exp_series_common_denominator(value_denominator, term_count)?,
+        common_denominator,
         value_numerator,
         value_denominator,
         tail_index,
