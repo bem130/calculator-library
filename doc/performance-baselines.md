@@ -734,6 +734,76 @@ CALCULATOR_BENCH_CASE=atan_non_degenerate CALCULATOR_BENCH_ITERATIONS=3 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Raw directed dyadic logarithm endpoints
+
+At base commit `1f659b0`, the public certified `log` path canonicalized every
+reduced-series fraction, canonicalized and scaled a separate `ln(2)` fraction
+after binary range reduction, added the canonical Rationals, and immediately
+converted the result to a directed dyadic endpoint. The raw endpoint layer keeps
+the recurrence or hybrid binary-split fractions unreduced. For reduced `a/b`,
+selected `ln(2)` bound `c/d`, and signed binary exponent `k`, it composes
+`(a*d+k*c*b)/(b*d)` exactly and performs one final directed rounding. Internal
+Rational log consumers used by exponential planning remain unchanged.
+
+On 2026-07-15 with `rustc 1.97.0`, deterministic default-request allocation was:
+
+| Case | Base bytes / blocks | Candidate bytes / blocks | Base peak | Candidate peak |
+| --- | ---: | ---: | ---: | ---: |
+| `ln(2)` | 20,165 / 724 | 18,533 / 680 | 1,638 / 37 | 1,598 / 29 |
+| `ln(2+sin(1))` | 278,420 / 1,708 | 204,284 / 1,549 | 16,982 / 43 | 12,798 / 44 |
+| large positive log | 170,153 / 1,415 | 104,609 / 1,212 | 16,090 / 30 | 12,146 / 27 |
+
+The non-degenerate target's bytes fell about 26.6% and peak bytes about 24.6%; the
+large-log totals fell about 38.5% and peak bytes about 24.5%. Same-host
+twenty-sample approximate-component midpoints moved from about 3.55 ms to 225 us
+for the non-degenerate log and from 2.63 ms to 85.5 us for the large log.
+Logical work remained 200,225 and 21 units.
+
+Because unreduced composition forms `b*d`, the same comparison was repeated with
+a 200-significant-digit public request. Non-degenerate allocation moved from
+287,418 / 1,818 (peak 16,982 / 43) to 213,282 / 1,659 (peak 12,798 / 44), and the
+large log from 178,527 / 1,525 (peak 16,090 / 30) to 112,983 / 1,322 (peak
+12,146 / 27). Ten-sample public `calculate` midpoints moved from 3.99 ms to
+278 us and from 2.97 ms to 121 us respectively. Thus the arbitrary signed binary
+composition does not trade default savings for high-precision peak or timing
+regression in the measured representative paths.
+
+The Wasm/npm smoke used base artifact
+`825e038e35d3e6ea5665dbb71a0b9ba9421385c94e0f546a55d7859486aac2cb`
+(821,645 bytes) and candidate artifact
+`b0e5f687e15699c4e600128f2214d6d0f7f00916e3d6713d92f0a295646d22d0`
+(821,780 bytes). Three iterations after one warmup moved non-degenerate log from
+20.17 ms to 1.62 ms and large log from 17.67 ms to 0.884 ms per iteration.
+Payloads stayed 1,772 and 1,834 bytes; candidate retained JS heap was lower. These
+small Wasm samples verify boundary integration and corroborate the native profile,
+not a cross-host latency guarantee.
+
+Raw-vs-canonical endpoint oracles cover 0/1/32/128-bit precisions, values below
+and above one, positive and negative binary exponents, a large exponent, exact
+and non-degenerate intervals, and arbitrary-numerator binary splitting. Public
+tests preserve nonpositive domain precedence, the exact-one fast path, overflow,
+input ordering, and final dyadic ordering. Reproduce default or high-precision
+measurements with:
+
+```sh
+for case in approximate_log_two approximate_log_non_degenerate \
+  approximate_log_large_positive
+do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 CALCULATOR_SIGNIFICANT_DIGITS=200 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+CALCULATOR_SIGNIFICANT_DIGITS=200 \
+  cargo bench -p calculator-core --bench representative_paths --features std \
+    -- 'calculate/log_(non_degenerate|large_positive)' --sample-size 10
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_CASE=log_non_degenerate CALCULATOR_BENCH_ITERATIONS=3 \
+  CALCULATOR_BENCH_WARMUP=1 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
+
 ## Shared half-pi periodic trigonometric scans
 
 At base commit `f83ed66`, non-degenerate periodic `sin`, `cos`, and `tan`

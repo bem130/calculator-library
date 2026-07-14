@@ -122,6 +122,7 @@ log2のbinary exponent係数は有界signed primitiveをcanonical Rational分子
 n-ary Add/Multiplyのcertified interval評価は、非empty listのfirst childをaccumulatorとして残りだけを左から右へfoldする。通常経路で不要だったzero/one identity intervalとの追加dyadic演算を除き、empty listのidentity、singleton、実childのerror precedence、directed bounds、logical-work、公開protocolを維持する。
 `|x|<=1/2`のasin正項級数は、共通分母recurrenceのraw numerator/denominatorをRationalへGCD正規化せず、最終certified endpointへ直接directed dyadic roundingする。exact pointと非退化endpoint、負値の方向反転を同じraw経路で扱い、変換域は既存sqrt/atan/pi構成を維持する。非退化asinの最終orderingはdirected dyadic同士で検証し、tail、logical-work、typed error、公開protocolを変更しない。
 公開atan endpointはunit交代級数のraw numerator/denominatorをRationalへGCD正規化せずdirected dyadicへ丸める。reciprocal域は反対方向のraw `atan(1/x)`と同方向のMachin π boundを未約分のまま`pi/2-atan(1/x)`へ正確に合成し、一度だけ丸める。exact pointのpaired state、非退化endpoint、負値方向、入力と最終intervalのordering、logical-work、typed error、no-float、公開protocolを維持し、Machin πおよびasin/acos内部のRational consumerは変更しない。
+公開log endpointはreduced正項級数のraw numerator/denominatorをRationalへGCD正規化せずdirected dyadicへ丸める。binary range exponentが非zeroなら、要求方向とexponent符号で選んだraw `ln(2)` boundを`(a*d+k*c*b)/(b*d)`として正確に一度だけ合成する。exact pointのpaired state、非退化endpointのdirected stateとshared `ln(2)`、domain/error precedence、入力と最終intervalのordering、logical-work、range/tail limit、no-float、公開protocolを維持し、exp planning等のRational consumerは変更しない。
 
 ## Deliberately Not Contract
 
