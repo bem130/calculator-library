@@ -798,6 +798,53 @@ limits still run before lowering, while a nonliteral DAG still enforces the
 expression-node limit. Reproduce with the existing wide allocation, logical-work,
 scaling/stage, and Wasm/npm harnesses.
 
+## Multiplicative literal lowering accumulator
+
+At base commit `ae637b6`, a left-associated numeric product lowered and
+normalized every binary multiplication independently. Each literal and growing
+intermediate coefficient was retained in the DAG even though the next product
+immediately absorbed it. Multiplication source lowering now flattens only
+`BinaryOperator::Multiply`, parses numeric literals including unary signs from
+left to right, and materializes their accumulated Rational coefficient once.
+Divide, percent, power, functions, constants, and other nonliteral factors retain
+their existing lowering and domain behavior. In particular, zero does not remove
+an undefined or unproved-defined factor.
+
+Every accumulated product reserves structural work for the numerator and
+denominator products and conservative GCD/exact-division normalization before
+mutation. Failure is latched, later literals are still parsed but retained, and
+folding does not resume. For `1*2*...*128`, deterministic one-calculation values
+changed as follows:
+
+| Metric | Base | Candidate |
+| --- | ---: | ---: |
+| allocated | 327,178 bytes / 11,050 blocks | 86,818 / 3,212 |
+| peak live | 79,411 bytes / 1,478 blocks | 18,904 / 511 |
+| logical work | 38,176 units | 6,377 units |
+
+The 6,376-unit request returns a typed logical-work Partial with the same exact
+128! expression, so the range expansion is removed intermediate work rather than
+an uncharged fold. With the candidate native build, Criterion measured
+`wide_multiply_128` at `[745.72,1004.4]` us. Scaling snapshots were
+`[116.25,133.23]` us for 16 terms, `[192.02,207.81]` for 32,
+`[380.86,449.28]` for 64, and `[1091.7,1239.7]` for 128; growing BigInt
+multiplication remains the dominant scaling cost.
+
+Wasm/npm benchmark definition v19 adds the same public case. The comparable
+three-iteration/one-warmup smoke moved from 14.664 ms at base artifact
+`85b810f369e8ec7f6abfbfbe5693b151a9ef99a7f67d122d5db3f5865806987b`
+(823,356 bytes) to 6.419 ms at candidate artifact
+`4ad06055917fd804f2b3cb89a6ee02a9c8e4fd0937fef9bde5c0f70f3ae93c04`
+(824,961 bytes), with the exact payload unchanged at 2,162 bytes. This cold
+sample verifies the Wasm/public facade path, not stable throughput.
+
+Controls remained at 261 logical-work units and 108,157 bytes / 5,449 blocks for
+the 256-term sum, and 400,447 units for the approximate composite. Exact-rational
+and approximate allocation improved slightly to 12,966 / 567 and 172,272 / 2,726
+because their source products use the same general lowering path. Reproduce with
+allocation/logical-work case `wide_multiply_128`, Criterion groups
+`large_product`/`large_product_scaling`, and the v19 Wasm/npm case.
+
 ## Raw directed dyadic arctangent endpoints
 
 At base commit `defe4a4`, the public certified `atan` path canonicalized each
