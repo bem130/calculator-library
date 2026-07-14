@@ -3034,12 +3034,13 @@ Same-host ten-sample Criterion ranges moved `exp(2^-100)` from
 157.79--172.44 us base versus 143.46--179.10 us candidate, so no timing claim is
 made for that control. The full logical-work output was byte-identical.
 
-The three-iteration/one-warmup focused Wasm/npm smoke moved from 0.564 to
-0.503 ms/iteration with the same 1,824-byte payload. Base artifact
+The three-iteration/one-warmup focused Wasm/npm smoke measured 0.564 ms/iteration
+at base and 0.630 ms/iteration at final tip with the same 1,824-byte payload.
+The short cold-path samples are too noisy for a Wasm timing claim. Base artifact
 `45265a3e54ea365a7daaf6cd062dbcc81587378a08b58f79e6c132b6ade0416c`
 was 826,091 bytes; candidate
-`f89bd08a0b30147bfb2bcd246fbe6c457ffd7dbe48e09d9285b59d23d39d97cd`
-is 829,247 bytes and remains below budget. Reproduce with allocation cases
+`7d5cc154557d057903760c1a9096062e5b4cf75ca8c5cd549561598024521a32`
+is 829,165 bytes and remains below budget. Reproduce with allocation cases
 `approximate_exp_tiny_dyadic`, `approximate_exp_tiny_dyadic_1000`,
 `approximate_general_power`, `approximate_exp_one`, and
 `approximate_exp_negative_10000`; Criterion components `exp_tiny_dyadic` and

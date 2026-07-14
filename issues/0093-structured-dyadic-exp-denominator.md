@@ -49,11 +49,19 @@ Same-host ten-sample Criterion ranges moved `exp(2^-100)` from
 at base and 143.46--179.10 us in the candidate, so no general-power timing claim
 is made. The complete logical-work baseline was byte-for-byte unchanged.
 
-A three-iteration/one-warmup Wasm/npm boundary smoke moved the focused case from
-0.564 to 0.503 ms/iteration while its 1,824-byte payload was unchanged. The base
+A three-iteration/one-warmup Wasm/npm boundary smoke measured the focused case at
+0.564 ms/iteration in the base and 0.630 ms/iteration at final tip while its
+1,824-byte payload was unchanged. This short cold-path diagnostic is too noisy
+for a Wasm timing claim. The base
 artifact was 826,091 bytes with SHA-256
 `45265a3e54ea365a7daaf6cd062dbcc81587378a08b58f79e6c132b6ade0416c`;
-the candidate is 829,247 bytes with SHA-256
-`f89bd08a0b30147bfb2bcd246fbe6c457ffd7dbe48e09d9285b59d23d39d97cd`,
+the candidate is 829,165 bytes with SHA-256
+`7d5cc154557d057903760c1a9096062e5b4cf75ca8c5cd549561598024521a32`,
 below the package budget. Native allocation and Criterion are the primary
 evidence; the short Wasm run verifies the public boundary and payload.
+
+The final gate run passed Rust formatting; native and Wasm Clippy; core
+no-default check and 370 tests; workspace tests (370 core, 37 native Wasm, and
+2 CLI); documentation tests; 23 Node Wasm tests; generated DTO, protocol,
+regeneration-diff, no-float, dependency, oracle, and package-size checks;
+package checking; example build; browser E2E; and workspace documentation.
