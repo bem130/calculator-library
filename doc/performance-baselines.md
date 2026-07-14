@@ -735,6 +735,69 @@ clippy, no-default-features and workspace/doc tests, Node Wasm tests, generated
 DTO/protocol/no-float/deny checks, package checks and size budget, example build,
 external rational oracle, browser E2E, and workspace documentation.
 
+## Additive literal lowering accumulator
+
+On 2026-07-15 at base commit `a6699bf`, additive source lowering flattened the
+syntax tree but first interned every numeric literal as a Rational and expression
+node. `add_many_linear` immediately folded those values into one constant, leaving
+the per-literal nodes unreachable but retained. Numeric literals, including unary
+`+`/`-` wrappers and subtraction signs, are now parsed and accumulated before DAG
+materialization. Non-literal and domain-sensitive terms retain the existing DAG
+path and source traversal/error order.
+
+The accumulator reserves structural logical work before every Rational addition.
+Integer addition uses the maximum signed-limb width; mixed and fractional paths
+cover products, numerator addition, GCD normalization and exact divisions. Limit
+failure is latched: later literals are parsed for error precedence but retained
+unfolded, and exact simplification does not resume. The 256-term sum now succeeds
+at 261 units; 260 returns a logical-work Partial retaining exact `32896`, compared
+with 932 units at the base. The reduction is the removed hash/intern/node and
+downstream normalization work, not an uncharged O(n) fold.
+
+Deterministic one-calculation allocation changed as follows:
+
+| Case | Before | After |
+| --- | ---: | ---: |
+| 256-term integer sum | 277,843 bytes / 10,085 blocks | 108,157 / 5,449 |
+| peak live wide sum | 109,443 bytes / 1,891 blocks | 38,104 / 1,023 |
+| fraction + fraction control | 13,134 / 599 | unchanged |
+| `7 + -5/6` | 9,603 / 456 | 9,291 / 442 |
+| `-5/6 - 7` | 9,936 / 476 | 9,374 / 454 |
+| symbolic control | 54,588 / 1,860 | unchanged |
+| algebraic control | 100,491 / 3,913 | 100,443 / 3,907 |
+| approximate control | 172,283 / 2,737 | unchanged |
+
+Logical-work controls remained 231, 401,216, and 400,447 for exact rational,
+symbolic, and approximate calculations; the algebraic source moved from 400,234
+to 400,229 by eliminating its literal-node work. Native snapshots were:
+
+| Terms | Base | Candidate |
+| ---: | ---: | ---: |
+| 16 | `[64.04,71.75]` us | `[46.15,53.99]` us |
+| 64 | `[201.97,230.34]` us | `[83.12,89.82]` us |
+| 128 | `[331.43,397.15]` us | `[123.65,137.87]` us |
+| 256 | `[629.13,710.31]` us | `[302.13,333.93]` us |
+
+The end-to-end 256 sample moved from `[630.57,808.84]` us to
+`[232.03,268.43]` us. Stage snapshots moved from `[67.81,71.57]` us parse,
+`[588.82,673.30]` us evaluate, and `[13.42,17.39]` us present to
+`[47.70,56.82]`, `[159.74,163.18]`, and `[24.16,30.16]` us respectively.
+Only evaluation contains the changed lowering path; parse/present movement is a
+host-load control and is not attributed to this change.
+
+The final Wasm/npm artifact is
+`7a94bd76e52fb63be1dfdc006304dd7d1d561e5b00c1b5f7ec4afa6e54e32008`
+(823,345 bytes). A directly comparable three-iteration/one-warmup wide-add smoke
+moved from 2.646 ms to 1.401 ms per iteration with unchanged 1,728-byte payload.
+This cold sample verifies the boundary and is not a stable throughput guarantee.
+
+`max_expression_nodes` counts the materialized DAG, so a literal-only `1+2` now
+fits at one node instead of failing due to unreachable intermediates. This is an
+intentional supported-range expansion. Input bytes and source AST node/depth
+limits still run before lowering, while a nonliteral DAG still enforces the
+expression-node limit. Reproduce with the existing wide allocation, logical-work,
+scaling/stage, and Wasm/npm harnesses.
+
 ## Raw directed dyadic arctangent endpoints
 
 At base commit `defe4a4`, the public certified `atan` path canonicalized each
