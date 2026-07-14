@@ -346,6 +346,7 @@ struct DagBuilder {
     canonical_budget: CanonicalBudget,
     canonical_term_limit: usize,
     canonical_limit_reached: Option<ComputationLimitKind>,
+    additive_literal_fold_limit_reached: bool,
     domain_obligations: Vec<DomainObligation>,
     structural_sizes: Vec<usize>,
 }
@@ -8413,6 +8414,7 @@ impl DagBuilder {
                     self.canonical_limit_reached
                         .get_or_insert(ComputationLimitKind::LogicalWorkUnits);
                 }
+                self.additive_literal_fold_limit_reached = true;
                 terms.push(self.push_rational(value));
             }
             return Ok(());
@@ -8694,7 +8696,7 @@ impl DagBuilder {
         if values.is_empty() {
             return self.push_rational(constant);
         }
-        if self.canonical_limit_reached.is_some() {
+        if self.additive_literal_fold_limit_reached {
             let mut values = values;
             if !constant.is_zero() {
                 values.push(self.push_rational(constant));
