@@ -29,3 +29,10 @@ Exact-rational allocation moved 12,590 / 530 to 12,582 / 529, algebraic
 2,647, and approximate 172,264 / 2,725 to 172,232 / 2,721. Peaks and logical
 work were unchanged. The final 825,509-byte Wasm artifact SHA-256 is
 `48096c109f8483bf0b6e9f190f30ded5b4d5ef6f23f9166cc43f5d091754a077`.
+The v20 wide-product public smoke completed successfully with its exact
+2,162-byte payload unchanged.
+
+Focused suites, native and wasm-target lints, no-default/workspace/doc tests,
+generated DTO/protocol/no-float/dependency gates, package check, example build,
+external oracle, package-size gate, browser E2E, and Rust documentation build
+passed on the final artifact.

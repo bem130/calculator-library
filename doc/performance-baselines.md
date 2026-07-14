@@ -954,7 +954,10 @@ Deterministic one-calculation allocation moved from 12,590 / 530 to 12,582 /
 to 172,232 / 2,721 for the approximate composite. Peak allocation was unchanged.
 The final Wasm artifact is
 `48096c109f8483bf0b6e9f190f30ded5b4d5ef6f23f9166cc43f5d091754a077`
-(825,509 bytes). This slice claims only the deterministic allocation reduction.
+(825,509 bytes). The unchanged v20 wide-product public smoke completed at
+6.596 ms per iteration for three iterations after one warmup, with the exact
+payload unchanged at 2,162 bytes. This slice claims only the deterministic
+allocation reduction; the short Wasm timing is boundary evidence, not a speedup.
 
 ## Raw directed dyadic arctangent endpoints
 
