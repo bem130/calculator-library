@@ -18,6 +18,7 @@ const calculator = createCalculatorFromWasmModule(wasm);
 
 const cases = [
     ["exact_rational", "12345678901234567890/7 + 98765432109876543210/11", "827160492682716049260/77"],
+    ["exact_mixed_subtract", "-5/6 - 7", "-47/6"],
     ["exact_symbolic", "(exp(1)+sin(1))*cos(1)-exp(1)*cos(1)", "sin(1)*cos(1)"],
     ["exact_trig_identity", "sin(1)^2+cos(1)^2", "1"],
     ["approximate", "sin(1)+ln(2)+2^sqrt(2)", "2^sqrt(2)+sin(1)+ln(2)"],
@@ -77,7 +78,7 @@ if (selectedCase === undefined || selectedCase === "session_dispatch_sequence") 
 
 process.stdout.write(`${JSON.stringify({
     schemaVersion: 1,
-    benchmarkDefinition: "representative-paths-v19",
+    benchmarkDefinition: "representative-paths-v20",
     artifact: {
         wasmSha256: createHash("sha256").update(wasmBytes).digest("hex"),
         wasmBytes: wasmBytes.byteLength,
