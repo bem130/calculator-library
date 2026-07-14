@@ -34,3 +34,17 @@ At main commit `2718120`, one public 256-term wide-add calculation allocates
 - Native allocation/timing, Wasm/npm boundary, package/example build, browser
   E2E, and repository gates are recorded before integration.
 - Diff, whole-system consistency, and merge-granularity reviews have no blocker.
+
+## Resolution
+
+The integer-only path now parses the original unsigned digit slice directly,
+applies the source sign, and constructs the canonical denominator-one Rational.
+The decimal-point and exponent path is unchanged. Regression coverage compares
+zero, signs, leading zeroes, and a 4096-digit integer with the general canonical
+constructor and retains exact decimal/exponent controls.
+
+At implementation commit `05dc2cf`, deterministic one-calculation allocation
+for the 256-term wide sum moved from 99,957 bytes / 4,424 blocks to 81,525 /
+2,888. Peak remained 38,104 bytes / 1,023 blocks and logical work remained 261
+units. The exact-rational control moved from 12,582 / 529 to 12,182 / 501 while
+its logical work remained 231 units.

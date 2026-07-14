@@ -1181,6 +1181,24 @@ was 825,746 bytes and measured 2.861 ms/iteration. Payload remained 1,792 bytes.
 The short sequential smoke establishes public-boundary and payload compatibility;
 host variation and the native timing result support no Wasm speed claim.
 
+## Direct construction of integer decimal literals
+
+Profiling the 256-term wide integer sum after additive DAG folding showed that
+each source integer still entered the general decimal conversion path. For every
+literal it copied digits into a temporary String, constructed `10^0`, and ran
+GCD plus exact divisions. A sign followed only by ASCII decimal digits is now
+parsed once into BigInt and wrapped directly in the canonical denominator-one
+Rational. Decimal-point and exponent forms retain the general exact path.
+
+At base commit `2718120`, one wide-add calculation allocated 99,957 bytes in
+4,424 blocks. At implementation commit `05dc2cf` it allocated 81,525 bytes in
+2,888 blocks, reductions of about 18.4% and 34.7%. Peak stayed at 38,104 bytes /
+1,023 blocks and logical work stayed at 261 units. Exact rational allocation
+moved from 12,582 / 529 to 12,182 / 501 with its 231-unit work boundary
+unchanged. The remaining wide-input allocation is led by lexer token storage and
+the source AST; those are separate parser data-structure targets rather than
+Rational arithmetic normalization.
+
 ## First-child interval folds
 
 At base commit `bc9776e`, every n-ary certified Add and Multiply evaluation built
