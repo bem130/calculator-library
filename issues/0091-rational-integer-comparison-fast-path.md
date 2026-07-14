@@ -52,3 +52,11 @@ and 256-term wide-add controls were byte-, block-, peak-, and work-identical.
 A same-host ten-sample Criterion comparison detected no timing change: candidate
 confidence interval 276.31--324.75 us versus base 278.24--299.31 us. This slice
 therefore claims deterministic allocation reduction only.
+
+The three-iteration/one-warmup Wasm/npm public-facade smoke kept the algebraic
+payload at 1,792 bytes. Base artifact
+`48096c109f8483bf0b6e9f190f30ded5b4d5ef6f23f9166cc43f5d091754a077`
+was 825,509 bytes and measured 2.361 ms/iteration; candidate artifact
+`5cc8d57bef0a9e22aaa29ac2824508d32903f225ce4203649ddf2db527740134`
+was 825,746 bytes and measured 2.861 ms/iteration. These short sequential samples
+establish boundary/output compatibility and make no Wasm timing claim.

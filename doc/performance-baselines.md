@@ -1172,6 +1172,15 @@ allocation blocks from the affected public calculation. Reproduce with allocatio
 case `algebraic`, Criterion case `calculate/algebraic`, and
 `logical_work_baseline`.
 
+The three-iteration/one-warmup public Wasm/npm facade smoke used the same
+algebraic case. Base artifact
+`48096c109f8483bf0b6e9f190f30ded5b4d5ef6f23f9166cc43f5d091754a077`
+was 825,509 bytes and measured 2.361 ms/iteration; candidate artifact
+`5cc8d57bef0a9e22aaa29ac2824508d32903f225ce4203649ddf2db527740134`
+was 825,746 bytes and measured 2.861 ms/iteration. Payload remained 1,792 bytes.
+The short sequential smoke establishes public-boundary and payload compatibility;
+host variation and the native timing result support no Wasm speed claim.
+
 ## First-child interval folds
 
 At base commit `bc9776e`, every n-ary certified Add and Multiply evaluation built
