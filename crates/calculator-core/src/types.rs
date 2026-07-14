@@ -1102,7 +1102,7 @@ impl Rational {
     }
 
     pub fn is_integer(&self) -> bool {
-        self.denominator.inner.inner == BigInt::one()
+        self.denominator.inner.inner.is_one()
     }
 
     pub fn as_i64_if_integer(&self) -> Option<i64> {
@@ -1637,7 +1637,7 @@ const fn nonzero_u32(value: u32) -> NonZeroU32 {
 
 #[cfg(test)]
 mod tests {
-    use alloc::string::ToString;
+    use alloc::{format, string::ToString};
 
     use super::*;
 
@@ -1682,6 +1682,23 @@ mod tests {
         let rational = Rational::new(Integer::from(6), Integer::from(-8)).unwrap();
         assert_eq!(rational.numerator.to_string(), "-3");
         assert_eq!(rational.denominator.inner.to_string(), "4");
+    }
+
+    #[test]
+    fn rational_integer_predicate_uses_canonical_denominator() {
+        let large = Rational::from_decimal_literal(&format!("-{}", "9".repeat(2_048))).unwrap();
+        let fractional = Rational::new(Integer::from(6), Integer::from(-14)).unwrap();
+        let large_denominator = Rational::new(
+            Integer::from(1),
+            Integer::from_bigint(BigInt::from(10_u8).pow(1_024) + BigInt::one()),
+        )
+        .unwrap();
+
+        assert!(Rational::zero().is_integer());
+        assert!(Rational::one().is_integer());
+        assert!(large.is_integer());
+        assert!(!fractional.is_integer());
+        assert!(!large_denominator.is_integer());
     }
 
     #[test]
