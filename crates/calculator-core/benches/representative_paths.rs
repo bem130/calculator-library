@@ -1,11 +1,12 @@
 use calculator_core::{
     calculate, evaluate, parse, present, reduce_input, CalculationOutcome, CalculationRequest,
-    CertifiedEnclosureState, EvaluationContext, EvaluationRequest, ExactOutput, InputAction,
-    InputPolicy, InputState, Integer, PresentationRequest, Rational, RecognizedExact,
+    CertifiedEnclosureState, DecimalRoundingMode, EnclosureFormat, EnclosureOutputRequest,
+    EvaluationContext, EvaluationRequest, ExactOutput, InputAction, InputPolicy, InputState,
+    Integer, PresentationRequest, Rational, RecognizedExact, ScientificOutputRequest,
 };
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use std::hint::black_box;
 use std::time::Duration;
+use std::{env, hint::black_box, num::NonZeroU32};
 
 const CASES: &[(&str, &str)] = &[
     (
@@ -15,8 +16,36 @@ const CASES: &[(&str, &str)] = &[
     ("exact_symbolic", "(exp(1)+sin(1))*cos(1)-exp(1)*cos(1)"),
     ("exact_trig_identity", "sin(1)^2+cos(1)^2"),
     ("approximate", "sin(1)+ln(2)+2^sqrt(2)"),
+    ("log_two", "ln(2)"),
+    ("log_non_degenerate", "ln(2+sin(1))"),
+    (
+        "log_large_positive",
+        "ln(340282366920938463463374607431768211457)",
+    ),
     ("algebraic", "((2^(1/3)-2^(1/3))+2)^(1/3)"),
 ];
+
+fn benchmark_request() -> CalculationRequest {
+    let mut request = CalculationRequest::default();
+    if let Some(significant_digits) = env::var("CALCULATOR_SIGNIFICANT_DIGITS")
+        .ok()
+        .map(|value| {
+            value
+                .parse::<u32>()
+                .expect("significant digits must be a u32")
+        })
+        .map(|value| NonZeroU32::new(value).expect("significant digits must be positive"))
+    {
+        request.scientific_output = ScientificOutputRequest::Include {
+            significant_digits,
+            rounding_mode: DecimalRoundingMode::NearestTiesToEven,
+        };
+        request.enclosure_output = EnclosureOutputRequest::Include {
+            format: EnclosureFormat::DecimalScientific { significant_digits },
+        };
+    }
+    request
+}
 
 #[derive(Clone, Copy)]
 enum ExpectedExact {
@@ -119,7 +148,7 @@ const APPROXIMATE_COMPONENTS: &[(&str, &str, ExpectedExact)] = &[
 ];
 
 fn calculate_representative_paths(criterion: &mut Criterion) {
-    let request = CalculationRequest::default();
+    let request = benchmark_request();
     let mut group = criterion.benchmark_group("calculate");
     for &(name, source) in CASES {
         validate_calculation(name, source, &request);
@@ -146,7 +175,7 @@ fn calculate_wide_expression(criterion: &mut Criterion) {
         .map(|value| value.to_string())
         .collect::<Vec<_>>()
         .join("+");
-    let request = CalculationRequest::default();
+    let request = benchmark_request();
     let outcome = calculate(&source, &request, &mut EvaluationContext::default())
         .expect("wide expression preflight must succeed");
     assert_eq!(exact_plain_text(&outcome), "32896");
@@ -215,7 +244,7 @@ fn reduce_session_input(criterion: &mut Criterion) {
 
 fn profile_approximate_stages(criterion: &mut Criterion) {
     let source = "sin(1)+ln(2)+2^sqrt(2)";
-    let request = CalculationRequest::default();
+    let request = benchmark_request();
     let parsed = parse(source, &request.parse).expect("approximate stage parse must succeed");
     let evaluation_request = EvaluationRequest {
         semantics: request.semantics,
@@ -258,7 +287,7 @@ fn profile_approximate_stages(criterion: &mut Criterion) {
 }
 
 fn profile_approximate_components(criterion: &mut Criterion) {
-    let request = CalculationRequest::default();
+    let request = benchmark_request();
     let evaluation_request = EvaluationRequest {
         semantics: request.semantics,
         limits: request.limits.clone(),
