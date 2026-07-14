@@ -1122,6 +1122,33 @@ impl Rational {
     }
 
     pub fn add(&self, rhs: &Self) -> Self {
+        if self.is_zero() {
+            return rhs.clone();
+        }
+        if rhs.is_zero() {
+            return self.clone();
+        }
+        if self.is_integer() && rhs.is_integer() {
+            return Self::from_integer(Integer::from_bigint(
+                &self.numerator.inner + &rhs.numerator.inner,
+            ));
+        }
+        if rhs.is_integer() {
+            return Self {
+                numerator: Integer::from_bigint(
+                    &self.numerator.inner + &rhs.numerator.inner * &self.denominator.inner.inner,
+                ),
+                denominator: self.denominator.clone(),
+            };
+        }
+        if self.is_integer() {
+            return Self {
+                numerator: Integer::from_bigint(
+                    &self.numerator.inner * &rhs.denominator.inner.inner + &rhs.numerator.inner,
+                ),
+                denominator: rhs.denominator.clone(),
+            };
+        }
         let numerator = (&self.numerator.inner * &rhs.denominator.inner.inner)
             + (&rhs.numerator.inner * &self.denominator.inner.inner);
         let denominator = &self.denominator.inner.inner * &rhs.denominator.inner.inner;
@@ -1682,6 +1709,59 @@ mod tests {
             .multiply(&Rational::new(Integer::from(9), Integer::from(4)).unwrap());
         assert_eq!(product.numerator.to_string(), "3");
         assert_eq!(product.denominator.inner.to_string(), "2");
+    }
+
+    #[test]
+    fn rational_integer_addition_matches_canonical_constructor() {
+        let large = BigInt::one() << 4096_usize;
+        for (left, right) in [
+            (BigInt::zero(), BigInt::zero()),
+            (BigInt::zero(), large.clone()),
+            (large.clone(), BigInt::zero()),
+            (large.clone(), -large.clone()),
+            (large.clone() - 1_u8, BigInt::one()),
+            (-large.clone(), -BigInt::one()),
+        ] {
+            let actual = Rational::from_integer(Integer::from_bigint(left.clone()))
+                .add(&Rational::from_integer(Integer::from_bigint(right.clone())));
+            let expected =
+                Rational::new(Integer::from_bigint(left + right), Integer::one()).unwrap();
+            assert_eq!(actual, expected);
+            assert!(actual.is_integer());
+        }
+    }
+
+    #[test]
+    fn rational_mixed_addition_still_uses_canonical_fraction_result() {
+        let integer = Rational::from_integer(Integer::from(7));
+        let fraction = Rational::new(Integer::from(-5), Integer::from(6)).unwrap();
+        for (left, right) in [
+            (integer.clone(), fraction.clone()),
+            (fraction.clone(), integer.clone()),
+            (Rational::zero(), fraction.clone()),
+            (fraction.clone(), Rational::zero()),
+            (
+                Rational::new(Integer::from(1), Integer::from(6)).unwrap(),
+                Rational::new(Integer::from(1), Integer::from(3)).unwrap(),
+            ),
+        ] {
+            let expected = Rational::new(
+                Integer::from_bigint(
+                    &left.numerator.inner * &right.denominator.inner.inner
+                        + &right.numerator.inner * &left.denominator.inner.inner,
+                ),
+                Integer::from_bigint(
+                    &left.denominator.inner.inner * &right.denominator.inner.inner,
+                ),
+            )
+            .unwrap();
+            assert_eq!(left.add(&right), expected);
+        }
+
+        let sum = integer.add(&fraction);
+        assert_eq!(sum.numerator.to_string(), "37");
+        assert_eq!(sum.denominator.inner.to_string(), "6");
+        assert_eq!(fraction.subtract(&integer).to_string(), "-47/6");
     }
 
     #[test]
