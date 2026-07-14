@@ -30,3 +30,14 @@ in 404 blocks, versus 9,045 / 392 for the comparable addition case; both peak at
 - Package/example build, browser E2E, repository gates, diff review,
   whole-system consistency review, and merge-granularity review complete before
   one integration into `main`.
+
+## Resolution
+
+Canonical negation now flips only the signed numerator and clones the positive
+denominator. Mixed subtraction allocation moved from 9,128 bytes / 404 blocks to
+9,064 / 396, while its 2,047 / 43 peak and logical work remained unchanged. A
+negative-literal addition control improved from 9,045 / 392 to 9,013 / 388 and
+the other representative controls were unchanged. Candidate Criterion was
+`[17.212,18.618]` us. Wasm benchmark definition v20 records 0.726 ms per
+iteration and a 1,805-byte payload; the 825,518-byte artifact SHA-256 is
+`8520a6f4bb9c2a7ba5de32d238659377f3f430e919e9ac4bffa96ada6f587fcf`.

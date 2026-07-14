@@ -917,6 +917,29 @@ timing samples corroborate the deterministic allocation result rather than form
 a throughput guarantee. Growing BigInt multiplication and the unchanged public
 parse/presentation boundary remain the principal wide-product work.
 
+## Structural canonical Rational negation
+
+At base commit `6dff484`, `Rational::negate` sent an already canonical numerator
+and positive denominator back through the general constructor. Negating the
+numerator cannot change their GCD or denominator sign, so the implementation now
+negates only the owned numerator and clones the canonical denominator.
+
+With one public calculation on 2026-07-15, `-5/6 - 7` moved from 9,128 bytes /
+404 blocks to 9,064 / 396. The related `7 + -5/6` case, whose negative literal
+uses the same primitive, moved from 9,045 / 392 to 9,013 / 388. Both retained
+the same 2,047-byte / 43-block peak. Exact-rational, symbolic, algebraic,
+approximate, wide-add, and wide-product controls were unchanged from the Issue
+88 candidate. Logical-work values were unchanged because this slice retains the
+existing conservative arithmetic reservation.
+
+Same-host Criterion measured the candidate mixed subtraction at
+`[17.212,18.618]` us. Wasm/npm benchmark definition v20 adds the corresponding
+public case; ten iterations after two warmups measured 0.726 ms per iteration
+with a 1,805-byte payload. The final artifact is
+`8520a6f4bb9c2a7ba5de32d238659377f3f430e919e9ac4bffa96ada6f587fcf`
+(825,518 bytes). Timing is a diagnostic snapshot; deterministic allocation is
+the primary claim.
+
 ## Raw directed dyadic arctangent endpoints
 
 At base commit `defe4a4`, the public certified `atan` path canonicalized each
