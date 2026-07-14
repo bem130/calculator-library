@@ -2,7 +2,7 @@
 
 ## Problem
 
-The lexer owns number and identifier payloads in its token vector. During
+The lexer owns number payloads in its token vector. During
 primary-expression parsing, the parser clones the current token before advancing,
 so every number literal `String` is duplicated into the source AST while the
 original remains live in the token vector until parsing finishes. Wide expressions

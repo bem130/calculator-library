@@ -905,6 +905,38 @@ mod tests {
     }
 
     #[test]
+    fn consumed_primary_tokens_preserve_success_and_error_contracts() {
+        parse_ok("2sin((3+4))");
+
+        for (source, offset) in [("(1", 2), ("sin(1", 5), ("1+", 2)] {
+            assert_eq!(
+                parse_source(source, &ParseSettings::default()).expect_err(source),
+                ParseError {
+                    kind: ParseErrorKind::UnexpectedEnd,
+                    span: ByteSpan {
+                        start: offset,
+                        end: offset,
+                    },
+                    expected: vec![ExpectedToken {
+                        kind: ExpectedTokenKind::Number,
+                    }],
+                }
+            );
+        }
+
+        assert_eq!(
+            parse_source("sin 1", &ParseSettings::default()).expect_err("sin 1"),
+            ParseError {
+                kind: ParseErrorKind::MissingFunctionParenthesis,
+                span: ByteSpan { start: 0, end: 3 },
+                expected: vec![ExpectedToken {
+                    kind: ExpectedTokenKind::OpenParenthesis,
+                }],
+            }
+        );
+    }
+
+    #[test]
     fn reserved_non_numbers_are_rejected() {
         assert_eq!(parse_err("nan"), ParseErrorKind::UnknownIdentifier);
         assert_eq!(parse_err("undefined"), ParseErrorKind::UnknownIdentifier);
