@@ -941,6 +941,21 @@ difference is treated as noise. Payload stayed at 1,805 bytes. The final artifac
 (825,518 bytes). Timing is a diagnostic snapshot; deterministic allocation is
 the primary claim; no Wasm speedup is claimed.
 
+## Structural BigInt unit comparisons
+
+At base commit `83c4c3c`, Rational display, finite-decimal residue checks,
+simple-radical classification, and polynomial candidate checks constructed zero
+or one BigInts solely for comparison. Structural `is_zero`/`is_one` predicates
+remove those temporaries without changing classification or work accounting.
+
+Deterministic one-calculation allocation moved from 12,590 / 530 to 12,582 /
+529 for exact rational, 99,251 / 3,730 to 99,235 / 3,728 for algebraic,
+72,802 / 2,648 to 72,794 / 2,647 for `wide_multiply_128`, and 172,264 / 2,725
+to 172,232 / 2,721 for the approximate composite. Peak allocation was unchanged.
+The final Wasm artifact is
+`48096c109f8483bf0b6e9f190f30ded5b4d5ef6f23f9166cc43f5d091754a077`
+(825,509 bytes). This slice claims only the deterministic allocation reduction.
+
 ## Raw directed dyadic arctangent endpoints
 
 At base commit `defe4a4`, the public certified `atan` path canonicalized each
