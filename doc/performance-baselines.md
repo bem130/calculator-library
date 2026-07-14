@@ -1149,6 +1149,29 @@ CALCULATOR_BENCH_CASE=sin_periodic_non_degenerate \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Structural comparison of canonical Rational integers
+
+At base commit `d9b003f`, `Rational::compare` cross-multiplied both sides even
+when a canonical denominator was one. Integer domain boundaries are frequent in
+the algebraic interval path. Comparison now uses the other numerator's sign for
+zero, compares two integer numerators directly, and scales only the integer side
+when exactly one operand is fractional. Two-fraction comparison retains the
+general exact cross product.
+
+On 2026-07-15 with `rustc 1.97.0`, deterministic one-calculation algebraic
+allocation moved from 99,235 bytes / 3,728 blocks to 99,035 / 3,703. Peak live
+allocation remained 4,884 bytes / 104 blocks and logical work remained 400,229
+units. Exact rational (12,582 / 529), approximate composite (172,232 / 2,721),
+and 256-term wide add (99,957 / 4,424) were unchanged, as were their peaks and
+logical-work boundaries (231, 400,447, and 261).
+
+A same-host ten-sample Criterion run measured candidate at 276.31--324.75 us and
+base at 278.24--299.31 us and detected no performance change (`p=0.32`). No
+timing claim is made; the reproducible claim is removal of 25 unnecessary BigInt
+allocation blocks from the affected public calculation. Reproduce with allocation
+case `algebraic`, Criterion case `calculate/algebraic`, and
+`logical_work_baseline`.
+
 ## First-child interval folds
 
 At base commit `bc9776e`, every n-ary certified Add and Multiply evaluation built
