@@ -10581,4 +10581,39 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn interval_folds_preserve_defensive_empty_and_singleton_semantics() {
+        let mut dag = lower("sin(1)");
+        let child = dag.root();
+        let singleton = dag.push_list(vec![child]);
+        let empty = dag.push_list(Vec::new());
+
+        assert_eq!(
+            evaluate_interval_expression_node(&dag, &ExpressionNode::Add(empty), None, 128,)
+                .unwrap(),
+            interval::from_rational(&Rational::zero(), 128)
+        );
+        assert_eq!(
+            evaluate_interval_expression_node(&dag, &ExpressionNode::Multiply(empty), None, 128,)
+                .unwrap(),
+            interval::from_rational(&Rational::one(), 128)
+        );
+        let expected = evaluate_interval_node(&dag, child, 128).unwrap();
+        assert_eq!(
+            evaluate_interval_expression_node(&dag, &ExpressionNode::Add(singleton), None, 128,)
+                .unwrap(),
+            expected
+        );
+        assert_eq!(
+            evaluate_interval_expression_node(
+                &dag,
+                &ExpressionNode::Multiply(singleton),
+                None,
+                128,
+            )
+            .unwrap(),
+            expected
+        );
+    }
 }
