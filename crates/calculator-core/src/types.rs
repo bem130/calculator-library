@@ -1781,6 +1781,30 @@ mod tests {
         let expected = Rational::new(Integer::from(-15), Integer::from(7)).unwrap();
         assert_eq!(integer.multiply(&fraction), expected);
         assert_eq!(fraction.multiply(&integer), expected);
+
+        for (left, right) in [
+            (
+                Rational::from_integer(Integer::from(-1)),
+                Rational::new(Integer::from(5), Integer::from(14)).unwrap(),
+            ),
+            (
+                Rational::new(Integer::from(5), Integer::from(14)).unwrap(),
+                Rational::from_integer(Integer::from(-6)),
+            ),
+            (
+                Rational::new(Integer::from(2), Integer::from(3)).unwrap(),
+                Rational::new(Integer::from(-9), Integer::from(4)).unwrap(),
+            ),
+        ] {
+            let expected = Rational::new(
+                Integer::from_bigint(&left.numerator.inner * &right.numerator.inner),
+                Integer::from_bigint(
+                    &left.denominator.inner.inner * &right.denominator.inner.inner,
+                ),
+            )
+            .unwrap();
+            assert_eq!(left.multiply(&right), expected);
+        }
     }
 
     #[test]

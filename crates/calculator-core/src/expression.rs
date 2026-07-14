@@ -10514,6 +10514,31 @@ mod tests {
     }
 
     #[test]
+    fn rational_multiply_work_matches_fast_and_general_paths() {
+        let large_integer = Rational::from_decimal_literal(&"9".repeat(2_048)).unwrap();
+        let small_integer = Rational::from_integer(Integer::from(7));
+        let fraction = Rational::new(Integer::from(-5), Integer::from(14)).unwrap();
+
+        assert_eq!(rational_multiply_work(&Rational::zero(), &large_integer), 1);
+        assert_eq!(
+            rational_multiply_work(&Rational::one(), &fraction),
+            rational_structural_size(&fraction)
+        );
+        assert!(
+            rational_multiply_work(&large_integer, &small_integer)
+                > rational_multiply_work(&small_integer, &small_integer)
+        );
+        assert_eq!(
+            rational_multiply_work(&large_integer, &fraction),
+            rational_multiply_work(&fraction, &large_integer)
+        );
+        assert!(
+            rational_multiply_work(&large_integer, &fraction)
+                > integer_structural_size(&large_integer.numerator)
+        );
+    }
+
+    #[test]
     fn canonical_lowering_preserves_children_before_parents() {
         let dag = lower("sin((2^(1/3)+2^(1/3))/2)");
         for (index, node) in dag.nodes.iter().enumerate() {
