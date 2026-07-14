@@ -673,6 +673,35 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Consumed parser token payloads
+
+At base `e316e36`, `parse_primary` cloned each current token before advancing.
+For number tokens this duplicated the owned literal `String` into the source AST
+while the original payload remained live in the token vector. The parser now
+consumes the primary token and moves its payload into the AST. A payload-free
+sentinel retains the original span in the consumed vector slot so end-of-input
+and error locations remain unchanged.
+
+For one public 256-term wide-add calculation, deterministic allocation changed
+from 81,525 bytes / 2,888 blocks with a 38,104 / 1,023 peak to 80,865 / 2,632
+with a 37,444 / 767 peak. The 660 bytes and 256 blocks removed exactly match the
+256 cloned literal payloads. Logical work remains 261 units.
+
+A same-host ten-sample parse-only Criterion comparison measured the base at
+45.735--47.633 us and the candidate at 40.549--53.232 us. The intervals overlap
+and Criterion detected no change (`p=0.21`), so this slice makes no timing claim.
+The three-iteration/one-warmup Wasm/npm smoke retained the 1,728-byte payload and
+3,528-byte JS heap delta. Its short samples moved from 0.924 to 1.340 ms per
+iteration and are treated only as boundary evidence. The base artifact
+`84e64abd994e78564aa01bd993c02cd44b9f3cfd5deb171b92c3811929b77f37`
+was 829,226 bytes; candidate
+`c4e863ac13c094a1147943165843e1725900bfda009090d64bbd4075f840a91a`
+is 828,720 bytes.
+
+Reproduce with allocation case `wide_add_256`, Criterion case
+`large_expression_stages/parse_256`, the logical-work runner, and npm benchmark
+case `wide_add_256`.
+
 ## Integral scientific literal construction
 
 At base `1815cf4`, zero scientific literals still constructed the full decimal
