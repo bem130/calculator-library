@@ -136,6 +136,7 @@ canonical Rationalの比較は、zeroを分子符号、integer同士を分子だ
 公開log endpointはreduced正項級数のraw numerator/denominatorをRationalへGCD正規化せずdirected dyadicへ丸める。binary range exponentが非zeroなら、要求方向とexponent符号で選んだraw `ln(2)` boundを`(a*d+k*c*b)/(b*d)`として正確に一度だけ合成する。exact pointのpaired state、非退化endpointのdirected stateとshared `ln(2)`、domain/error precedence、入力と最終intervalのordering、logical-work、range/tail limit、no-float、公開protocolを維持し、exp planning等のRational consumerは変更しない。
 2冪分母のexp Taylor最終分母はfactorial baseとchecked binary shiftの構造でdirected dyadic roundingまで保持する。要求precisionよりshiftが大きい場合も算術right shiftとremainderでsigned floor/ceilを計算し、巨大な2冪divisorをmaterializeしない。一般分母とRational helper、項数、tail、logical-work、公開protocolを維持する。
 科学記数literalはmantissa/exponentの完全検証後、zero mantissaをscale power構築前にcanonical zeroへ確定する。final scaleがzeroまたは負で整数になる非zero値もdenominator-one Rationalを直接構築し、不要なGCD/exact divisionを除く。正scaleのfractional path、typed parse error、logical-work、公開protocolを維持する。
+exact dyadicの正規化は非zero係数のtrailing-zero数を一度だけ構造取得し、その全量を一回のshiftとbinary exponent加算で除く。zero canonicalization、正負odd係数、limb境界、方向付きbound、logical-work、公開protocolを維持し、zero bitごとのshiftと多倍長exponent temporaryを除く。
 
 ## Deliberately Not Contract
 

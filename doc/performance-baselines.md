@@ -673,6 +673,56 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Bulk dyadic normalization baseline (Issue 97)
+
+The previous `normalize_dyadic` loop shifted one bit and added one to a
+`BigInt` exponent per trailing zero. The candidate counts all trailing zeros
+once and applies one shift and one exponent addition. Same-host, one-iteration
+DHAT totals were:
+
+| case | base bytes / blocks | candidate bytes / blocks | base peak | candidate peak |
+| --- | ---: | ---: | ---: | ---: |
+| `approximate_general_power` | 142,857 / 1,990 | 118,249 / 1,221 | 6,247 / 43 | 6,223 / 43 |
+| `approximate_sqrt_two` | 41,845 / 1,370 | 25,525 / 860 | 1,512 / 34 | 1,488 / 34 |
+| `approximate_exp_negative_10000` | 510,948 / 1,718 | 502,756 / 1,462 | 16,047 / 32 | 16,047 / 32 |
+| `approximate_exp_one` | 16,493 / 552 | 8,301 / 296 | 1,423 / 26 | 1,423 / 26 |
+
+Twenty-sample Criterion ranges moved general power from 241.98--289.63 us to
+179.71--216.93 us and `sqrt(2)` from 84.89--105.62 us to 65.66--75.14 us.
+Concurrent 30-sample `exp(-10000)` controls overlapped at 365.43--409.44 us
+base and 344.51--376.58 us candidate, so no timing claim is made for that
+control. The full logical-work output was byte-identical with SHA-256
+`a925d3238a37ac073ae380a8c0200c9c654944a71f9a3e573660740d55d6fbd7`.
+
+The ten-iteration/two-warmup focused Wasm/npm `exp(-10000)` smoke retained a
+1,794-byte payload and measured 6.672 ms/iteration at base and 6.657 ms at the
+candidate; this short run is boundary evidence only. Base artifact
+`7b8fbbe10259480120c58105088d0218a29097b608edc2da802363428288324d`
+was 828,671 bytes; candidate
+`9f80e03f47ebbfae9ff417689a6f9f01447d09d0ac1732eaf54c6b68f33f3108`
+is 829,237 bytes and remains below budget.
+
+Reproduce with:
+
+```sh
+for case in approximate_general_power approximate_sqrt_two \
+  approximate_exp_negative_10000 approximate_exp_one
+do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- 'approximate_components/(general_power|sqrt_two|exp_negative_10000|exp_one)$' \
+  --sample-size 20
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_CASE=exp_negative_10000 CALCULATOR_BENCH_ITERATIONS=10 \
+  CALCULATOR_BENCH_WARMUP=2 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
+
 ## Consumed parser token payloads
 
 At base `e316e36`, `parse_primary` cloned each current token before advancing.
