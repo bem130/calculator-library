@@ -732,6 +732,65 @@ CALCULATOR_BENCH_CASE=sin_periodic_non_degenerate \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## First-child interval folds
+
+At base commit `bc9776e`, every n-ary certified Add and Multiply evaluation built
+an exact zero or one interval and combined it with the first real child. The
+retained path evaluates the first child as the accumulator and folds only the
+remaining children. Empty internal lists still return their monoid identity and
+actual children retain left-to-right evaluation and error precedence. This removes
+one directed dyadic operation per composite node; in particular, addition no
+longer aligns a nonzero first child with exponent-zero identity storage that is
+discarded by normalization.
+
+On 2026-07-14 with `rustc 1.97.0`, deterministic one-calculation allocation was:
+
+| Case | Before | After | Peak bytes / blocks |
+| --- | ---: | ---: | ---: |
+| `sqrt(2)*ln(2)` | 90,818 bytes / 3,422 blocks | 82,394 / 3,152 | 3,967 / 74 unchanged |
+| `exp(sqrt(2)*ln(2))` | 185,470 / 3,588 | 177,046 / 3,318 | 8,620 / 37 unchanged |
+| representative `approximate` | 176,139 / 2,874 | 175,931 / 2,861 | 9,886 / 57 unchanged |
+
+The focused product removes about 9.3% of allocated bytes and 7.9% of allocation
+blocks. Logical work remained 400,447 units for the stored representative
+approximate case. Tests compare the old identity-seeded and new folds exactly at
+32/128/512-bit precision for mixed-sign n-ary sums and products, and directly
+cover defensive empty and singleton lists.
+
+Separate ten-sample Criterion snapshots had midpoint estimates of 245.11 µs base
+and 195.56 µs candidate for the product, and 343.90 µs base and 258.96 µs
+candidate for the enclosing exponential. The samples were built in separate
+targets and showed host variance, so the accepted performance claim is the
+deterministic allocation reduction rather than those timing ratios.
+
+Wasm/npm benchmark definition v18 returned the unchanged 1,812-byte payload for
+the representative approximate case. Five iterations after one warmup measured
+3.353 ms/iteration with base artifact
+`c21aeb12bb3ab137b449d48229892ac20831d897898e42d13f76ec4e09c6e032`
+(818,346 bytes), and 2.445 ms/iteration with candidate artifact
+`fff690b89e67b74df69242f3d4f327b26ea428835a4c852e571fe8e8a22fca6a`
+(818,558 bytes). Both remain below the 860,000-byte budget; this snapshot verifies
+the public Wasm/facade path and is not used as a stable timing guarantee.
+
+Reproduce with:
+
+```sh
+for case in approximate_power_log_product approximate_exp_power_log_product approximate
+ do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- power_log_product --sample-size 10
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_CASE=approximate CALCULATOR_BENCH_ITERATIONS=5 \
+  CALCULATOR_BENCH_WARMUP=1 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
+
 ## Primitive squared arcsine coefficients
 
 At base commit `9d0f271`, every arcsine Taylor step materialized
