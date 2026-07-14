@@ -5,8 +5,8 @@ use alloc::{format, string::String, string::ToString};
 use crate::{
     calculate, parse, CalculationOutcome, CalculationRequest, CalculatorError,
     ComputationLimitKind, EnclosureOutputRequest, EvaluationContext, ExactFormatPreference,
-    ExactOutputRequest, IncompleteReason, InputLimitErrorKind, ParseError, ParseSettings,
-    ResourceLimitRequest, ResourceLimits, ScientificOutputRequest,
+    ExactOutput, ExactOutputRequest, IncompleteReason, InputLimitErrorKind, ParseError,
+    ParseSettings, ResourceLimitRequest, ResourceLimits, ScientificOutputRequest,
 };
 
 #[test]
@@ -90,8 +90,9 @@ fn additive_literal_fold_charges_structural_logical_work() {
         calculate(&source, &request(261), &mut EvaluationContext::default()).unwrap(),
         default
     );
+    let limited = calculate(&source, &request(260), &mut EvaluationContext::default()).unwrap();
     assert!(matches!(
-        calculate(&source, &request(260), &mut EvaluationContext::default()).unwrap(),
+        &limited,
         CalculationOutcome::Partial {
             reason: IncompleteReason::ComputationLimit {
                 kind: ComputationLimitKind::LogicalWorkUnits
@@ -99,6 +100,69 @@ fn additive_literal_fold_charges_structural_logical_work() {
             ..
         }
     ));
+    assert_eq!(exact_plain_text(&limited), "32896");
+}
+
+#[test]
+fn additive_decimal_fold_charges_normalization_work() {
+    let source = "12345678901234567890.1 + 98765432109876543210.2";
+    let default = calculate(
+        source,
+        &CalculationRequest::default(),
+        &mut EvaluationContext::default(),
+    )
+    .unwrap();
+    let calculate_with_work = |units| {
+        calculate(
+            source,
+            &CalculationRequest {
+                limits: ResourceLimitRequest::Custom(ResourceLimits {
+                    max_logical_work_units: units,
+                    ..ResourceLimits::default()
+                }),
+                ..CalculationRequest::default()
+            },
+            &mut EvaluationContext::default(),
+        )
+        .unwrap()
+    };
+    let mut low = 0;
+    let mut high = ResourceLimits::default().max_logical_work_units;
+    while low < high {
+        let middle = low + (high - low) / 2;
+        if calculate_with_work(middle) == default {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    assert!(
+        low > 10,
+        "large decimal normalization must have structural cost"
+    );
+    assert_eq!(calculate_with_work(low), default);
+    let limited = calculate_with_work(low - 1);
+    assert!(matches!(
+        &limited,
+        CalculationOutcome::Partial {
+            reason: IncompleteReason::ComputationLimit {
+                kind: ComputationLimitKind::LogicalWorkUnits
+            },
+            ..
+        }
+    ));
+    assert_eq!(exact_plain_text(&limited), exact_plain_text(&default));
+}
+
+fn exact_plain_text(outcome: &CalculationOutcome) -> &str {
+    let calculation = match outcome {
+        CalculationOutcome::Complete(calculation) => calculation,
+        CalculationOutcome::Partial { calculation, .. } => calculation,
+    };
+    match &calculation.exact {
+        ExactOutput::Included(exact) => &exact.plain_text,
+        ExactOutput::Omitted => panic!("default request must include exact output"),
+    }
 }
 
 #[test]

@@ -3178,13 +3178,10 @@ fn rational_structural_size(value: &Rational) -> usize {
 }
 
 fn integer_structural_size(value: &Integer) -> usize {
-    value
-        .inner
-        .to_signed_bytes_le()
-        .len()
-        .saturating_add(core::mem::size_of::<u64>() - 1)
-        .saturating_div(core::mem::size_of::<u64>())
-        .max(1)
+    let signed_bits = value.inner.bits().saturating_add(1);
+    let limb_bits = u64::from(u64::BITS);
+    let limbs = signed_bits.saturating_add(limb_bits - 1) / limb_bits;
+    usize::try_from(limbs).unwrap_or(usize::MAX).max(1)
 }
 
 #[cfg(test)]
@@ -8400,11 +8397,15 @@ impl DagBuilder {
                 .map_err(decimal_literal_error_to_evaluation_error)?;
             let value = if negative { value.negate() } else { value };
             let work = rational_add_work(constant, &value);
-            if self.canonical_budget.reserve(0, work).is_ok() {
+            if self.canonical_limit_reached.is_none()
+                && self.canonical_budget.reserve(0, work).is_ok()
+            {
                 *constant = constant.add(&value);
             } else {
-                self.canonical_limit_reached
-                    .get_or_insert(ComputationLimitKind::LogicalWorkUnits);
+                if self.canonical_limit_reached.is_none() {
+                    self.canonical_limit_reached
+                        .get_or_insert(ComputationLimitKind::LogicalWorkUnits);
+                }
                 terms.push(self.push_rational(value));
             }
             return Ok(());
@@ -10126,10 +10127,21 @@ fn rational_add_work(left: &Rational, right: &Rational) -> usize {
             .saturating_mul(right_denominator)
             .saturating_add(right_numerator.max(right_denominator));
     }
-    left_numerator
+    let numerator_size = left_numerator
+        .saturating_add(right_denominator)
+        .max(right_numerator.saturating_add(left_denominator));
+    let denominator_size = left_denominator.saturating_add(right_denominator);
+    let cross_products = left_numerator
         .saturating_mul(right_denominator)
         .saturating_add(right_numerator.saturating_mul(left_denominator))
-        .saturating_add(left_denominator.saturating_mul(right_denominator))
+        .saturating_add(left_denominator.saturating_mul(right_denominator));
+    let numerator_addition = numerator_size;
+    let normalization = numerator_size
+        .saturating_mul(denominator_size)
+        .saturating_mul(3);
+    cross_products
+        .saturating_add(numerator_addition)
+        .saturating_add(normalization)
 }
 
 fn decimal_literal_error_to_evaluation_error(error: DecimalLiteralError) -> EvaluationError {
@@ -10203,6 +10215,27 @@ mod tests {
             }
         )));
         assert!(dag.rationals.iter().any(|value| value.to_string() == "2"));
+    }
+
+    #[test]
+    fn additive_literal_fold_does_not_resume_after_work_limit() {
+        let parsed =
+            parse_source("1 + 18446744073709551616 + 0", &ParseSettings::default()).unwrap();
+        let dag = lower_source_expression(
+            &parsed,
+            SemanticSettings::default(),
+            &ResourceLimits {
+                max_logical_work_units: 2,
+                ..ResourceLimits::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            dag.normalization.limit_reached,
+            Some(ComputationLimitKind::LogicalWorkUnits)
+        );
+        assert!(dag.rationals.iter().any(Rational::is_zero));
+        assert!(matches!(dag.node(dag.root()), ExpressionNode::Add(_)));
     }
 
     #[test]
