@@ -1282,7 +1282,7 @@ impl Rational {
 
         let combined = &self.numerator.inner * &self.denominator.inner.inner;
         let (outside, radicand) = extract_square_factor(combined);
-        if radicand == BigInt::one() {
+        if radicand.is_one() {
             return None;
         }
 
@@ -1512,7 +1512,7 @@ pub(crate) fn ceil_sqrt_nonnegative(value: &BigInt) -> BigInt {
 
 impl fmt::Display for Rational {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.denominator.inner.inner == BigInt::one() {
+        if self.denominator.inner.inner.is_one() {
             write!(formatter, "{}", self.numerator)
         } else {
             write!(formatter, "{}/{}", self.numerator, self.denominator.inner)

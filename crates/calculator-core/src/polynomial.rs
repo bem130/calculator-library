@@ -2119,7 +2119,7 @@ fn find_rational_linear_factor(
     let leading_divisors = positive_divisors_bounded(leading, work, max_work)?;
     for numerator in &constant_divisors {
         for denominator in &leading_divisors {
-            if numerator.gcd(denominator) != BigInt::one() {
+            if !numerator.gcd(denominator).is_one() {
                 continue;
             }
             if let Some(factor) =
@@ -2235,7 +2235,7 @@ fn is_eisenstein_irreducible_bounded(
     for prime in SMALL_PRIMES {
         consume_factorization_work(work, max_work)?;
         let prime = BigInt::from(prime);
-        if (&leading.inner % &prime).is_zero() || (constant % &prime) != BigInt::zero() {
+        if (&leading.inner % &prime).is_zero() || !(constant % &prime).is_zero() {
             continue;
         }
         let prime_squared = &prime * &prime;

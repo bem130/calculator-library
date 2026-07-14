@@ -9,7 +9,7 @@ use core::cmp::Ordering;
 
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer as _;
-use num_traits::{Signed, Zero};
+use num_traits::{One, Signed, Zero};
 
 use crate::expression::{
     evaluate_interval_dag, evaluate_radical_dag, evaluate_rational_evaluation_dag,
@@ -1064,7 +1064,7 @@ fn finite_decimal_plain_text(rational: &Rational) -> Option<String> {
         denominator /= 5_u8;
         fives = fives.checked_add(1)?;
     }
-    if denominator != BigInt::from(1_u8) {
+    if !denominator.is_one() {
         return None;
     }
 
