@@ -545,7 +545,7 @@ pub(crate) fn atan(
         BoundDirection::Upper,
         shared_pi.as_ref(),
     )?;
-    Ok(CertifiedInterval { lower, upper })
+    ordered_dyadic_interval(lower, upper)
 }
 
 pub(crate) fn asin(
@@ -1991,6 +1991,16 @@ fn raw_fraction_to_dyadic_bound(
     )
 }
 
+fn ordered_dyadic_interval(
+    lower: ExactDyadic,
+    upper: ExactDyadic,
+) -> Result<CertifiedInterval, IntervalError> {
+    if compare_dyadic(&lower, &upper)? == Ordering::Greater {
+        return Err(IntervalError::InvalidBounds);
+    }
+    Ok(CertifiedInterval { lower, upper })
+}
+
 fn atan_rational_dyadic_bounds(
     value: &Rational,
     precision_bits: u32,
@@ -2015,29 +2025,29 @@ fn atan_rational_dyadic_bounds(
     let term_count = series_terms(precision_bits)?;
     if is_unit_rational(value) {
         let (lower, upper) = atan_series_common_denominator_raw_bounds(value, term_count)?;
-        return Ok(CertifiedInterval {
-            lower: raw_fraction_to_dyadic_bound(&lower, precision_bits, BoundDirection::Lower),
-            upper: raw_fraction_to_dyadic_bound(&upper, precision_bits, BoundDirection::Upper),
-        });
+        return ordered_dyadic_interval(
+            raw_fraction_to_dyadic_bound(&lower, precision_bits, BoundDirection::Lower),
+            raw_fraction_to_dyadic_bound(&upper, precision_bits, BoundDirection::Upper),
+        );
     }
     let reciprocal = reciprocal_nonzero_rational(value)?;
     let (reciprocal_lower, reciprocal_upper) =
         atan_series_common_denominator_raw_bounds(&reciprocal, term_count)?;
     let (pi_lower, pi_upper) = pi_bounds(precision_bits)?;
-    Ok(CertifiedInterval {
-        lower: atan_reciprocal_raw_dyadic_bound(
+    ordered_dyadic_interval(
+        atan_reciprocal_raw_dyadic_bound(
             &pi_lower,
             &reciprocal_upper,
             precision_bits,
             BoundDirection::Lower,
         ),
-        upper: atan_reciprocal_raw_dyadic_bound(
+        atan_reciprocal_raw_dyadic_bound(
             &pi_upper,
             &reciprocal_lower,
             precision_bits,
             BoundDirection::Upper,
         ),
-    })
+    )
 }
 
 fn atan_rational_dyadic_bound_with_pi(
@@ -5841,6 +5851,24 @@ mod tests {
             upper: rational_to_dyadic_bound(&rational(1, 4), 2, BoundDirection::Upper),
         };
         assert_eq!(atan(&value, 0), Err(IntervalError::InvalidBounds));
+    }
+
+    #[test]
+    fn raw_atan_coarse_non_degenerate_intervals_remain_ordered() {
+        for (lower, upper, input_precision) in [
+            (rational(-3, 1), rational(-2, 1), 0),
+            (rational(-2, 1), rational(1, 2), 1),
+            (rational(-1, 2), rational(1, 2), 1),
+            (rational(1, 2), rational(2, 1), 1),
+            (rational(2, 1), rational(3, 1), 0),
+        ] {
+            let value = CertifiedInterval {
+                lower: rational_to_dyadic_bound(&lower, input_precision, BoundDirection::Lower),
+                upper: rational_to_dyadic_bound(&upper, input_precision, BoundDirection::Upper),
+            };
+            let result = atan(&value, 0).unwrap();
+            assert!(compare_dyadic(&result.lower, &result.upper).unwrap() != Ordering::Greater);
+        }
     }
 
     fn legacy_asin_common_denominator_bounds(
