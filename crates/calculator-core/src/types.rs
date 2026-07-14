@@ -1114,11 +1114,10 @@ impl Rational {
     }
 
     pub fn negate(&self) -> Self {
-        Self::new(
-            Integer::from_bigint(-self.numerator.inner.clone()),
-            self.denominator.inner.clone(),
-        )
-        .expect("negating a canonical rational preserves a non-zero denominator")
+        Self {
+            numerator: Integer::from_bigint(-self.numerator.inner.clone()),
+            denominator: self.denominator.clone(),
+        }
     }
 
     pub fn add(&self, rhs: &Self) -> Self {
@@ -1740,6 +1739,27 @@ mod tests {
             .multiply(&Rational::new(Integer::from(9), Integer::from(4)).unwrap());
         assert_eq!(product.numerator.to_string(), "3");
         assert_eq!(product.denominator.inner.to_string(), "2");
+    }
+
+    #[test]
+    fn rational_negation_preserves_canonical_form() {
+        for value in [
+            Rational::zero(),
+            Rational::from_integer(Integer::from(7)),
+            Rational::from_decimal_literal(&"9".repeat(2_048)).unwrap(),
+            Rational::new(Integer::from(-5), Integer::from(14)).unwrap(),
+            Rational::new(Integer::from(22), Integer::from(7)).unwrap(),
+        ] {
+            let expected = Rational::new(
+                Integer::from_bigint(-value.numerator.inner.clone()),
+                value.denominator.inner.clone(),
+            )
+            .unwrap();
+            let negated = value.negate();
+            assert_eq!(negated, expected);
+            assert_eq!(negated.negate(), value);
+            assert!(negated.denominator.inner.inner.sign() == Sign::Plus);
+        }
     }
 
     #[test]
