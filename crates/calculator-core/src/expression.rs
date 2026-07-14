@@ -1,7 +1,7 @@
 use alloc::{collections::BTreeMap, vec, vec::Vec};
 use core::cmp::Ordering;
 
-use num_bigint::BigInt;
+use num_bigint::{BigInt, Sign};
 use num_integer::Integer as _;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
@@ -3178,7 +3178,14 @@ fn rational_structural_size(value: &Rational) -> usize {
 }
 
 fn integer_structural_size(value: &Integer) -> usize {
-    let signed_bits = value.inner.bits().saturating_add(1);
+    let magnitude_bits = value.inner.bits();
+    let negative_power_of_two = value.inner.sign() == Sign::Minus
+        && value.inner.trailing_zeros() == magnitude_bits.checked_sub(1);
+    let signed_bits = if negative_power_of_two {
+        magnitude_bits
+    } else {
+        magnitude_bits.saturating_add(1)
+    };
     let limb_bits = u64::from(u64::BITS);
     let limbs = signed_bits.saturating_add(limb_bits - 1) / limb_bits;
     usize::try_from(limbs).unwrap_or(usize::MAX).max(1)
@@ -10118,14 +10125,16 @@ fn rational_add_work(left: &Rational, right: &Rational) -> usize {
     let left_denominator = integer_structural_size(&left.denominator.inner);
     let right_denominator = integer_structural_size(&right.denominator.inner);
     if right.is_integer() {
+        let product_size = right_numerator.saturating_add(left_denominator);
         return right_numerator
             .saturating_mul(left_denominator)
-            .saturating_add(left_numerator.max(left_denominator));
+            .saturating_add(left_numerator.max(product_size));
     }
     if left.is_integer() {
+        let product_size = left_numerator.saturating_add(right_denominator);
         return left_numerator
             .saturating_mul(right_denominator)
-            .saturating_add(right_numerator.max(right_denominator));
+            .saturating_add(right_numerator.max(product_size));
     }
     let numerator_size = left_numerator
         .saturating_add(right_denominator)
@@ -10236,6 +10245,43 @@ mod tests {
         );
         assert!(dag.rationals.iter().any(Rational::is_zero));
         assert!(matches!(dag.node(dag.root()), ExpressionNode::Add(_)));
+    }
+
+    #[test]
+    fn additive_literal_mixed_work_covers_product_and_sum_in_both_orders() {
+        let integer = Rational::from_decimal_literal(&"9".repeat(2_048)).unwrap();
+        let fraction = Rational::from_decimal_literal("0.5").unwrap();
+        let integer_size = integer_structural_size(&integer.numerator);
+        let forward = rational_add_work(&integer, &fraction);
+        let reverse = rational_add_work(&fraction, &integer);
+        assert_eq!(forward, reverse);
+        assert!(forward >= integer_size.saturating_mul(2));
+    }
+
+    #[test]
+    fn integer_structural_size_matches_signed_byte_limb_boundaries() {
+        for shift in [63_usize, 64, 127, 128] {
+            let power = BigInt::one() << shift;
+            for value in [
+                -power.clone() - 1_u8,
+                -power.clone(),
+                -power.clone() + 1_u8,
+                power.clone() - 1_u8,
+                power.clone(),
+                power.clone() + 1_u8,
+            ] {
+                let expected = value
+                    .to_signed_bytes_le()
+                    .len()
+                    .saturating_add(core::mem::size_of::<u64>() - 1)
+                    .saturating_div(core::mem::size_of::<u64>())
+                    .max(1);
+                assert_eq!(
+                    integer_structural_size(&Integer::from_bigint(value)),
+                    expected
+                );
+            }
+        }
     }
 
     #[test]
