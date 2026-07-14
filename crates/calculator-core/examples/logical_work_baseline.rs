@@ -4,6 +4,7 @@ use calculator_core::{
 
 fn main() {
     let wide = wide_add_source();
+    let wide_product = wide_multiply_source();
     let cases = [
         (
             "exact_rational",
@@ -40,6 +41,7 @@ fn main() {
         ("tan_periodic_non_degenerate", "tan(100+sin(1)/100)"),
         ("algebraic", "((2^(1/3)-2^(1/3))+2)^(1/3)"),
         ("wide_add_256", wide.as_str()),
+        ("wide_multiply_128", wide_product.as_str()),
     ];
     println!("{{\"schemaVersion\":1,\"cases\":[");
     for (index, &(name, source)) in cases.iter().enumerate() {
@@ -102,4 +104,11 @@ fn wide_add_source() -> String {
         .map(|value| value.to_string())
         .collect::<Vec<_>>()
         .join("+")
+}
+
+fn wide_multiply_source() -> String {
+    (1..=128)
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>()
+        .join("*")
 }

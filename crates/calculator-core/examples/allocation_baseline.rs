@@ -80,6 +80,7 @@ fn main() {
         "approximate_exp_power_log_product" => Some(String::from("exp(sqrt(2)*ln(2))")),
         "algebraic" => Some(String::from("((2^(1/3)-2^(1/3))+2)^(1/3)")),
         "wide_add_256" => Some(wide_add_source()),
+        "wide_multiply_128" => Some(wide_multiply_source()),
         "session_dispatch_sequence" => None,
         _ => panic!("unknown allocation case: {case}"),
     };
@@ -128,4 +129,11 @@ fn wide_add_source() -> String {
         .map(|value| value.to_string())
         .collect::<Vec<_>>()
         .join("+")
+}
+
+fn wide_multiply_source() -> String {
+    (1..=128)
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>()
+        .join("*")
 }

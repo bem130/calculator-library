@@ -65,6 +65,7 @@ fn source_resource_limits_are_enforced_before_evaluation() {
         ..CalculationRequest::default()
     };
     assert!(calculate("1 + 2", &request, &mut EvaluationContext::default()).is_ok());
+    assert!(calculate("2 * 3", &request, &mut EvaluationContext::default()).is_ok());
 }
 
 #[test]
@@ -142,6 +143,42 @@ fn additive_decimal_fold_charges_normalization_work() {
     );
     assert_eq!(calculate_with_work(low), default);
     let limited = calculate_with_work(low - 1);
+    assert!(matches!(
+        &limited,
+        CalculationOutcome::Partial {
+            reason: IncompleteReason::ComputationLimit {
+                kind: ComputationLimitKind::LogicalWorkUnits
+            },
+            ..
+        }
+    ));
+    assert_eq!(exact_plain_text(&limited), exact_plain_text(&default));
+}
+
+#[test]
+fn multiplicative_literal_fold_charges_structural_logical_work() {
+    let source = (1_u32..=128)
+        .map(|value| value.to_string())
+        .collect::<alloc::vec::Vec<_>>()
+        .join("*");
+    let default = calculate(
+        &source,
+        &CalculationRequest::default(),
+        &mut EvaluationContext::default(),
+    )
+    .unwrap();
+    let request = |units| CalculationRequest {
+        limits: ResourceLimitRequest::Custom(ResourceLimits {
+            max_logical_work_units: units,
+            ..ResourceLimits::default()
+        }),
+        ..CalculationRequest::default()
+    };
+    assert_eq!(
+        calculate(&source, &request(6_377), &mut EvaluationContext::default()).unwrap(),
+        default
+    );
+    let limited = calculate(&source, &request(6_376), &mut EvaluationContext::default()).unwrap();
     assert!(matches!(
         &limited,
         CalculationOutcome::Partial {

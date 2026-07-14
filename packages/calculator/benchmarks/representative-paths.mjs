@@ -46,6 +46,11 @@ const cases = [
     ["tan_periodic_non_degenerate", "tan(100+sin(1)/100)", "tan(1/100*sin(1)+100)"],
     ["algebraic", "((2^(1/3)-2^(1/3))+2)^(1/3)", "2^(1/3)"],
     ["wide_add_256", Array.from({ length: 256 }, (_, index) => String(index + 1)).join("+"), "32896"],
+    [
+      "wide_multiply_128",
+      Array.from({ length: 128 }, (_, index) => String(index + 1)).join("*"),
+      "385620482362580421735677065923463640617493109590223590278828403276373402575165543560686168588507361534030051833058916347592172932262498857766114955245039357760034644709279247692495585280000000000000000000000000000000",
+    ],
 ];
 
 const validCaseNames = [...cases.map(([name]) => name), "session_dispatch_sequence"];
