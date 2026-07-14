@@ -845,6 +845,47 @@ because their source products use the same general lowering path. Reproduce with
 allocation/logical-work case `wide_multiply_128`, Criterion groups
 `large_product`/`large_product_scaling`, and the v19 Wasm/npm case.
 
+## Canonical Rational integer multiplication
+
+At base commit `772e594`, canonical Rational multiplication still formed a
+denominator product and ran the generic GCD/exact-division constructor when both
+operands were integers. The integer/integer path now multiplies only the signed
+numerators and constructs the canonical integer directly. Zero and integer one
+use their canonical identity paths. Mixed integer/fraction and fraction/fraction
+products remain on the generic constructor because cross-cancellation can change
+both numerator and denominator.
+
+On 2026-07-15 with `rustc 1.97.0`, deterministic one-calculation results for
+`1*2*...*128` changed as follows:
+
+| Metric | Base | Candidate |
+| --- | ---: | ---: |
+| allocated | 86,818 bytes / 3,212 blocks | 80,930 / 3,664 |
+| peak live | 18,904 bytes / 511 blocks | 18,904 / 511 |
+| logical work | 6,377 units | 1,339 units |
+
+Allocated bytes fell 6.8% and peak live allocation was unchanged. Allocation
+count rose 14.1%; this is retained as an explicit follow-up signal rather than
+treated as an improvement. The removed normalization dominates elapsed time:
+same-host Criterion measured `[183.60,212.70]` us versus the base
+`[745.72,1004.4]` us. The 1,338-unit request returns the same typed logical-work
+Partial boundary, so the supported-range gain comes from removed denominator and
+normalization operations rather than uncharged multiplication.
+
+The final Wasm/npm artifact is
+`852fcfdde5d85a45d1de8e17200b412ee92f21e8cd5f30c424b14e95bb45b28b`
+(825,280 bytes). The unchanged v19 public benchmark, using three iterations
+after one warmup, moved from 6.419 ms to 1.379 ms per iteration. Serialized
+payload stayed at 2,162 bytes. This short run verifies the public boundary and
+is not a stable throughput guarantee.
+
+Controls stayed at 108,157 bytes / 5,449 blocks and 261 work units for
+`wide_add_256`, 172,272 / 2,726 and 400,447 for the approximate composite,
+12,758 / 551 and 231 for exact rational, 52,704 / 1,612 and 401,216 for exact
+symbolic, and 99,819 / 3,801 and 400,229 for algebraic. Reproduce with the
+`wide_multiply_128` allocation/logical-work cases, Criterion
+`large_product/wide_multiply_128`, and the v19 Wasm/npm case.
+
 ## Raw directed dyadic arctangent endpoints
 
 At base commit `defe4a4`, the public certified `atan` path canonicalized each

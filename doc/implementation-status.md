@@ -9,6 +9,7 @@
 主な実装済み領域:
 
 * 有理数の exact parse、四則演算、整数累乗、percent lowering。
+* canonical Rational の乗算は、zero と整数の multiplicative identity を汎用正規化なしで処理し、integer/integer では分母積・GCD・exact division を構築せず分子だけを乗算する。integer/fraction と fraction/fraction は共有因子を相殺する既存の汎用経路を維持し、logical work は実際に保持する各経路の構造コストを課金する。
 * `0.1 + 0.2 = 3/10` などの decimal lossless evaluation。
 * rational exact output の format preference。有限小数として正確に表せる値は `finiteDecimal` で表示でき、improper rational は `mixedFraction` で帯分数表示できる。正確に表せない finite decimal request は rational 表示へ戻す。
 * real principal power semantics に基づく rational power の exact root / domain error / symbolic fallback。
