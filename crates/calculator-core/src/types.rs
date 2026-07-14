@@ -1487,24 +1487,20 @@ fn extract_repeated_square_factor(value: &mut BigInt, outside: &mut BigInt, fact
 
 pub(crate) fn floor_sqrt_nonnegative(value: &BigInt) -> BigInt {
     debug_assert!(value.sign() != Sign::Minus);
-    if value.is_zero() {
-        return BigInt::zero();
+    if *value <= BigInt::one() {
+        return value.clone();
     }
 
-    let mut high = BigInt::one();
-    while &high * &high <= *value {
-        high <<= 1_u8;
-    }
-    let mut low = &high >> 1_u8;
-    while &low + 1_u8 < high {
-        let mid = (&low + &high) >> 1_u8;
-        if &mid * &mid <= *value {
-            low = mid;
-        } else {
-            high = mid;
+    let root_bits = value.bits().div_ceil(2);
+    let root_bits = usize::try_from(root_bits).expect("BigInt bit length must fit usize");
+    let mut estimate = BigInt::one() << root_bits;
+    loop {
+        let next = (&estimate + value / &estimate) >> 1_u8;
+        if next >= estimate {
+            return estimate;
         }
+        estimate = next;
     }
-    low
 }
 
 pub(crate) fn floor_nth_root_nonnegative(value: &BigInt, index: u32) -> BigInt {
@@ -1678,7 +1674,7 @@ const fn nonzero_u32(value: u32) -> NonZeroU32 {
 
 #[cfg(test)]
 mod tests {
-    use alloc::{format, string::ToString};
+    use alloc::{format, string::ToString, vec};
 
     use super::*;
 
@@ -2175,5 +2171,21 @@ mod tests {
 
         let value = Rational::new(Integer::from(7), Integer::from(4)).unwrap();
         assert_eq!(value.modulo_integer(1).to_string(), "3/4");
+    }
+
+    #[test]
+    fn convergent_integer_square_root_matches_floor_definition() {
+        let mut values = vec![BigInt::zero(), BigInt::one(), BigInt::from(2_u8)];
+        for bits in [2_usize, 31, 32, 33, 63, 64, 65, 127, 128, 129, 1_000] {
+            let root = (BigInt::one() << bits) - 1_u8;
+            let square = &root * &root;
+            values.extend([&square - 1_u8, square.clone(), &square + 1_u8]);
+        }
+
+        for value in values {
+            let root = floor_sqrt_nonnegative(&value);
+            assert!(&root * &root <= value);
+            assert!((&root + 1_u8) * (&root + 1_u8) > value);
+        }
     }
 }
