@@ -40,6 +40,8 @@ fn main() {
         "exact_rational" => Some(String::from(
             "12345678901234567890/7 + 98765432109876543210/11",
         )),
+        "exact_mixed_add" => Some(String::from("7 + -5/6")),
+        "exact_mixed_subtract" => Some(String::from("-5/6 - 7")),
         "exact_symbolic" => Some(String::from("(exp(1)+sin(1))*cos(1)-exp(1)*cos(1)")),
         "exact_trig_identity" => Some(String::from("sin(1)^2+cos(1)^2")),
         "approximate" => Some(String::from("sin(1)+ln(2)+2^sqrt(2)")),

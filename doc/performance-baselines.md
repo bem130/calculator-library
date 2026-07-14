@@ -673,6 +673,49 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Rational integer-operand addition
+
+On 2026-07-15 at base commit `03c76bf`, canonical `Rational::add` still used
+two cross-products, a denominator product, GCD normalization, and exact division
+when either operand was an integer. For canonical `a/b` and integer `n`, the
+result `(a+n*b)/b` is already reduced because
+`gcd(a+n*b,b)=gcd(a,b)=1`; integer/integer and zero identities are simpler
+instances. The implementation now constructs these canonical forms directly,
+while addition of two non-integer operands retains the general constructor.
+
+Deterministic one-calculation allocation changed as follows; peak live allocation
+was unchanged in every row:
+
+| Case | Before | After |
+| --- | ---: | ---: |
+| 256-term integer sum | 284,027 bytes / 10,858 blocks | 277,843 / 10,085 |
+| fraction + fraction control | 13,270 / 612 | 13,134 / 599 |
+| `7 + -5/6` | 9,707 / 469 | 9,603 / 456 |
+| `-5/6 - 7` | 10,056 / 491 | 9,936 / 476 |
+| symbolic control | 54,852 / 1,893 | 54,588 / 1,860 |
+| algebraic control | 100,723 / 3,942 | 100,491 / 3,913 |
+| approximate control | 172,283 / 2,737 | unchanged |
+
+Logical work remained 932 units for the wide sum; exact rational, symbolic,
+algebraic, and approximate controls remained 231, 401,216, 400,234, and 400,447.
+The new 16/64/128/256 scaling and parse/evaluate/present stage groups verify exact
+outputs before timing. Same-host native samples were load-sensitive: the base
+256 composite was `[739.67, 803.80]` us and the candidate was
+`[630.57, 808.84]` us, so this slice claims the deterministic allocation result,
+not a native timing ratio. A directly alternating Wasm/npm smoke moved from
+3.096 ms to 2.646 ms per iteration with unchanged 1,728-byte payload. The base
+artifact was `b0e5f687e15699c4e600128f2214d6d0f7f00916e3d6713d92f0a295646d22d0`
+(821,780 bytes); the candidate was
+`b257482004950ab458921e76a71078846752e74eb8f2d34265bce4bb96aa3cc9`
+(821,966 bytes). The cold three-iteration sample is boundary verification, not a
+stable speedup claim.
+
+Reproduce with allocation cases `wide_add_256`, `exact_rational`,
+`exact_mixed_add`, `exact_mixed_subtract`, `exact_symbolic`, `algebraic`, and
+`approximate`; Criterion filters `large_expression`,
+`large_expression_scaling`, and `large_expression_stages`; the logical-work
+runner; and `CALCULATOR_BENCH_CASE=wide_add_256` in the Wasm/npm harness.
+
 ## Raw directed dyadic arctangent endpoints
 
 At base commit `defe4a4`, the public certified `atan` path canonicalized each

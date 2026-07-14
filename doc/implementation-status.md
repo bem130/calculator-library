@@ -114,6 +114,7 @@ exact-point sqrtのscaled lower/upperは高々1だけ異なるため、lowerのi
 exp Taylor recurrenceの最終共通分母は、部分和用`b*n`とは別の増大積を各項で更新せず`b^N*N!`から構築する。dyadic公開経路の2冪分母はfactorialのshiftを使い、一般分母はexactなpowへfallbackする。同じ分母を持つ通常範囲の非退化endpointでは最終分母も共有し、値依存の部分和・項分子、upper tail、異分母・binary-scaling経路は独立に保つ。directed bounds、logical-work、公開protocolは変更しない。
 expのprecision-only series planはtail条件の探索終了時に得た`N!`を項数とともに保持し、共通分母`b^N*N!`へ再利用する。exact point、非退化endpoint、binary scalingで同じfactorial積を探索後に再構築せず、値依存の分母冪、recurrence、tail、方向付き丸めは独立に保つ。停止性、logical-work、公開protocolは変更しない。
 canonical sparse polynomialは同じcanonical radian引数と残余factorを持つ`sin(arg)^2`/`cos(arg)^2`項から、同符号の共通Rational係数を抽出して恒等式1へ縮約する。source順序、積と二乗、分配形、正負・不均等係数、複数identityに依存せず、異引数・異符号・平方以外は保持する。実行前にcompatible pairの存在を確認し、生成common monomialの連鎖を含むrewrite回数、反復scan/sort/merge、Rational係数構造costを保守的に予約する。定義済み性、atomic limit fallback、no-float、公開protocolを維持する。
+canonical Rationalの加算はzero identity、integer/integer、片側integerを直接構築する。既約な`a/b`と整数`n`について`gcd(a+n*b,b)=gcd(a,b)=1`なので混合結果もGCD正規化なしでcanonicalであり、両operandが非integerの場合は従来のcross-productとgeneral constructorを維持する。subtractはnegated rhsを同じ経路へ渡し、正分母、zeroの一意表現、logical-work/resource契約、no-float、公開protocolを変更しない。
 unit cosine級数は負入力だけをowned negateし、非負canonical Rationalは借用する。偶関数正規化のために正入力までcloneする処理を除き、tailとlogical-work契約を維持する。
 asin変換域の`1-x^2`はcanonical `x=n/d`から`(d^2-n^2)/d^2`を直接構築し、一度だけcanonical化する。`x*x`とRational減算の二段正規化を除き、sqrt domainとdirected boundsを維持する。
 同complement squareは`gcd(n,d)=1`から非zeroの分子・分母が既約であることを利用し、汎用GCDを通さずcanonical Rationalを直接構築する。±1のzeroだけ`0/1`へ正規化する。
