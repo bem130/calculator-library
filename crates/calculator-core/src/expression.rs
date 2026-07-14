@@ -8003,8 +8003,12 @@ fn evaluate_interval_expression_node(
         }
         ExpressionNode::Constant(value) => interval::constant(*value, precision_bits),
         ExpressionNode::Add(list_id) => {
-            let mut total = interval::from_rational(&Rational::zero(), precision_bits);
-            for child in dag.list(*list_id) {
+            let mut children = dag.list(*list_id).iter();
+            let Some(first) = children.next() else {
+                return Ok(interval::from_rational(&Rational::zero(), precision_bits));
+            };
+            let mut total = evaluate_interval_node(dag, *first, precision_bits)?;
+            for child in children {
                 total = interval::add(
                     &total,
                     &evaluate_interval_node(dag, *child, precision_bits)?,
@@ -8013,8 +8017,12 @@ fn evaluate_interval_expression_node(
             Ok(total)
         }
         ExpressionNode::Multiply(list_id) => {
-            let mut product = interval::from_rational(&Rational::one(), precision_bits);
-            for child in dag.list(*list_id) {
+            let mut children = dag.list(*list_id).iter();
+            let Some(first) = children.next() else {
+                return Ok(interval::from_rational(&Rational::one(), precision_bits));
+            };
+            let mut product = evaluate_interval_node(dag, *first, precision_bits)?;
+            for child in children {
                 product = interval::multiply(
                     &product,
                     &evaluate_interval_node(dag, *child, precision_bits)?,
@@ -10526,5 +10534,51 @@ mod tests {
             ])
             .expect("minimal polynomial normalizes")
         );
+    }
+
+    #[test]
+    fn interval_add_fold_matches_identity_seeded_bounds() {
+        let dag = lower("sin(1)+ln(2)-sqrt(2)");
+        let ExpressionNode::Add(list_id) = dag.node(dag.root()) else {
+            panic!("expected n-ary addition");
+        };
+
+        for precision_bits in [32, 128, 512] {
+            let mut expected = interval::from_rational(&Rational::zero(), precision_bits);
+            for child in dag.list(*list_id) {
+                expected = interval::add(
+                    &expected,
+                    &evaluate_interval_node(&dag, *child, precision_bits).unwrap(),
+                )
+                .unwrap();
+            }
+            assert_eq!(
+                evaluate_interval_node(&dag, dag.root(), precision_bits).unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn interval_multiply_fold_matches_identity_seeded_bounds() {
+        let dag = lower("sin(1)*ln(2)*-sqrt(2)");
+        let ExpressionNode::Multiply(list_id) = dag.node(dag.root()) else {
+            panic!("expected n-ary multiplication");
+        };
+
+        for precision_bits in [32, 128, 512] {
+            let mut expected = interval::from_rational(&Rational::one(), precision_bits);
+            for child in dag.list(*list_id) {
+                expected = interval::multiply(
+                    &expected,
+                    &evaluate_interval_node(&dag, *child, precision_bits).unwrap(),
+                )
+                .unwrap();
+            }
+            assert_eq!(
+                evaluate_interval_node(&dag, dag.root(), precision_bits).unwrap(),
+                expected
+            );
+        }
     }
 }
