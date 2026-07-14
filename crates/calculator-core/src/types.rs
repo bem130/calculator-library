@@ -1370,6 +1370,14 @@ impl Rational {
             return Err(DecimalLiteralError::Empty);
         }
 
+        if unsigned.bytes().all(|byte| byte.is_ascii_digit()) {
+            let mut integer = parse_bigint_decimal(unsigned)?;
+            if sign == Sign::Minus {
+                integer = -integer;
+            }
+            return Ok(Self::from_integer(Integer::from_bigint(integer)));
+        }
+
         let (mantissa, exponent) = split_exponent(unsigned)?;
         let mut digits = String::new();
         let mut fractional_digits = 0_i64;
@@ -1751,6 +1759,44 @@ mod tests {
         let rational = Rational::from_decimal_literal("1.2e-3").unwrap();
         assert_eq!(rational.numerator.to_string(), "3");
         assert_eq!(rational.denominator.inner.to_string(), "2500");
+    }
+
+    #[test]
+    fn integer_decimal_literals_construct_canonical_integers_directly() {
+        for literal in [
+            "0",
+            "+0",
+            "-0",
+            "000000",
+            "+00042",
+            "-00042",
+            &"9".repeat(4_096),
+        ] {
+            let actual = Rational::from_decimal_literal(literal).unwrap();
+            let expected_integer = BigInt::parse_bytes(literal.as_bytes(), 10).unwrap();
+            let expected =
+                Rational::new(Integer::from_bigint(expected_integer), Integer::one()).unwrap();
+            assert_eq!(actual, expected, "{literal}");
+            assert!(actual.is_integer());
+            if actual.is_zero() {
+                assert_eq!(actual.denominator.inner, Integer::one());
+            }
+        }
+
+        for literal in ["12.3400e-3", "1.2e-3", "42e3", "42e-3"] {
+            let actual = Rational::from_decimal_literal(literal).unwrap();
+            let (numerator, denominator) = match literal {
+                "12.3400e-3" => (617, 50_000),
+                "1.2e-3" => (3, 2_500),
+                "42e3" => (42_000, 1),
+                "42e-3" => (21, 500),
+                _ => unreachable!(),
+            };
+            assert_eq!(
+                actual,
+                Rational::new(Integer::from(numerator), Integer::from(denominator)).unwrap()
+            );
+        }
     }
 
     #[test]
