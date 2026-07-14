@@ -435,14 +435,186 @@ pub(crate) fn log(
     if lower.is_negative() || lower.is_zero() {
         return Err(IntervalError::UnsupportedExpression);
     }
-    let (lower, upper) = if lower == upper {
-        log_rational_bounds(&lower, precision_bits)?
+    validate_ordered_rational_bounds(&lower, &upper)?;
+    if lower == upper {
+        log_rational_dyadic_bounds(&lower, precision_bits)
     } else {
-        log_rational_directed_endpoint_bounds(&lower, &upper, precision_bits)?
-    };
-    from_rational_bounds(&lower, &upper, precision_bits)
+        log_rational_directed_dyadic_endpoint_bounds(&lower, &upper, precision_bits)
+    }
 }
 
+fn raw_zero_fraction() -> RawFractionParts {
+    RawFractionParts {
+        numerator: BigInt::zero(),
+        denominator: BigInt::one(),
+    }
+}
+
+fn log_reduced_raw_bounds_with_terms(
+    value: &Rational,
+    term_count: u32,
+) -> Result<(RawFractionParts, RawFractionParts), IntervalError> {
+    if is_positive_one_rational(value) {
+        return Ok((raw_zero_fraction(), raw_zero_fraction()));
+    }
+    let z = log_series_argument(value)?;
+    log_series_evaluation(&z, term_count, true)?.into_raw_bounds()
+}
+
+fn log_reduced_raw_bound_with_terms(
+    value: &Rational,
+    term_count: u32,
+    direction: BoundDirection,
+) -> Result<RawFractionParts, IntervalError> {
+    if is_positive_one_rational(value) {
+        return Ok(raw_zero_fraction());
+    }
+    let z = log_series_argument(value)?;
+    let state = log_series_evaluation(&z, term_count, matches!(direction, BoundDirection::Upper))?;
+    match direction {
+        BoundDirection::Lower => Ok(state.into_raw_lower()),
+        BoundDirection::Upper => state.into_raw_upper(),
+    }
+}
+
+fn compose_raw_log_bound(
+    reduced: RawFractionParts,
+    log_two: Option<RawFractionParts>,
+    exponent_two: i64,
+) -> RawFractionParts {
+    let Some(log_two) = log_two else {
+        debug_assert_eq!(exponent_two, 0);
+        return reduced;
+    };
+    debug_assert_ne!(exponent_two, 0);
+    let numerator = &reduced.numerator * &log_two.denominator
+        + log_two.numerator * &reduced.denominator * exponent_two;
+    RawFractionParts {
+        numerator,
+        denominator: reduced.denominator * log_two.denominator,
+    }
+}
+
+fn log_rational_dyadic_bounds(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    let (reduced, exponent_two) = reduce_log_argument_to_unit_range(value)?;
+    if is_positive_one_rational(&reduced) && exponent_two == 0 {
+        let zero = ExactDyadic {
+            coefficient: Integer::zero(),
+            exponent_two: Integer::zero(),
+        };
+        return Ok(CertifiedInterval {
+            lower: zero.clone(),
+            upper: zero,
+        });
+    }
+    let term_count = log_series_terms(precision_bits)?;
+    let (reduced_lower, reduced_upper) = log_reduced_raw_bounds_with_terms(&reduced, term_count)?;
+    let (log_two_lower, log_two_upper) = if exponent_two == 0 {
+        (None, None)
+    } else {
+        let (lower, upper) = log_reduced_raw_bounds_with_terms(&rational_integer(2), term_count)?;
+        if exponent_two > 0 {
+            (Some(lower), Some(upper))
+        } else {
+            (Some(upper), Some(lower))
+        }
+    };
+    let lower = compose_raw_log_bound(reduced_lower, log_two_lower, exponent_two);
+    let upper = compose_raw_log_bound(reduced_upper, log_two_upper, exponent_two);
+    ordered_dyadic_interval(
+        raw_fraction_to_dyadic_bound(&lower, precision_bits, BoundDirection::Lower),
+        raw_fraction_to_dyadic_bound(&upper, precision_bits, BoundDirection::Upper),
+    )
+}
+
+fn log_rational_directed_dyadic_endpoint_bounds(
+    lower: &Rational,
+    upper: &Rational,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    let (lower_reduced, lower_exponent_two) = reduce_log_argument_to_unit_range(lower)?;
+    let (upper_reduced, upper_exponent_two) = reduce_log_argument_to_unit_range(upper)?;
+    let needs_series = !is_positive_one_rational(&lower_reduced)
+        || !is_positive_one_rational(&upper_reduced)
+        || lower_exponent_two != 0
+        || upper_exponent_two != 0;
+    if !needs_series {
+        let zero = ExactDyadic {
+            coefficient: Integer::zero(),
+            exponent_two: Integer::zero(),
+        };
+        return Ok(CertifiedInterval {
+            lower: zero.clone(),
+            upper: zero,
+        });
+    }
+    let term_count = log_series_terms(precision_bits)?;
+    let lower_bound =
+        log_reduced_raw_bound_with_terms(&lower_reduced, term_count, BoundDirection::Lower)?;
+    let upper_bound =
+        log_reduced_raw_bound_with_terms(&upper_reduced, term_count, BoundDirection::Upper)?;
+    let shared_log_two = if lower_exponent_two != 0 && upper_exponent_two != 0 {
+        Some(log_reduced_raw_bounds_with_terms(
+            &rational_integer(2),
+            term_count,
+        )?)
+    } else {
+        None
+    };
+    let lower_log_two = raw_log_two_for_endpoint(
+        lower_exponent_two,
+        BoundDirection::Lower,
+        term_count,
+        shared_log_two.as_ref(),
+    )?;
+    let upper_log_two = raw_log_two_for_endpoint(
+        upper_exponent_two,
+        BoundDirection::Upper,
+        term_count,
+        shared_log_two.as_ref(),
+    )?;
+    let lower = compose_raw_log_bound(lower_bound, lower_log_two, lower_exponent_two);
+    let upper = compose_raw_log_bound(upper_bound, upper_log_two, upper_exponent_two);
+    ordered_dyadic_interval(
+        raw_fraction_to_dyadic_bound(&lower, precision_bits, BoundDirection::Lower),
+        raw_fraction_to_dyadic_bound(&upper, precision_bits, BoundDirection::Upper),
+    )
+}
+
+fn raw_log_two_for_endpoint(
+    exponent_two: i64,
+    direction: BoundDirection,
+    term_count: u32,
+    shared: Option<&(RawFractionParts, RawFractionParts)>,
+) -> Result<Option<RawFractionParts>, IntervalError> {
+    if exponent_two == 0 {
+        return Ok(None);
+    }
+    let selected = if exponent_two > 0 {
+        direction
+    } else {
+        match direction {
+            BoundDirection::Lower => BoundDirection::Upper,
+            BoundDirection::Upper => BoundDirection::Lower,
+        }
+    };
+    if let Some((lower, upper)) = shared {
+        let parts = match selected {
+            BoundDirection::Lower => lower,
+            BoundDirection::Upper => upper,
+        };
+        return Ok(Some(RawFractionParts {
+            numerator: parts.numerator.clone(),
+            denominator: parts.denominator.clone(),
+        }));
+    }
+    log_reduced_raw_bound_with_terms(&rational_integer(2), term_count, selected).map(Some)
+}
+
+#[cfg(test)]
 fn log_rational_directed_endpoint_bounds(
     lower: &Rational,
     upper: &Rational,
@@ -1433,6 +1605,7 @@ fn checked_exp_denominator_total_shift(
         .ok_or(IntervalError::ExponentTooLarge)
 }
 
+#[cfg(test)]
 fn log_rational_bounds(
     value: &Rational,
     precision_bits: u32,
@@ -1586,6 +1759,7 @@ fn log_reduced_rational_bounds(
     log_reduced_rational_bounds_with_argument_and_terms(&z, term_count)
 }
 
+#[cfg(test)]
 fn log_reduced_rational_bounds_with_terms(
     value: &Rational,
     term_count: u32,
@@ -1622,6 +1796,7 @@ fn log_reduced_rational_bound(
     log_reduced_rational_bound_with_argument_and_terms(&z, term_count, direction)
 }
 
+#[cfg(test)]
 fn log_reduced_rational_bound_with_terms(
     value: &Rational,
     term_count: u32,
@@ -1636,6 +1811,7 @@ fn log_reduced_rational_bound_with_terms(
     log_reduced_rational_bound_with_argument_and_terms(&z, term_count, direction)
 }
 
+#[cfg(test)]
 fn log_reduced_rational_bound_with_argument_and_terms(
     z: &Rational,
     term_count: u32,
@@ -1657,6 +1833,7 @@ fn log_series_common_denominator_bounds(
     log_series_evaluation(z, term_count, true)?.into_bounds()
 }
 
+#[cfg(test)]
 fn log_series_common_denominator_bound(
     z: &Rational,
     term_count: u32,
@@ -1675,24 +1852,44 @@ enum LogSeriesEvaluation {
 }
 
 impl LogSeriesEvaluation {
+    #[cfg(test)]
     fn into_lower(self) -> Result<Rational, IntervalError> {
-        match self {
-            Self::Recurrence(state) => state.into_lower(),
-            Self::BinarySplit(state) => state.into_lower(),
-        }
+        let parts = self.into_raw_lower();
+        rational_from_parts(parts.numerator, parts.denominator)
     }
 
+    #[cfg(test)]
     fn into_upper(self) -> Result<Rational, IntervalError> {
-        match self {
-            Self::Recurrence(state) => state.into_upper(),
-            Self::BinarySplit(state) => state.into_upper(),
-        }
+        let parts = self.into_raw_upper()?;
+        rational_from_parts(parts.numerator, parts.denominator)
     }
 
     fn into_bounds(self) -> Result<(Rational, Rational), IntervalError> {
+        let (lower, upper) = self.into_raw_bounds()?;
+        Ok((
+            rational_from_parts(lower.numerator, lower.denominator)?,
+            rational_from_parts(upper.numerator, upper.denominator)?,
+        ))
+    }
+
+    fn into_raw_lower(self) -> RawFractionParts {
         match self {
-            Self::Recurrence(state) => state.into_bounds(),
-            Self::BinarySplit(state) => state.into_bounds(),
+            Self::Recurrence(state) => state.into_raw_lower(),
+            Self::BinarySplit(state) => state.into_raw_lower(),
+        }
+    }
+
+    fn into_raw_upper(self) -> Result<RawFractionParts, IntervalError> {
+        match self {
+            Self::Recurrence(state) => state.into_raw_upper(),
+            Self::BinarySplit(state) => state.into_raw_upper(),
+        }
+    }
+
+    fn into_raw_bounds(self) -> Result<(RawFractionParts, RawFractionParts), IntervalError> {
+        match self {
+            Self::Recurrence(state) => state.into_raw_bounds(),
+            Self::BinarySplit(state) => state.into_raw_bounds(),
         }
     }
 }
@@ -1708,11 +1905,23 @@ struct LogSeriesState {
 }
 
 impl LogSeriesState {
-    fn into_lower(self) -> Result<Rational, IntervalError> {
-        rational_from_parts(self.sum_numerator * 2_u8, self.common_denominator)
+    #[cfg(test)]
+    fn into_bounds(self) -> Result<(Rational, Rational), IntervalError> {
+        let (lower, upper) = self.into_raw_bounds()?;
+        Ok((
+            rational_from_parts(lower.numerator, lower.denominator)?,
+            rational_from_parts(upper.numerator, upper.denominator)?,
+        ))
     }
 
-    fn into_upper(self) -> Result<Rational, IntervalError> {
+    fn into_raw_lower(self) -> RawFractionParts {
+        RawFractionParts {
+            numerator: self.sum_numerator * 2_u8,
+            denominator: self.common_denominator,
+        }
+    }
+
+    fn into_raw_upper(self) -> Result<RawFractionParts, IntervalError> {
         let next_odd_denominator = self
             .term_count
             .checked_add(1)
@@ -1723,16 +1932,18 @@ impl LogSeriesState {
         let next_denominator_factor = self.denominator_squared * next_odd_denominator;
         let upper_numerator = self.sum_numerator * &next_denominator_factor * 2_u8
             + next_term_numerator * self.odd_product * 4_u8;
-        rational_from_parts(
-            upper_numerator,
-            self.common_denominator * next_denominator_factor,
-        )
+        Ok(RawFractionParts {
+            numerator: upper_numerator,
+            denominator: self.common_denominator * next_denominator_factor,
+        })
     }
 
-    fn into_bounds(self) -> Result<(Rational, Rational), IntervalError> {
-        let lower =
-            rational_from_parts(&self.sum_numerator * 2_u8, self.common_denominator.clone())?;
-        let upper = self.into_upper()?;
+    fn into_raw_bounds(self) -> Result<(RawFractionParts, RawFractionParts), IntervalError> {
+        let lower = RawFractionParts {
+            numerator: &self.sum_numerator * 2_u8,
+            denominator: self.common_denominator.clone(),
+        };
+        let upper = self.into_raw_upper()?;
         Ok((lower, upper))
     }
 }
@@ -1811,11 +2022,14 @@ struct LogBinarySplitState {
 }
 
 impl LogBinarySplitState {
-    fn into_lower(self) -> Result<Rational, IntervalError> {
-        rational_from_parts(self.sum_numerator * 2_u8, self.common_denominator)
+    fn into_raw_lower(self) -> RawFractionParts {
+        RawFractionParts {
+            numerator: self.sum_numerator * 2_u8,
+            denominator: self.common_denominator,
+        }
     }
 
-    fn into_upper(self) -> Result<Rational, IntervalError> {
+    fn into_raw_upper(self) -> Result<RawFractionParts, IntervalError> {
         let last_product_numerator = self
             .last_product_numerator
             .expect("upper log split retains the final term product");
@@ -1832,16 +2046,18 @@ impl LogBinarySplitState {
             self.value_numerator * last_product_numerator * self.numerator_squared * final_odd;
         let upper_numerator = self.sum_numerator * &next_denominator_factor * 2_u8
             + next_term_scaled_numerator * 4_u8;
-        rational_from_parts(
-            upper_numerator,
-            self.common_denominator * next_denominator_factor,
-        )
+        Ok(RawFractionParts {
+            numerator: upper_numerator,
+            denominator: self.common_denominator * next_denominator_factor,
+        })
     }
 
-    fn into_bounds(self) -> Result<(Rational, Rational), IntervalError> {
-        let lower =
-            rational_from_parts(&self.sum_numerator * 2_u8, self.common_denominator.clone())?;
-        let upper = self.into_upper()?;
+    fn into_raw_bounds(self) -> Result<(RawFractionParts, RawFractionParts), IntervalError> {
+        let lower = RawFractionParts {
+            numerator: &self.sum_numerator * 2_u8,
+            denominator: self.common_denominator.clone(),
+        };
+        let upper = self.into_raw_upper()?;
         Ok((lower, upper))
     }
 }
@@ -4607,6 +4823,62 @@ mod tests {
             log_rational_directed_endpoint_bounds(&Rational::one(), &rational(3, 2), u32::MAX,),
             Err(IntervalError::ExponentTooLarge),
         );
+    }
+
+    #[test]
+    fn raw_log_dyadic_rounding_matches_canonical_rational_bounds() {
+        for precision_bits in [0, 1, 32, 128] {
+            for value in [
+                rational(1, 3),
+                rational(1, 2),
+                rational(3, 4),
+                Rational::one(),
+                rational(3, 2),
+                rational(2, 1),
+                rational(3, 1),
+                rational(8, 1),
+                rational_from_parts((BigInt::one() << 128_usize) + BigInt::one(), BigInt::one())
+                    .unwrap(),
+            ] {
+                let (lower, upper) = log_rational_bounds(&value, precision_bits).unwrap();
+                assert_eq!(
+                    log_rational_dyadic_bounds(&value, precision_bits).unwrap(),
+                    from_rational_bounds(&lower, &upper, precision_bits).unwrap(),
+                    "value={value:?}, precision={precision_bits}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn raw_log_directed_endpoints_match_canonical_rational_bounds() {
+        for precision_bits in [0, 1, 32, 128] {
+            for (lower, upper) in [
+                (rational(1, 4), rational(1, 2)),
+                (rational(1, 2), rational(2, 1)),
+                (rational(3, 4), rational(3, 2)),
+                (rational(3, 2), rational(3, 1)),
+                (rational(2, 1), rational(9, 1)),
+            ] {
+                let (expected_lower, expected_upper) =
+                    log_rational_directed_endpoint_bounds(&lower, &upper, precision_bits).unwrap();
+                assert_eq!(
+                    log_rational_directed_dyadic_endpoint_bounds(&lower, &upper, precision_bits,)
+                        .unwrap(),
+                    from_rational_bounds(&expected_lower, &expected_upper, precision_bits).unwrap(),
+                    "lower={lower:?}, upper={upper:?}, precision={precision_bits}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn raw_log_rounding_rejects_reversed_positive_inputs_before_coarse_rounding() {
+        let value = CertifiedInterval {
+            lower: rational_to_dyadic_bound(&rational(3, 4), 2, BoundDirection::Lower),
+            upper: rational_to_dyadic_bound(&rational(1, 2), 2, BoundDirection::Upper),
+        };
+        assert_eq!(log(&value, 0), Err(IntervalError::InvalidBounds));
     }
 
     #[test]
