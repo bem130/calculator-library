@@ -1492,7 +1492,6 @@ pub(crate) fn floor_sqrt_nonnegative(value: &BigInt) -> BigInt {
     }
 
     let root_bits = value.bits().div_ceil(2);
-    let root_bits = usize::try_from(root_bits).expect("BigInt bit length must fit usize");
     let mut estimate = BigInt::one() << root_bits;
     loop {
         let next = (&estimate + value / &estimate) >> 1_u8;
@@ -2176,8 +2175,14 @@ mod tests {
     #[test]
     fn convergent_integer_square_root_matches_floor_definition() {
         let mut values = vec![BigInt::zero(), BigInt::one(), BigInt::from(2_u8)];
-        for bits in [2_usize, 31, 32, 33, 63, 64, 65, 127, 128, 129, 1_000] {
-            let root = (BigInt::one() << bits) - 1_u8;
+        for input_bits in [2_u64, 31, 32, 33, 63, 64, 65, 127, 128, 129, 1_000] {
+            let lower = BigInt::one() << (input_bits - 1);
+            let upper = (BigInt::one() << input_bits) - 1_u8;
+            assert_eq!(lower.bits(), input_bits);
+            assert_eq!(upper.bits(), input_bits);
+            values.extend([lower.clone(), &lower + 1_u8, upper]);
+
+            let root = lower - 1_u8;
             let square = &root * &root;
             values.extend([&square - 1_u8, square.clone(), &square + 1_u8]);
         }
