@@ -271,8 +271,11 @@ fn validate_calculation(name: &str, source: &str, request: &CalculationRequest) 
         .expect("representative calculation preflight must succeed");
     let exact = exact_plain_text(&outcome);
     assert!(!exact.is_empty(), "{name} must retain exact output");
-    if name == "exact_symbolic" {
-        assert_eq!(exact, "sin(1)*cos(1)");
+    match name {
+        "exact_symbolic" => assert_eq!(exact, "sin(1)*cos(1)"),
+        "exact_mixed_add" => assert_eq!(exact, "37/6"),
+        "exact_mixed_subtract" => assert_eq!(exact, "-47/6"),
+        _ => {}
     }
 }
 

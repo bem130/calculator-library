@@ -699,7 +699,22 @@ was unchanged in every row:
 Logical work remained 932 units for the wide sum; exact rational, symbolic,
 algebraic, and approximate controls remained 231, 401,216, 400,234, and 400,447.
 The new 16/64/128/256 scaling and parse/evaluate/present stage groups verify exact
-outputs before timing. Same-host native samples were load-sensitive: the base
+outputs before timing. Their same-host snapshots were:
+
+| Terms | Base | Candidate |
+| ---: | ---: | ---: |
+| 16 | `[90.62, 124.50]` us | `[64.04, 71.75]` us |
+| 64 | `[319.18, 332.39]` us | `[201.97, 230.34]` us |
+| 128 | `[588.15, 617.37]` us | `[331.43, 397.15]` us |
+| 256 | `[1.199, 1.291]` ms | `[629.13, 710.31]` us |
+
+At 256 terms the base parse/evaluate/present ranges were respectively
+`[137.28,146.31]` us, `[966.56,1040.8]` us, and `[27.14,28.04]` us. The
+candidate snapshots were `[67.81,71.57]` us, `[588.82,673.30]` us, and
+`[13.42,17.39]` us. Evaluation remains the dominant measured stage; parse and
+presentation are controls unaffected by `Rational::add`, so their movement also
+shows that host load materially affected these non-alternating snapshots.
+Same-host native composite samples were likewise load-sensitive: the base
 256 composite was `[739.67, 803.80]` us and the candidate was
 `[630.57, 808.84]` us, so this slice claims the deterministic allocation result,
 not a native timing ratio. A directly alternating Wasm/npm smoke moved from
@@ -715,6 +730,10 @@ Reproduce with allocation cases `wide_add_256`, `exact_rational`,
 `approximate`; Criterion filters `large_expression`,
 `large_expression_scaling`, and `large_expression_stages`; the logical-work
 runner; and `CALCULATOR_BENCH_CASE=wide_add_256` in the Wasm/npm harness.
+The final repository gate passed dependency audits, formatting, native and Wasm
+clippy, no-default-features and workspace/doc tests, Node Wasm tests, generated
+DTO/protocol/no-float/deny checks, package checks and size budget, example build,
+external rational oracle, browser E2E, and workspace documentation.
 
 ## Raw directed dyadic arctangent endpoints
 
