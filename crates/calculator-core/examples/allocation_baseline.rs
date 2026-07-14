@@ -44,6 +44,8 @@ fn main() {
         "exact_mixed_subtract" => Some(String::from("-5/6 - 7")),
         "exact_symbolic" => Some(String::from("(exp(1)+sin(1))*cos(1)-exp(1)*cos(1)")),
         "exact_trig_identity" => Some(String::from("sin(1)^2+cos(1)^2")),
+        "exact_integral_scientific" => Some(String::from("12345e100")),
+        "exact_zero_large_scale" => Some(String::from("0e-100000")),
         "approximate" => Some(String::from("sin(1)+ln(2)+2^sqrt(2)")),
         "approximate_euler" => Some(String::from("e")),
         "approximate_exp_one" => Some(String::from("exp(1)")),

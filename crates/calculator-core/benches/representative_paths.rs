@@ -17,6 +17,8 @@ const CASES: &[(&str, &str)] = &[
     ("exact_mixed_subtract", "-5/6 - 7"),
     ("exact_symbolic", "(exp(1)+sin(1))*cos(1)-exp(1)*cos(1)"),
     ("exact_trig_identity", "sin(1)^2+cos(1)^2"),
+    ("exact_integral_scientific", "12345e100"),
+    ("exact_zero_large_scale", "0e-100000"),
     ("approximate", "sin(1)+ln(2)+2^sqrt(2)"),
     ("log_two", "ln(2)"),
     ("log_non_degenerate", "ln(2+sin(1))"),

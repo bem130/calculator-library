@@ -1416,21 +1416,28 @@ impl Rational {
             numerator = -numerator;
         }
 
-        if scale >= 0 {
+        if numerator.is_zero() {
+            return Ok(Rational::zero());
+        }
+
+        if scale > 0 {
             let denominator = pow10(scale)?;
             Rational::new(
                 Integer::from_bigint(numerator),
                 Integer::from_bigint(denominator),
             )
             .map_err(|_| DecimalLiteralError::InvalidDigit)
-        } else {
+        } else if scale < 0 {
             let multiplier = pow10(
                 scale
                     .checked_neg()
                     .ok_or(DecimalLiteralError::ExponentTooLarge)?,
             )?;
-            Rational::new(Integer::from_bigint(numerator * multiplier), Integer::one())
-                .map_err(|_| DecimalLiteralError::InvalidDigit)
+            Ok(Rational::from_integer(Integer::from_bigint(
+                numerator * multiplier,
+            )))
+        } else {
+            Ok(Rational::from_integer(Integer::from_bigint(numerator)))
         }
     }
 }
@@ -1809,6 +1816,30 @@ mod tests {
                 actual,
                 Rational::new(Integer::from(numerator), Integer::from(denominator)).unwrap()
             );
+        }
+    }
+
+    #[test]
+    fn integral_scientific_literals_construct_canonical_integers_directly() {
+        for (literal, expected) in [
+            ("42e3", "42000"),
+            ("+42e3", "42000"),
+            ("-42e3", "-42000"),
+            ("12.34e2", "1234"),
+            ("-12.34e2", "-1234"),
+            ("000.000e-100000", "0"),
+            ("-0e-100000", "0"),
+            ("0e100000", "0"),
+        ] {
+            let actual = Rational::from_decimal_literal(literal).unwrap();
+            assert_eq!(actual.numerator.to_string(), expected, "{literal}");
+            assert_eq!(actual.denominator.inner, Integer::one(), "{literal}");
+        }
+
+        for literal in ["12.34e1", "42e-3", "-0.125e1"] {
+            assert!(!Rational::from_decimal_literal(literal)
+                .unwrap()
+                .is_integer());
         }
     }
 
