@@ -25,6 +25,7 @@ const cases = [
     ["log_non_degenerate", "ln(2+sin(1))", "ln(sin(1)+2)"],
     ["log_large_positive", "ln(340282366920938463463374607431768211457)", "ln(340282366920938463463374607431768211457)"],
     ["euler", "e", "e"],
+    ["exp_tiny_dyadic", "exp(1/1267650600228229401496703205376)", "exp(1/1267650600228229401496703205376)"],
     ["exp_negative_10000", "exp(-10000)", "exp(-10000)"],
     ["exp_positive_10000", "exp(10000)", "exp(10000)"],
     ["atan_half", "atan(1/2)", "atan(1/2)"],
@@ -78,7 +79,7 @@ if (selectedCase === undefined || selectedCase === "session_dispatch_sequence") 
 
 process.stdout.write(`${JSON.stringify({
     schemaVersion: 1,
-    benchmarkDefinition: "representative-paths-v20",
+    benchmarkDefinition: "representative-paths-v21",
     artifact: {
         wasmSha256: createHash("sha256").update(wasmBytes).digest("hex"),
         wasmBytes: wasmBytes.byteLength,

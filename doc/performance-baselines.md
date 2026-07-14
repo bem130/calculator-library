@@ -3008,6 +3008,44 @@ A three-iteration/one-warmup Wasm/npm snapshot used artifact
 (784,484 bytes); approximate evaluation measured 7.14 ms/iteration and retained
 the unchanged 1,812-byte payload.
 
+## Structured dyadic exponential denominators
+
+At base `45f49da`, the dyadic exponential recurrence treated each input
+denominator factor as a shift inside the loop but materialized `N! << kN` again
+at final directed rounding. The retained representation carries the factorial
+base and checked shift separately to that boundary. If the shift is larger than
+the requested precision, signed arithmetic shift and exact remainder tests
+produce the same floor/ceil coefficient without allocating the power-of-two
+divisor. General denominators and Rational-returning test helpers retain the
+materialized form.
+
+Deterministic one-call allocation changed as follows:
+
+| Case | Base bytes / blocks (peak) | Candidate bytes / blocks (peak) |
+| --- | ---: | ---: |
+| `exp(2^-100)` | 24,702 / 477 (5,074 / 39) | 24,270 / 481 (4,154 / 38) |
+| `exp(2^-1000)` | 40,289 / 704 (5,595 / 41) | 39,177 / 707 (4,411 / 41) |
+| `2^sqrt(2)` | 149,543 / 1,991 (8,551 / 44) | 142,863 / 1,993 (6,247 / 43) |
+| `exp(1)` | 16,497 / 554 (1,423 / 26) | unchanged |
+| `exp(-10000)` | 510,964 / 1,720 (16,047 / 32) | 510,956 / 1,720 (16,047 / 32) |
+
+Same-host ten-sample Criterion ranges moved `exp(2^-100)` from
+25.64--35.34 us to 18.76--22.28 us. General power was overlapping/noisy at
+157.79--172.44 us base versus 143.46--179.10 us candidate, so no timing claim is
+made for that control. The full logical-work output was byte-identical.
+
+The three-iteration/one-warmup focused Wasm/npm smoke moved from 0.564 to
+0.503 ms/iteration with the same 1,824-byte payload. Base artifact
+`45265a3e54ea365a7daaf6cd062dbcc81587378a08b58f79e6c132b6ade0416c`
+was 826,091 bytes; candidate
+`f89bd08a0b30147bfb2bcd246fbe6c457ffd7dbe48e09d9285b59d23d39d97cd`
+is 829,247 bytes and remains below budget. Reproduce with allocation cases
+`approximate_exp_tiny_dyadic`, `approximate_exp_tiny_dyadic_1000`,
+`approximate_general_power`, `approximate_exp_one`, and
+`approximate_exp_negative_10000`; Criterion components `exp_tiny_dyadic` and
+`general_power`; the logical-work runner; and package benchmark case
+`exp_tiny_dyadic`.
+
 Reproduce with:
 
 ```sh
