@@ -60,3 +60,11 @@ was 825,509 bytes and measured 2.361 ms/iteration; candidate artifact
 `5cc8d57bef0a9e22aaa29ac2824508d32903f225ce4203649ddf2db527740134`
 was 825,746 bytes and measured 2.861 ms/iteration. These short sequential samples
 establish boundary/output compatibility and make no Wasm timing claim.
+
+The final candidate passed formatting, all-target/all-feature native and Wasm
+clippy, no-default check/tests, the 367-test workspace, doc tests, all 23 Wasm
+Node tests, generated DTO/protocol/no-float/dependency gates, TypeScript package
+checks, the external exact oracle, package-size budgets, the vanilla example
+build and browser E2E, and workspace documentation. The generated candidate
+artifact remained the recorded 825,746-byte hash throughout the package/example
+and size gates.
