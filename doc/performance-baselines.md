@@ -826,11 +826,11 @@ units respectively.
 Separate ten-sample Criterion midpoint snapshots moved from 1.2193 ms to
 232.04 µs for `asin(1/3)` and from 3.7042 ms to 611.86 µs for the non-degenerate
 unit-series case. Wasm/npm benchmark definition v18 measured three iterations
-after one warmup. Base artifact
+after one warmup for `asin_third` / `asin_non_degenerate_unit`. Base artifact
 `fff690b89e67b74df69242f3d4f327b26ea428835a4c852e571fe8e8a22fca6a`
-(818,558 bytes) measured 8.286/24.804 ms per iteration; candidate artifact
+(818,558 bytes) measured 8.286 / 24.804 ms per iteration; candidate artifact
 `8e982c05fa4e1f671b0de0805f9871d0c092b8af54f4ca381b32aedafa3a8b7d`
-(820,526 bytes) measured 1.020/2.195 ms. Payloads remained 1,772/1,786 bytes and
+(820,526 bytes) measured 1.020 / 2.195 ms. Payloads remained 1,772 / 1,786 bytes and
 both artifacts stayed below the 860,000-byte budget.
 
 Raw and legacy canonical-Rational routes are asserted to produce identical dyadic

@@ -553,6 +553,7 @@ pub(crate) fn asin(
     precision_bits: u32,
 ) -> Result<CertifiedInterval, IntervalError> {
     let (lower, upper) = inverse_sine_cosine_domain_bounds(value)?;
+    validate_ordered_rational_bounds(&lower, &upper)?;
     if lower == upper {
         if compare_absolute_rational_to_half(&lower) != Ordering::Greater {
             return asin_unit_dyadic_bounds(&lower, precision_bits);
@@ -5513,6 +5514,21 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn raw_asin_rounding_rejects_reversed_inputs_before_coarse_rounding() {
+        for (lower, upper, input_precision) in [
+            (rational(1, 4), Rational::zero(), 2),
+            (rational(3, 4), rational(1, 4), 2),
+            (rational(7, 8), rational(3, 4), 3),
+        ] {
+            let value = CertifiedInterval {
+                lower: rational_to_dyadic_bound(&lower, input_precision, BoundDirection::Lower),
+                upper: rational_to_dyadic_bound(&upper, input_precision, BoundDirection::Upper),
+            };
+            assert_eq!(asin(&value, 0), Err(IntervalError::InvalidBounds));
         }
     }
 
