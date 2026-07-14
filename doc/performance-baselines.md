@@ -932,13 +932,14 @@ approximate, wide-add, and wide-product controls were unchanged from the Issue
 88 candidate. Logical-work values were unchanged because this slice retains the
 existing conservative arithmetic reservation.
 
-Same-host Criterion measured the candidate mixed subtraction at
-`[17.212,18.618]` us. Wasm/npm benchmark definition v20 adds the corresponding
-public case; ten iterations after two warmups measured 0.726 ms per iteration
-with a 1,805-byte payload. The final artifact is
+Same-host Criterion moved from `[23.304,29.411]` us at base to
+`[17.212,18.618]` us at candidate. Wasm/npm benchmark definition v20 was applied
+to both artifacts for the corresponding public case; ten iterations after two
+warmups measured 0.719 ms at base and 0.726 ms at candidate, so the Wasm timing
+difference is treated as noise. Payload stayed at 1,805 bytes. The final artifact is
 `8520a6f4bb9c2a7ba5de32d238659377f3f430e919e9ac4bffa96ada6f587fcf`
 (825,518 bytes). Timing is a diagnostic snapshot; deterministic allocation is
-the primary claim.
+the primary claim; no Wasm speedup is claimed.
 
 ## Raw directed dyadic arctangent endpoints
 

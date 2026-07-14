@@ -37,7 +37,14 @@ Canonical negation now flips only the signed numerator and clones the positive
 denominator. Mixed subtraction allocation moved from 9,128 bytes / 404 blocks to
 9,064 / 396, while its 2,047 / 43 peak and logical work remained unchanged. A
 negative-literal addition control improved from 9,045 / 392 to 9,013 / 388 and
-the other representative controls were unchanged. Candidate Criterion was
-`[17.212,18.618]` us. Wasm benchmark definition v20 records 0.726 ms per
-iteration and a 1,805-byte payload; the 825,518-byte artifact SHA-256 is
+the other representative controls were unchanged. Criterion moved from
+`[23.304,29.411]` to `[17.212,18.618]` us. Applying Wasm benchmark definition
+v20 to both artifacts measured 0.719 ms at base and 0.726 ms at candidate, which
+is treated as noise rather than a speedup; payload remained 1,805 bytes. The
+825,518-byte artifact SHA-256 is
 `8520a6f4bb9c2a7ba5de32d238659377f3f430e919e9ac4bffa96ada6f587fcf`.
+
+Focused regressions, native and wasm-target lints, no-default/workspace/doc/Wasm
+tests, generated DTO/protocol/no-float/dependency gates, package check, example
+production build, external rational oracle, package-size gate, browser E2E, and
+Rust documentation build all passed on the final artifact.
