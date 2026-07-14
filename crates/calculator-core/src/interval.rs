@@ -579,6 +579,9 @@ pub(crate) fn asin(
         BoundDirection::Upper,
         shared_pi.as_ref(),
     )?;
+    if compare_dyadic(&lower, &upper)? == Ordering::Greater {
+        return Err(IntervalError::InvalidBounds);
+    }
     Ok(CertifiedInterval { lower, upper })
 }
 
@@ -2732,7 +2735,7 @@ fn asin_unit_dyadic_bounds(
     let term_count = series_terms(precision_bits)?;
     let ((lower_numerator, lower_denominator), (upper_numerator, upper_denominator)) =
         asin_common_denominator_parts(value, term_count)?;
-    Ok(CertifiedInterval {
+    let result = CertifiedInterval {
         lower: fraction_to_dyadic_bound(
             &lower_numerator,
             &lower_denominator,
@@ -2745,7 +2748,11 @@ fn asin_unit_dyadic_bounds(
             precision_bits,
             BoundDirection::Upper,
         ),
-    })
+    };
+    if compare_dyadic(&result.lower, &result.upper)? == Ordering::Greater {
+        return Err(IntervalError::InvalidBounds);
+    }
+    Ok(result)
 }
 
 fn asin_unit_dyadic_bound(
