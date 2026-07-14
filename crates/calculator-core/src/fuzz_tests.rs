@@ -183,10 +183,10 @@ fn multiplicative_literal_fold_charges_structural_logical_work() {
         ..CalculationRequest::default()
     };
     assert_eq!(
-        calculate(&source, &request(6_377), &mut EvaluationContext::default()).unwrap(),
+        calculate(&source, &request(1_339), &mut EvaluationContext::default()).unwrap(),
         default
     );
-    let limited = calculate(&source, &request(6_376), &mut EvaluationContext::default()).unwrap();
+    let limited = calculate(&source, &request(1_338), &mut EvaluationContext::default()).unwrap();
     assert!(matches!(
         &limited,
         CalculationOutcome::Partial {

@@ -1169,6 +1169,20 @@ impl Rational {
     }
 
     pub fn multiply(&self, rhs: &Self) -> Self {
+        if self.is_zero() || rhs.is_zero() {
+            return Self::zero();
+        }
+        if self.is_integer() && self.numerator.inner.is_one() {
+            return rhs.clone();
+        }
+        if rhs.is_integer() && rhs.numerator.inner.is_one() {
+            return self.clone();
+        }
+        if self.is_integer() && rhs.is_integer() {
+            return Self::from_integer(Integer::from_bigint(
+                &self.numerator.inner * &rhs.numerator.inner,
+            ));
+        }
         let numerator = &self.numerator.inner * &rhs.numerator.inner;
         let denominator = &self.denominator.inner.inner * &rhs.denominator.inner.inner;
         Self::new(
@@ -1729,6 +1743,44 @@ mod tests {
             assert_eq!(actual, expected);
             assert!(actual.is_integer());
         }
+    }
+
+    #[test]
+    fn rational_integer_multiplication_matches_canonical_constructor() {
+        let large = BigInt::one() << 4096_usize;
+        for (left, right) in [
+            (BigInt::zero(), large.clone()),
+            (large.clone(), BigInt::zero()),
+            (BigInt::one(), large.clone()),
+            (large.clone(), BigInt::one()),
+            (-BigInt::one(), large.clone()),
+            (large.clone() - 1_u8, large.clone() + 1_u8),
+            (-large.clone(), -large.clone()),
+        ] {
+            let actual = Rational::from_integer(Integer::from_bigint(left.clone()))
+                .multiply(&Rational::from_integer(Integer::from_bigint(right.clone())));
+            let expected =
+                Rational::new(Integer::from_bigint(left * right), Integer::one()).unwrap();
+            assert_eq!(actual, expected);
+            assert!(actual.is_integer());
+            if actual.is_zero() {
+                assert_eq!(actual.denominator.inner, Integer::one());
+            }
+        }
+    }
+
+    #[test]
+    fn rational_multiplication_identities_preserve_fractional_canonical_form() {
+        let fraction = Rational::new(Integer::from(-5), Integer::from(14)).unwrap();
+        assert_eq!(Rational::zero().multiply(&fraction), Rational::zero());
+        assert_eq!(fraction.multiply(&Rational::zero()), Rational::zero());
+        assert_eq!(Rational::one().multiply(&fraction), fraction);
+        assert_eq!(fraction.multiply(&Rational::one()), fraction);
+
+        let integer = Rational::from_integer(Integer::from(6));
+        let expected = Rational::new(Integer::from(-15), Integer::from(7)).unwrap();
+        assert_eq!(integer.multiply(&fraction), expected);
+        assert_eq!(fraction.multiply(&integer), expected);
     }
 
     #[test]

@@ -10241,6 +10241,18 @@ fn rational_add_work(left: &Rational, right: &Rational) -> usize {
 fn rational_multiply_work(left: &Rational, right: &Rational) -> usize {
     let left_numerator = integer_structural_size(&left.numerator);
     let right_numerator = integer_structural_size(&right.numerator);
+    if left.is_zero() || right.is_zero() {
+        return 1;
+    }
+    if left.is_integer() && left.numerator.inner.is_one() {
+        return rational_structural_size(right);
+    }
+    if right.is_integer() && right.numerator.inner.is_one() {
+        return rational_structural_size(left);
+    }
+    if left.is_integer() && right.is_integer() {
+        return left_numerator.saturating_mul(right_numerator);
+    }
     let left_denominator = integer_structural_size(&left.denominator.inner);
     let right_denominator = integer_structural_size(&right.denominator.inner);
     let numerator_size = left_numerator.saturating_add(right_numerator);
@@ -10427,7 +10439,7 @@ mod tests {
             &parsed,
             SemanticSettings::default(),
             &ResourceLimits {
-                max_logical_work_units: 10,
+                max_logical_work_units: 2,
                 ..ResourceLimits::default()
             },
         )
