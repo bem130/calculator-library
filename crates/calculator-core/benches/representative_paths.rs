@@ -271,6 +271,15 @@ fn calculate_wide_expression(criterion: &mut Criterion) {
     stages.finish();
 }
 
+fn parse_identifier_expression(criterion: &mut Criterion) {
+    let request = benchmark_request();
+    let source = "(exp(1)+sin(1))*cos(1)-exp(1)*cos(1)";
+    parse(source, &request.parse).expect("identifier expression preflight must succeed");
+    criterion.bench_function("parser/identifier_expression", |bencher| {
+        bencher.iter(|| black_box(parse(black_box(source), black_box(&request.parse)).unwrap()));
+    });
+}
+
 fn wide_add_source(terms: u64) -> String {
     (1..=terms)
         .map(|value| value.to_string())
@@ -498,6 +507,6 @@ criterion_group! {
         .sample_size(10)
         .warm_up_time(Duration::from_secs(1))
         .measurement_time(Duration::from_secs(1));
-    targets = calculate_representative_paths, calculate_wide_expression, calculate_wide_product, reduce_session_input, profile_approximate_stages, profile_approximate_components
+    targets = calculate_representative_paths, calculate_wide_expression, parse_identifier_expression, calculate_wide_product, reduce_session_input, profile_approximate_stages, profile_approximate_components
 }
 criterion_main!(representative_paths);

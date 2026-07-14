@@ -702,6 +702,35 @@ Reproduce with allocation case `wide_add_256`, Criterion case
 `large_expression_stages/parse_256`, the logical-work runner, and npm benchmark
 case `wide_add_256`.
 
+## Borrowed lexer identifier classification
+
+At base `20cf7fc`, every ASCII identifier was copied into a temporary `String`
+before classification into a payload-free constant or function token. The lexer
+now scans the same boundary and classifies the borrowed source slice directly.
+Unknown identifiers keep the same byte span, including where an ASCII identifier
+ends immediately before a multi-byte scalar.
+
+Deterministic one-calculation allocation changed from 51,603 bytes / 1,485 blocks
+to 51,588 / 1,480 for the five-identifier exact-symbolic case, from 165,260 /
+2,695 to 165,251 / 2,692 for the three-identifier approximate composite, and
+from 8,282 / 310 to 8,279 / 309 for `sin(1)`. The removed bytes and blocks equal
+the identifier lengths and counts; peak live allocation was unchanged. Logical
+work remains 400,447 units for the approximate control.
+
+Alternating same-host 20-sample parse-only runs overlapped: candidate
+1.506--1.617 us and rebuilt base 1.457--1.786 us. No timing claim is made. A
+three-iteration/one-warmup Wasm/npm smoke moved from 1.169 to 0.776 ms/iteration;
+the 1,780-byte payload and 3,640-byte JS heap delta were unchanged, so the short
+run is boundary evidence only. Base artifact
+`c4e863ac13c094a1147943165843e1725900bfda009090d64bbd4075f840a91a`
+was 828,720 bytes; candidate
+`7b8fbbe10259480120c58105088d0218a29097b608edc2da802363428288324d`
+is 828,671 bytes.
+
+Reproduce with allocation cases `exact_symbolic`, `approximate`, and
+`approximate_sin_one`; Criterion case `parser/identifier_expression`; the
+logical-work runner; and npm benchmark case `exact_symbolic`.
+
 ## Integral scientific literal construction
 
 At base `1815cf4`, zero scientific literals still constructed the full decimal

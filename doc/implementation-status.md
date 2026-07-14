@@ -47,6 +47,7 @@ Phase 5 の堅牢化として、次を CI に入れている。
 
 性能調査用には、native coreのexact/approximate/algebraic/large-expression/session経路を測るCriterion harness、native allocationとlogical-work境界のrunner、Wasm/npm facadeの対応経路を境界cost込みでJSON出力するrunnerを持つ。再現条件と比較手順は [`performance-baselines.md`](performance-baselines.md) に記録する。測定値は機種依存の診断情報であり、公開契約や固定CI閾値ではない。
 source parserはprimary tokenを破壊的に消費し、数値literalの所有`String`をsource ASTへ移動する。token全体をcloneしてlexer token列とASTに同じpayloadを二重保持せず、lookahead用slotにはspanを維持したpayloadなしのsentinelを残す。precedence、associativity、implicit multiplication、parse error、source AST limit、公開protocolは変更しない。
+ASCII identifier lexerはsource slice上の終端だけを走査し、そのborrowed sliceを直接`Constant`/`Function` tokenへ分類する。token/ASTが保持しない一時identifier `String`を除き、unknown identifierのbyte span、UTF-8境界、implicit multiplication、parse error、公開protocolを維持する。
 最初のprofilingではapproximate複合経路の時間がevaluationに集中することを確認し、interval endpoint比較でdyadicを既約rationalへ変換していた不要なGCD/divisionを、2冪指数を整列した係数比較へ置き換えた。logical-work課金と結果契約は維持する。
 続くexp/log profilingでは、lowerとupperが同じexact dyadic pointでも同じTaylor boundsを2回構築していたため、directed lower/upper pairを一度だけ計算して共有する。非退化intervalのendpoint別評価、保証区間、refinement上限、logical-work課金は変更しない。
 対数の範囲縮小後に生じる`log(1)`は、精度分の零Taylor termを構築せず、恒等式のexact directed pair `[0, 0]`を返す。これにより`ln(2)`とgeneral power内の対数経路から不要な有理数演算・allocationを除き、精度、refinement上限、logical-work課金は維持する。
