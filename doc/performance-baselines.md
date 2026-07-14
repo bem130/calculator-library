@@ -727,6 +727,51 @@ CALCULATOR_BENCH_CASE=exp_negative_10000 CALCULATOR_BENCH_ITERATIONS=10 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Convergent integer square-root baseline (Issue 98)
+
+The prior floor square root doubled a bound and then bisected the entire input
+bit width. The candidate derives an upper estimate from bit length and uses
+exact integer Newton convergence. Same-host one-calculation DHAT totals were:
+
+| case | base bytes / blocks | candidate bytes / blocks | base peak | candidate peak |
+| --- | ---: | ---: | ---: | ---: |
+| `approximate_sqrt_two` | 25,525 / 860 | 9,085 / 337 | 1,488 / 34 | 1,496 / 34 |
+| `approximate_general_power` | 118,249 / 1,221 | 101,809 / 698 | 6,223 / 43 | 6,223 / 43 |
+| `algebraic` control | 82,154 / 3,133 | 82,154 / 3,133 | 4,884 / 104 | 4,884 / 104 |
+
+Concurrent 30-sample Criterion ranges improved `sqrt(2)` from
+37.512--39.031 us to 6.921--8.185 us and general power from
+112.45--117.75 us to 77.71--82.49 us. The full logical-work output was
+byte-identical with SHA-256
+`a925d3238a37ac073ae380a8c0200c9c654944a71f9a3e573660740d55d6fbd7`.
+
+The ten-iteration/two-warmup Wasm/npm combined approximate path retained a
+1,812-byte payload and measured 1.068 ms/iteration base versus 1.296 ms
+candidate; the short boundary run is not used for a timing claim. Base artifact
+`9f80e03f47ebbfae9ff417689a6f9f01447d09d0ac1732eaf54c6b68f33f3108`
+was 829,237 bytes; candidate
+`1b615b409d886d2ed4ef0bc2fc85e407e72805e4a5e3f17e4bb1470d15b27e70`
+is 829,421 bytes and remains below budget.
+
+Reproduce allocation and native timing with separate base/candidate worktrees
+and target directories:
+
+```sh
+for case in approximate_sqrt_two approximate_general_power algebraic; do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- 'approximate_components/(sqrt_two|general_power)$' --sample-size 30
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_CASE=approximate CALCULATOR_BENCH_ITERATIONS=10 \
+  CALCULATOR_BENCH_WARMUP=2 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
+
 ## Consumed parser token payloads
 
 At base `e316e36`, `parse_primary` cloned each current token before advancing.
