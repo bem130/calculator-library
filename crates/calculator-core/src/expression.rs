@@ -8320,8 +8320,9 @@ impl DagBuilder {
             } => {
                 if matches!(op, BinaryOperator::Add | BinaryOperator::Subtract) {
                     let mut terms = Vec::new();
-                    self.lower_additive_terms(expression, false, &mut terms)?;
-                    return Ok(self.add_many(terms));
+                    let mut constant = Rational::zero();
+                    self.lower_additive_terms(expression, false, &mut terms, &mut constant)?;
+                    return Ok(self.add_many_with_constant(terms, constant));
                 }
                 let left = self.lower(left)?;
                 let right = self.lower(right)?;
@@ -8392,6 +8393,7 @@ impl DagBuilder {
         expression: &SourceExpr,
         negative: bool,
         terms: &mut Vec<ExprId>,
+        constant: &mut Rational,
     ) -> Result<(), EvaluationError> {
         match expression {
             SourceExpr::Binary {
@@ -8400,8 +8402,8 @@ impl DagBuilder {
                 right,
                 ..
             } => {
-                self.lower_additive_terms(left, negative, terms)?;
-                self.lower_additive_terms(right, negative, terms)
+                self.lower_additive_terms(left, negative, terms, constant)?;
+                self.lower_additive_terms(right, negative, terms, constant)
             }
             SourceExpr::Binary {
                 op: BinaryOperator::Subtract,
@@ -8409,11 +8411,16 @@ impl DagBuilder {
                 right,
                 ..
             } => {
-                self.lower_additive_terms(left, negative, terms)?;
-                self.lower_additive_terms(right, !negative, terms)
+                self.lower_additive_terms(left, negative, terms, constant)?;
+                self.lower_additive_terms(right, !negative, terms, constant)
             }
-            SourceExpr::Number { .. }
-            | SourceExpr::Constant { .. }
+            SourceExpr::Number { literal, .. } => {
+                let value = Rational::from_decimal_literal(literal)
+                    .map_err(decimal_literal_error_to_evaluation_error)?;
+                *constant = constant.add(&if negative { value.negate() } else { value });
+                Ok(())
+            }
+            SourceExpr::Constant { .. }
             | SourceExpr::Unary { .. }
             | SourceExpr::Binary { .. }
             | SourceExpr::Percent { .. }
@@ -8663,13 +8670,19 @@ impl DagBuilder {
     }
 
     fn add_many(&mut self, values: Vec<ExprId>) -> ExprId {
-        let expression = self.add_many_linear(values);
+        self.add_many_with_constant(values, Rational::zero())
+    }
+
+    fn add_many_with_constant(&mut self, values: Vec<ExprId>, constant: Rational) -> ExprId {
+        if values.is_empty() {
+            return self.push_rational(constant);
+        }
+        let expression = self.add_many_linear(values, constant);
         self.normalize_arithmetic_expression(expression)
     }
 
-    fn add_many_linear(&mut self, values: Vec<ExprId>) -> ExprId {
+    fn add_many_linear(&mut self, values: Vec<ExprId>, mut constant: Rational) -> ExprId {
         let mut terms = Vec::<BuilderLinearTerm>::new();
-        let mut constant = Rational::zero();
         let mut values = values.into_iter();
         if let Some(first) = values.next() {
             if let ExpressionNode::Add(list) = self.nodes[first.0 as usize] {
@@ -9450,7 +9463,7 @@ impl DagBuilder {
         for term in polynomial.terms {
             terms.push(self.materialize_monomial(term));
         }
-        self.add_many_linear(terms)
+        self.add_many_linear(terms, Rational::zero())
     }
 
     fn materialize_monomial(&mut self, monomial: BuilderMonomial) -> ExprId {
@@ -10089,6 +10102,15 @@ mod tests {
         let dag = lower("0.1 + 0.2");
         assert!(matches!(dag.node(dag.root()), ExpressionNode::Rational(_)));
         assert_eq!(evaluate_rational_dag(&dag).unwrap().to_string(), "3/10");
+    }
+
+    #[test]
+    fn additive_numeric_literals_materialize_only_the_folded_constant() {
+        let dag = lower("1.25 - (2 - 0.75) + 0.5");
+        assert_eq!(evaluate_rational_dag(&dag).unwrap().to_string(), "1/2");
+        assert_eq!(dag.nodes.len(), 1);
+        assert_eq!(dag.rationals.len(), 1);
+        assert!(dag.domain_obligations.is_empty());
     }
 
     #[test]

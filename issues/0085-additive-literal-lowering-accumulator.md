@@ -23,16 +23,18 @@ stage.
   syntax special case.
 - Continue lowering non-literal terms through the existing DAG and canonical
   polynomial path. Do not fold domain-sensitive or otherwise non-literal syntax.
-- Preserve source AST limits, canonical rewrite/logical-work accounting, internal
-  expression limits, deterministic exact output, no-float policy, and public
-  protocol. If eliminating unreachable nodes changes a limit boundary, prove that
-  the removed nodes were not observable work or weaken resource protection.
+- Preserve source AST limits, canonical rewrite/logical-work accounting semantics,
+  internal expression limits, deterministic exact output, no-float policy, and
+  public protocol. Logical work may decrease only by the intern/hash/node and
+  normalization work actually eliminated; prove with limit regressions that source
+  protection remains prior and that no performed canonical work becomes uncharged.
 
 ## Acceptance
 
 - Positive, negative, decimal, mixed literal/symbolic, nested add/subtract, and
   invalid/limited input regressions preserve results and error precedence.
-- Wide-add scaling retains exact outputs and the existing logical-work boundary.
+- Wide-add scaling retains exact outputs; any logical-work boundary reduction is
+  attributable to eliminated operations and does not bypass source limits.
 - Native timing/allocation/stages and Wasm/npm boundary measurements show the
   attributable effect; exact rational, symbolic, algebraic, and approximate
   controls do not regress.

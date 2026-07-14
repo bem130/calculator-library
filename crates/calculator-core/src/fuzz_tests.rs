@@ -40,7 +40,20 @@ fn source_resource_limits_are_enforced_before_evaluation() {
         max_expression_nodes: 2,
         ..ResourceLimits::default()
     };
-    assert_input_limit("1 + 2", limits, InputLimitErrorKind::ExpressionTooLarge);
+    assert_input_limit(
+        "sin(1) + sin(2)",
+        limits,
+        InputLimitErrorKind::ExpressionTooLarge,
+    );
+
+    let request = CalculationRequest {
+        limits: ResourceLimitRequest::Custom(ResourceLimits {
+            max_expression_nodes: 1,
+            ..ResourceLimits::default()
+        }),
+        ..CalculationRequest::default()
+    };
+    assert!(calculate("1 + 2", &request, &mut EvaluationContext::default()).is_ok());
 }
 
 #[test]
