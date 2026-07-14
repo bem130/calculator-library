@@ -65,6 +65,11 @@ const APPROXIMATE_COMPONENTS: &[(&str, &str, ExpectedExact)] = &[
         ExpectedExact::GeneralSymbolic,
     ),
     (
+        "exp_tiny_dyadic_1000",
+        "exp(1/2^1000)",
+        ExpectedExact::GeneralSymbolic,
+    ),
+    (
         "exp_negative_two",
         "exp(-2)",
         ExpectedExact::GeneralSymbolic,

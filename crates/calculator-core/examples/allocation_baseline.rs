@@ -51,6 +51,7 @@ fn main() {
         "approximate_exp_tiny_dyadic" => {
             Some(String::from("exp(1/1267650600228229401496703205376)"))
         }
+        "approximate_exp_tiny_dyadic_1000" => Some(String::from("exp(1/2^1000)")),
         "approximate_exp_negative_two" => Some(String::from("exp(-2)")),
         "approximate_exp_negative_10000" => Some(String::from("exp(-10000)")),
         "approximate_exp_positive_10000" => Some(String::from("exp(10000)")),

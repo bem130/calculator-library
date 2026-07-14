@@ -254,7 +254,7 @@ pub(crate) fn exp(
         && exp_can_round_series_directly(&lower)
         && exp_can_round_series_directly(&upper)
     {
-        let common_denominator = exp_series_common_denominator_with_factorial(
+        let common_denominator = exp_series_denominator_with_factorial(
             &lower.denominator.inner.inner,
             term_count,
             &series_plan.factorial,
@@ -1286,14 +1286,14 @@ fn exp_series_dyadic_bounds_with_plan(
         });
     }
     let state = exp_series_state_with_plan(value, plan, tail_index)?;
-    let (upper_numerator, upper_denominator) = state.upper_parts();
-    let lower = fraction_to_dyadic_bound(
+    let (upper_numerator, upper_denominator) = state.upper_parts()?;
+    let lower = exp_fraction_to_dyadic_bound(
         &state.sum_numerator,
         &state.common_denominator,
         precision_bits,
         BoundDirection::Lower,
     );
-    let upper = fraction_to_dyadic_bound(
+    let upper = exp_fraction_to_dyadic_bound(
         &upper_numerator,
         &upper_denominator,
         precision_bits,
@@ -1354,8 +1354,8 @@ fn exp_series_dyadic_bound_with_plan(
         });
     }
     let state = exp_series_state_with_plan(value, plan, tail_index)?;
-    let (numerator, denominator) = state.into_parts(direction);
-    Ok(fraction_to_dyadic_bound(
+    let (numerator, denominator) = state.into_parts(direction)?;
+    Ok(exp_fraction_to_dyadic_bound(
         &numerator,
         &denominator,
         precision_bits,
@@ -1377,7 +1377,7 @@ fn exp_series_rational_bound_with_common_denominator(
         value,
         term_count,
         tail_index,
-        common_denominator,
+        ExpSeriesDenominator::Materialized(common_denominator),
     )?;
     match direction {
         BoundDirection::Lower => state.into_lower(),
@@ -1389,7 +1389,7 @@ fn exp_series_dyadic_bound_with_common_denominator(
     value: &Rational,
     term_count: u32,
     direction: BoundDirection,
-    common_denominator: BigInt,
+    common_denominator: ExpSeriesDenominator,
     precision_bits: u32,
 ) -> Result<ExactDyadic, IntervalError> {
     let tail_index = term_count
@@ -1401,8 +1401,8 @@ fn exp_series_dyadic_bound_with_common_denominator(
         tail_index,
         common_denominator,
     )?;
-    let (numerator, denominator) = state.into_parts(direction);
-    Ok(fraction_to_dyadic_bound(
+    let (numerator, denominator) = state.into_parts(direction)?;
+    Ok(exp_fraction_to_dyadic_bound(
         &numerator,
         &denominator,
         precision_bits,
@@ -1410,10 +1410,48 @@ fn exp_series_dyadic_bound_with_common_denominator(
     ))
 }
 
+#[derive(Clone)]
+enum ExpSeriesDenominator {
+    Materialized(BigInt),
+    Dyadic { base: BigInt, shift: usize },
+}
+
+impl ExpSeriesDenominator {
+    fn materialize(self) -> BigInt {
+        match self {
+            Self::Materialized(value) => value,
+            Self::Dyadic { base, shift } => base << shift,
+        }
+    }
+
+    fn with_tail_factor(
+        &self,
+        value_denominator: &BigInt,
+        tail_index: u32,
+    ) -> Result<Self, IntervalError> {
+        match self {
+            Self::Materialized(value) => {
+                Ok(Self::Materialized(value * value_denominator * tail_index))
+            }
+            Self::Dyadic { base, shift } => {
+                let denominator_shift = recurrence_denominator_shift(value_denominator)?
+                    .expect("structured exponential denominator requires a dyadic input");
+                let shift = shift
+                    .checked_add(denominator_shift)
+                    .ok_or(IntervalError::ExponentTooLarge)?;
+                Ok(Self::Dyadic {
+                    base: base * tail_index,
+                    shift,
+                })
+            }
+        }
+    }
+}
+
 struct ExpSeriesState<'a> {
     sum_numerator: BigInt,
     term_numerator: BigInt,
-    common_denominator: BigInt,
+    common_denominator: ExpSeriesDenominator,
     value_numerator: &'a BigInt,
     value_denominator: &'a BigInt,
     tail_index: u32,
@@ -1421,7 +1459,7 @@ struct ExpSeriesState<'a> {
 
 impl ExpSeriesState<'_> {
     fn into_lower(self) -> Result<Rational, IntervalError> {
-        rational_from_parts(self.sum_numerator, self.common_denominator)
+        rational_from_parts(self.sum_numerator, self.common_denominator.materialize())
     }
 
     fn into_upper(self) -> Result<Rational, IntervalError> {
@@ -1431,39 +1469,48 @@ impl ExpSeriesState<'_> {
         state.term_numerator *= state.value_numerator;
         state.term_numerator *= 2_u8;
         state.sum_numerator += state.term_numerator;
-        state.common_denominator *= next_denominator_factor;
-        rational_from_parts(state.sum_numerator, state.common_denominator)
+        state.common_denominator = state
+            .common_denominator
+            .with_tail_factor(state.value_denominator, state.tail_index)?;
+        rational_from_parts(state.sum_numerator, state.common_denominator.materialize())
     }
 
     fn into_bounds(self) -> Result<(Rational, Rational), IntervalError> {
         let upper = self.upper()?;
-        let lower = rational_from_parts(self.sum_numerator, self.common_denominator)?;
+        let lower = rational_from_parts(self.sum_numerator, self.common_denominator.materialize())?;
         Ok((lower, upper))
     }
 
     fn upper(&self) -> Result<Rational, IntervalError> {
-        let (upper_numerator, upper_denominator) = self.upper_parts();
-        rational_from_parts(upper_numerator, upper_denominator)
+        let (upper_numerator, upper_denominator) = self.upper_parts()?;
+        rational_from_parts(upper_numerator, upper_denominator.materialize())
     }
 
-    fn into_parts(mut self, direction: BoundDirection) -> (BigInt, BigInt) {
+    fn into_parts(
+        mut self,
+        direction: BoundDirection,
+    ) -> Result<(BigInt, ExpSeriesDenominator), IntervalError> {
         if matches!(direction, BoundDirection::Upper) {
             let next_denominator_factor = self.value_denominator * self.tail_index;
             self.sum_numerator *= &next_denominator_factor;
             self.term_numerator *= self.value_numerator;
             self.term_numerator *= 2_u8;
             self.sum_numerator += self.term_numerator;
-            self.common_denominator *= next_denominator_factor;
+            self.common_denominator = self
+                .common_denominator
+                .with_tail_factor(self.value_denominator, self.tail_index)?;
         }
-        (self.sum_numerator, self.common_denominator)
+        Ok((self.sum_numerator, self.common_denominator))
     }
 
-    fn upper_parts(&self) -> (BigInt, BigInt) {
+    fn upper_parts(&self) -> Result<(BigInt, ExpSeriesDenominator), IntervalError> {
         let next_denominator_factor = self.value_denominator * self.tail_index;
         let mut upper_numerator = &self.sum_numerator * &next_denominator_factor;
         upper_numerator += &self.term_numerator * self.value_numerator * 2_u8;
-        let upper_denominator = &self.common_denominator * next_denominator_factor;
-        (upper_numerator, upper_denominator)
+        let upper_denominator = self
+            .common_denominator
+            .with_tail_factor(self.value_denominator, self.tail_index)?;
+        Ok((upper_numerator, upper_denominator))
     }
 }
 
@@ -1489,11 +1536,8 @@ fn exp_series_state_with_plan<'a>(
     let term_count = plan.term_count;
     let value_numerator = &value.numerator.inner;
     let value_denominator = &value.denominator.inner.inner;
-    let common_denominator = exp_series_common_denominator_with_factorial(
-        value_denominator,
-        term_count,
-        &plan.factorial,
-    )?;
+    let common_denominator =
+        exp_series_denominator_with_factorial(value_denominator, term_count, &plan.factorial)?;
     let value_denominator_shift = recurrence_denominator_shift(value_denominator)?;
     let mut sum_numerator = BigInt::one();
     let mut term_numerator = BigInt::one();
@@ -1521,7 +1565,7 @@ fn exp_series_state_with_common_denominator<'a>(
     value: &'a Rational,
     term_count: u32,
     tail_index: u32,
-    common_denominator: BigInt,
+    common_denominator: ExpSeriesDenominator,
 ) -> Result<ExpSeriesState<'a>, IntervalError> {
     let value_numerator = &value.numerator.inner;
     let value_denominator = &value.denominator.inner.inner;
@@ -1557,6 +1601,7 @@ fn exp_series_common_denominator(
     exp_series_common_denominator_with_factorial(value_denominator, term_count, &factorial)
 }
 
+#[cfg(test)]
 fn exp_series_common_denominator_with_factorial(
     value_denominator: &BigInt,
     term_count: u32,
@@ -1567,6 +1612,23 @@ fn exp_series_common_denominator_with_factorial(
         Ok(factorial << shift)
     } else {
         Ok(value_denominator.pow(term_count) * factorial)
+    }
+}
+
+fn exp_series_denominator_with_factorial(
+    value_denominator: &BigInt,
+    term_count: u32,
+    factorial: &BigInt,
+) -> Result<ExpSeriesDenominator, IntervalError> {
+    if let Some(denominator_shift) = positive_power_of_two_shift(value_denominator) {
+        Ok(ExpSeriesDenominator::Dyadic {
+            base: factorial.clone(),
+            shift: checked_exp_denominator_total_shift(denominator_shift, term_count)?,
+        })
+    } else {
+        Ok(ExpSeriesDenominator::Materialized(
+            value_denominator.pow(term_count) * factorial,
+        ))
     }
 }
 
@@ -4108,6 +4170,46 @@ fn fraction_to_dyadic_bound(
     normalize_dyadic(coefficient, -BigInt::from(precision_bits))
 }
 
+fn exp_fraction_to_dyadic_bound(
+    numerator: &BigInt,
+    denominator: &ExpSeriesDenominator,
+    precision_bits: u32,
+    direction: BoundDirection,
+) -> ExactDyadic {
+    match denominator {
+        ExpSeriesDenominator::Materialized(denominator) => {
+            fraction_to_dyadic_bound(numerator, denominator, precision_bits, direction)
+        }
+        ExpSeriesDenominator::Dyadic { base, shift } => {
+            debug_assert!(base.is_positive());
+            let precision = usize::try_from(precision_bits)
+                .expect("u32 precision must fit every supported target usize");
+            let coefficient = if precision >= *shift {
+                let scaled_numerator = numerator << (precision - shift);
+                match direction {
+                    BoundDirection::Lower => scaled_numerator.div_floor(base),
+                    BoundDirection::Upper => scaled_numerator.div_ceil(base),
+                }
+            } else {
+                let remaining_shift = precision.abs_diff(*shift);
+                let (base_quotient, base_remainder) = numerator.div_mod_floor(base);
+                // `BigInt` right shift is arithmetic, hence it is the exact floor
+                // division by the power of two without constructing that divisor.
+                let shifted_quotient = &base_quotient >> remaining_shift;
+                if matches!(direction, BoundDirection::Upper)
+                    && (base_quotient != &shifted_quotient << remaining_shift
+                        || !base_remainder.is_zero())
+                {
+                    shifted_quotient + 1_u8
+                } else {
+                    shifted_quotient
+                }
+            };
+            normalize_dyadic(coefficient, -BigInt::from(precision_bits))
+        }
+    }
+}
+
 fn reciprocal_interval(
     interval: &CertifiedInterval,
     precision_bits: u32,
@@ -5267,6 +5369,66 @@ mod tests {
     }
 
     #[test]
+    fn structured_dyadic_exponential_denominator_rounds_like_materialized_fraction() {
+        for base in [BigInt::one(), BigInt::from(3_u8), BigInt::from(120_u8)] {
+            for shift in [0_usize, 7, 64, 191] {
+                let structured = ExpSeriesDenominator::Dyadic {
+                    base: base.clone(),
+                    shift,
+                };
+                let materialized = &base << shift;
+                for numerator in [
+                    BigInt::from(-12_345_i32),
+                    BigInt::from(-1_i8),
+                    BigInt::zero(),
+                    BigInt::one(),
+                    BigInt::from(12_345_u32),
+                    (&materialized * 5_u8) + 1_u8,
+                ] {
+                    for precision_bits in [0_u32, 7, 64, 128, 256] {
+                        for direction in [BoundDirection::Lower, BoundDirection::Upper] {
+                            assert_eq!(
+                                exp_fraction_to_dyadic_bound(
+                                    &numerator,
+                                    &structured,
+                                    precision_bits,
+                                    direction,
+                                ),
+                                fraction_to_dyadic_bound(
+                                    &numerator,
+                                    &materialized,
+                                    precision_bits,
+                                    direction,
+                                ),
+                                "base={base}, shift={shift}, numerator={numerator}, precision={precision_bits}",
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn planned_dyadic_exponential_denominator_stays_structured() {
+        let plan = ExpSeriesPlan {
+            term_count: 17,
+            factorial: exp_series_factorial(17),
+        };
+        let value = rational(3, 8);
+        let state = exp_series_state_with_plan(&value, &plan, 18).unwrap();
+        match state.common_denominator {
+            ExpSeriesDenominator::Dyadic { base, shift } => {
+                assert_eq!(base, plan.factorial);
+                assert_eq!(shift, 51);
+            }
+            ExpSeriesDenominator::Materialized(_) => {
+                panic!("dyadic denominator must remain structured")
+            }
+        }
+    }
+
+    #[test]
     fn dyadic_exponential_recurrence_matches_general_denominator_products() {
         fn legacy_state<'a>(
             value: &'a Rational,
@@ -5292,7 +5454,7 @@ mod tests {
             ExpSeriesState {
                 sum_numerator,
                 term_numerator,
-                common_denominator,
+                common_denominator: ExpSeriesDenominator::Materialized(common_denominator),
                 value_numerator,
                 value_denominator,
                 tail_index,
