@@ -43,3 +43,8 @@ moved from `[183.60,212.70]` to `[165.64,205.12]` us. The v19 Wasm smoke moved
 from 1.379 to 1.304 ms with its 2,162-byte payload unchanged; final artifact
 SHA-256 is `091ea180ff8623ceba34aeabfd5cd810daeb062d396a2a8ff9e455bde7a439b9`
 at 825,688 bytes.
+
+Focused regressions, native and wasm-target lints, no-default/workspace/doc/Wasm
+tests, generated DTO/protocol/no-float/dependency gates, package check, example
+production build, external rational oracle, package-size gate, browser E2E, and
+Rust documentation build all passed on the final artifact.
