@@ -1,8 +1,9 @@
 use calculator_core::{
-    calculate, reduce_input, CalculationRequest, EvaluationContext, InputAction, InputPolicy,
-    InputState,
+    calculate, reduce_input, CalculationRequest, DecimalRoundingMode, EnclosureFormat,
+    EnclosureOutputRequest, EvaluationContext, InputAction, InputPolicy, InputState,
+    ScientificOutputRequest,
 };
-use std::{env, hint::black_box};
+use std::{env, hint::black_box, num::NonZeroU32};
 
 #[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
@@ -16,7 +17,24 @@ fn main() {
         .map(|value| value.parse::<u32>().expect("iterations must be a u32"))
         .unwrap_or(10);
     assert!(iterations > 0, "iterations must be positive");
-    let request = CalculationRequest::default();
+    let mut request = CalculationRequest::default();
+    if let Some(significant_digits) = env::var("CALCULATOR_SIGNIFICANT_DIGITS")
+        .ok()
+        .map(|value| {
+            value
+                .parse::<u32>()
+                .expect("significant digits must be a u32")
+        })
+        .map(|value| NonZeroU32::new(value).expect("significant digits must be positive"))
+    {
+        request.scientific_output = ScientificOutputRequest::Include {
+            significant_digits,
+            rounding_mode: DecimalRoundingMode::NearestTiesToEven,
+        };
+        request.enclosure_output = EnclosureOutputRequest::Include {
+            format: EnclosureFormat::DecimalScientific { significant_digits },
+        };
+    }
     let policy = InputPolicy::default();
     let source = match case.as_str() {
         "exact_rational" => Some(String::from(

@@ -4774,6 +4774,7 @@ mod tests {
                 rational(3, 4),
                 Rational::one(),
                 rational(3, 2),
+                rational(7, 4),
                 rational(2, 1),
                 rational(3, 1),
                 rational(8, 1),
@@ -4858,6 +4859,7 @@ mod tests {
                 (rational(1, 2), rational(2, 1)),
                 (rational(3, 4), rational(3, 2)),
                 (rational(3, 2), rational(3, 1)),
+                (rational(7, 4), rational(15, 8)),
                 (rational(2, 1), rational(9, 1)),
             ] {
                 let (expected_lower, expected_upper) =
@@ -4879,6 +4881,41 @@ mod tests {
             upper: rational_to_dyadic_bound(&rational(1, 2), 2, BoundDirection::Upper),
         };
         assert_eq!(log(&value, 0), Err(IntervalError::InvalidBounds));
+    }
+
+    #[test]
+    fn raw_log_public_path_preserves_fast_path_and_error_precedence() {
+        let one = from_rational(&Rational::one(), 0);
+        assert_eq!(log(&one, u32::MAX), Ok(from_rational(&Rational::zero(), 0)),);
+
+        let three_halves = CertifiedInterval {
+            lower: exact_dyadic(3, -1),
+            upper: exact_dyadic(3, -1),
+        };
+        assert_eq!(
+            log(&three_halves, u32::MAX),
+            Err(IntervalError::ExponentTooLarge),
+        );
+
+        let negative = CertifiedInterval {
+            lower: exact_dyadic(-2, 0),
+            upper: exact_dyadic(-1, 0),
+        };
+        assert_eq!(
+            log(&negative, u32::MAX),
+            Err(IntervalError::Domain(
+                DomainErrorKind::LogarithmOfNonPositive,
+            )),
+        );
+
+        let crossing_zero = CertifiedInterval {
+            lower: exact_dyadic(-1, 0),
+            upper: exact_dyadic(1, 0),
+        };
+        assert_eq!(
+            log(&crossing_zero, u32::MAX),
+            Err(IntervalError::UnsupportedExpression),
+        );
     }
 
     #[test]
