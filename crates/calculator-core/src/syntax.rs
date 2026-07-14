@@ -128,8 +128,8 @@ fn lex(source: &str) -> Result<Vec<Token>, ParseError> {
         }
 
         if ch.is_ascii_alphabetic() {
-            let (identifier, end) = lex_identifier(source, cursor);
-            let kind = identifier_token(&identifier).ok_or_else(|| ParseError {
+            let end = lex_identifier_end(source, cursor);
+            let kind = identifier_token(&source[cursor..end]).ok_or_else(|| ParseError {
                 kind: ParseErrorKind::UnknownIdentifier,
                 span: span(cursor, end),
                 expected: Vec::new(),
@@ -237,7 +237,7 @@ fn consume_exponent(source: &str, cursor: usize) -> Result<Option<usize>, ParseE
     Ok(Some(after_digits))
 }
 
-fn lex_identifier(source: &str, start: usize) -> (String, usize) {
+fn lex_identifier_end(source: &str, start: usize) -> usize {
     let mut cursor = start;
     while cursor < source.len() {
         let ch = next_char(source, cursor);
@@ -247,7 +247,7 @@ fn lex_identifier(source: &str, start: usize) -> (String, usize) {
             break;
         }
     }
-    (String::from(&source[start..cursor]), cursor)
+    cursor
 }
 
 fn identifier_token(identifier: &str) -> Option<TokenKind> {
@@ -941,6 +941,20 @@ mod tests {
         assert_eq!(parse_err("nan"), ParseErrorKind::UnknownIdentifier);
         assert_eq!(parse_err("undefined"), ParseErrorKind::UnknownIdentifier);
         assert_eq!(parse_err("null"), ParseErrorKind::UnknownIdentifier);
+    }
+
+    #[test]
+    fn borrowed_identifier_slices_preserve_tokens_spans_and_utf8_boundaries() {
+        parse_ok("2pi+2sin(1)+piπ");
+
+        assert_eq!(
+            parse_source("foo_2π", &ParseSettings::default()).expect_err("foo_2π"),
+            ParseError {
+                kind: ParseErrorKind::UnknownIdentifier,
+                span: ByteSpan { start: 0, end: 5 },
+                expected: Vec::new(),
+            }
+        );
     }
 
     #[test]
