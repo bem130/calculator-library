@@ -715,6 +715,10 @@ done
 cargo bench -p calculator-core --bench representative_paths --features std \
   -- 'approximate_components/(general_power|sqrt_two|exp_negative_10000|exp_one)$' \
   --sample-size 20
+# For the reported exp(-10000) control, run this 30-sample command concurrently
+# from base and candidate worktrees with separate CARGO_TARGET_DIR values.
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/exp_negative_10000 --sample-size 30
 cargo run --profile bench -p calculator-core --features std \
   --example logical_work_baseline
 corepack pnpm --dir packages/calculator run build:wasm

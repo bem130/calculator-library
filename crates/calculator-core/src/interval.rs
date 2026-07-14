@@ -4687,7 +4687,7 @@ mod tests {
             normalize_dyadic(BigInt::zero(), BigInt::from(-99)),
             bitwise(BigInt::zero(), BigInt::from(-99))
         );
-        for shift in [0_usize, 1, 63, 64, 65, 127, 128, 129, 1_000] {
+        for shift in [0_usize, 1, 31, 32, 33, 63, 64, 65, 127, 128, 129, 1_000] {
             for odd in [-17_i64, -1, 1, 19] {
                 for exponent in [-1_000_i64, -1, 0, 1, 1_000] {
                     let coefficient = BigInt::from(odd) << shift;
