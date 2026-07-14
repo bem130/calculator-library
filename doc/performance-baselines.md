@@ -670,7 +670,7 @@ cargo run --profile bench -p calculator-core --features std \
   --example logical_work_baseline
 corepack pnpm --dir packages/calculator run build:wasm
 CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
-corepack pnpm --silent --dir packages/calculator run benchmark
+  corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
 ## Integral scientific literal construction
@@ -701,6 +701,27 @@ Reproduce with allocation cases `exact_zero_large_scale`,
 `exact_integral_scientific`, and `exact_rational`; Criterion filter
 `calculate/(exact_integral_scientific|exact_zero_large_scale)$`; the logical-work
 runner; and focused npm cases with the same names.
+
+```sh
+for case in exact_zero_large_scale exact_integral_scientific exact_rational
+do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- 'calculate/(exact_integral_scientific|exact_zero_large_scale)$' \
+  --sample-size 10
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+for case in exact_integral_scientific exact_zero_large_scale
+do
+  CALCULATOR_BENCH_CASE="$case" CALCULATOR_BENCH_ITERATIONS=3 \
+    CALCULATOR_BENCH_WARMUP=1 \
+    corepack pnpm --silent --dir packages/calculator run benchmark
+done
+```
 
 ## Rational integer-operand addition
 

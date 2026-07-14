@@ -1830,6 +1830,9 @@ mod tests {
             ("000.000e-100000", "0"),
             ("-0e-100000", "0"),
             ("0e100000", "0"),
+            ("0e-4294967296", "0"),
+            ("0e4294967296", "0"),
+            ("0e9223372036854775807", "0"),
         ] {
             let actual = Rational::from_decimal_literal(literal).unwrap();
             assert_eq!(actual.numerator.to_string(), expected, "{literal}");
@@ -1840,6 +1843,19 @@ mod tests {
             assert!(!Rational::from_decimal_literal(literal)
                 .unwrap()
                 .is_integer());
+        }
+
+        for literal in [
+            "0e-9223372036854775808",
+            "0.0e-9223372036854775807",
+            "1e-4294967296",
+            "1e4294967296",
+        ] {
+            assert_eq!(
+                Rational::from_decimal_literal(literal),
+                Err(DecimalLiteralError::ExponentTooLarge),
+                "{literal}",
+            );
         }
     }
 
