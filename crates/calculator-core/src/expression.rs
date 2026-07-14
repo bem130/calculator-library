@@ -10441,6 +10441,41 @@ mod tests {
     }
 
     #[test]
+    fn multiplicative_literal_fallback_is_not_selected_for_an_unrelated_rewrite_limit() {
+        let parsed = parse_source("2 * sin(1)^2", &ParseSettings::default()).unwrap();
+        let mut builder = DagBuilder {
+            semantics: SemanticSettings::default(),
+            canonical_budget: CanonicalBudget {
+                rewrite_steps_remaining: 0,
+                logical_work_remaining: ResourceLimits::default().max_logical_work_units,
+            },
+            canonical_term_limit: usize::try_from(ResourceLimits::default().max_expression_nodes)
+                .unwrap(),
+            ..DagBuilder::default()
+        };
+
+        let root = builder.lower(&parsed).unwrap();
+
+        assert_eq!(
+            builder.canonical_limit_reached,
+            Some(ComputationLimitKind::RewriteSteps)
+        );
+        assert!(!builder.multiplicative_literal_fold_limit_reached);
+        assert!(matches!(
+            builder.nodes[root.0 as usize],
+            ExpressionNode::Multiply(_)
+        ));
+    }
+
+    #[test]
+    fn multiplicative_lowering_preserves_division_and_percent_boundaries() {
+        for (source, expected) in [("2*3/4", "3/2"), ("2*(3/4)", "3/2"), ("2*50%*3", "3")] {
+            let dag = lower(source);
+            assert_eq!(evaluate_rational_dag(&dag).unwrap().to_string(), expected);
+        }
+    }
+
+    #[test]
     fn integer_structural_size_matches_signed_byte_limb_boundaries() {
         for shift in [63_usize, 64, 127, 128] {
             let power = BigInt::one() << shift;

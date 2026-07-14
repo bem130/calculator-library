@@ -66,6 +66,14 @@ fn source_resource_limits_are_enforced_before_evaluation() {
     };
     assert!(calculate("1 + 2", &request, &mut EvaluationContext::default()).is_ok());
     assert!(calculate("2 * 3", &request, &mut EvaluationContext::default()).is_ok());
+    assert_input_limit(
+        "sin(1) * cos(1)",
+        ResourceLimits {
+            max_expression_nodes: 1,
+            ..ResourceLimits::default()
+        },
+        InputLimitErrorKind::ExpressionTooLarge,
+    );
 }
 
 #[test]
@@ -179,6 +187,54 @@ fn multiplicative_literal_fold_charges_structural_logical_work() {
         default
     );
     let limited = calculate(&source, &request(6_376), &mut EvaluationContext::default()).unwrap();
+    assert!(matches!(
+        &limited,
+        CalculationOutcome::Partial {
+            reason: IncompleteReason::ComputationLimit {
+                kind: ComputationLimitKind::LogicalWorkUnits
+            },
+            ..
+        }
+    ));
+    assert_eq!(exact_plain_text(&limited), exact_plain_text(&default));
+}
+
+#[test]
+fn multiplicative_decimal_fold_charges_normalization_work() {
+    let source = "12345678901234567890.1 * 98765432109876543210.2";
+    let default = calculate(
+        source,
+        &CalculationRequest::default(),
+        &mut EvaluationContext::default(),
+    )
+    .unwrap();
+    let calculate_with_work = |units| {
+        calculate(
+            source,
+            &CalculationRequest {
+                limits: ResourceLimitRequest::Custom(ResourceLimits {
+                    max_logical_work_units: units,
+                    ..ResourceLimits::default()
+                }),
+                ..CalculationRequest::default()
+            },
+            &mut EvaluationContext::default(),
+        )
+        .unwrap()
+    };
+    let mut low = 0;
+    let mut high = ResourceLimits::default().max_logical_work_units;
+    while low < high {
+        let middle = low + (high - low) / 2;
+        if calculate_with_work(middle) == default {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    assert!(low > 10);
+    assert_eq!(calculate_with_work(low), default);
+    let limited = calculate_with_work(low - 1);
     assert!(matches!(
         &limited,
         CalculationOutcome::Partial {

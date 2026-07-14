@@ -6948,6 +6948,9 @@ mod tests {
                 DomainErrorKind::EvenRootOfNegative,
             ),
             ("0*ln(sin(-1))", DomainErrorKind::LogarithmOfNonPositive),
+            ("0*(1/0)", DomainErrorKind::DivisionByZero),
+            ("(1/0)*0", DomainErrorKind::DivisionByZero),
+            ("0*ln(-1)*2", DomainErrorKind::LogarithmOfNonPositive),
             ("log(2,2/2)-log(2,2/2)", DomainErrorKind::LogarithmBaseOne),
             (
                 "log(2,exp(0))-log(2,exp(0))",
