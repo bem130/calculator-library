@@ -1199,6 +1199,20 @@ unchanged. The remaining wide-input allocation is led by lexer token storage and
 the source AST; those are separate parser data-structure targets rather than
 Rational arithmetic normalization.
 
+The same-host ten-sample Criterion comparison measured candidate wide-add at
+185.11--223.92 us and base at 305.03--367.42 us. Candidate exact rational was
+32.54--41.31 us against base 36.70--47.42 us, with no change detected for that
+control. A three-iteration/one-warmup Wasm/npm facade smoke moved wide-add from
+1.558 ms/iteration to 0.928 ms/iteration; the result payload remained 1,728 bytes
+and retained heap remained 3,528 bytes. Base artifact
+`5cc8d57bef0a9e22aaa29ac2824508d32903f225ce4203649ddf2db527740134`
+was 825,746 bytes and candidate artifact
+`45265a3e54ea365a7daaf6cd062dbcc81587378a08b58f79e6c132b6ade0416c`
+was 826,091 bytes. Native Criterion and deterministic allocation support the
+performance claim; the short Wasm smoke verifies the public boundary, stable
+payload, and consistent focused direction without serving as a general timing
+threshold.
+
 ## First-child interval folds
 
 At base commit `bc9776e`, every n-ary certified Add and Multiply evaluation built

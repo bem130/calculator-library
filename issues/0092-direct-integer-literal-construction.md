@@ -49,3 +49,16 @@ for the 256-term wide sum moved from 99,957 bytes / 4,424 blocks to 81,525 /
 2,888. Peak remained 38,104 bytes / 1,023 blocks and logical work remained 261
 units. The exact-rational control moved from 12,582 / 529 to 12,182 / 501 while
 its logical work remained 231 units.
+
+A same-host ten-sample Criterion comparison measured the candidate wide-add at
+185.11--223.92 us versus base at 305.03--367.42 us. Exact rational measured
+32.54--41.31 us versus 36.70--47.42 us with no detected change. The
+three-iteration/one-warmup Wasm/npm smoke moved wide-add from 1.558 ms/iteration
+to 0.928 ms/iteration while payload stayed 1,728 bytes and retained heap stayed
+3,528 bytes. Base artifact
+`5cc8d57bef0a9e22aaa29ac2824508d32903f225ce4203649ddf2db527740134`
+was 825,746 bytes; candidate
+`45265a3e54ea365a7daaf6cd062dbcc81587378a08b58f79e6c132b6ade0416c`
+is 826,091 bytes and remains below the package budget. Native Criterion and
+deterministic allocation are the primary evidence; the short Wasm run confirms
+the public boundary, output payload, and direction of the focused improvement.
