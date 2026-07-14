@@ -487,27 +487,20 @@ impl Parser<'_> {
     }
 
     fn parse_primary(&mut self) -> Result<SourceExpr, ParseError> {
-        let Some(token) = self.peek().cloned() else {
+        let Some(token) = self.take() else {
             return Err(self.unexpected_end());
         };
         match token.kind {
-            TokenKind::Number(literal) => {
-                self.advance();
-                Ok(SourceExpr::Number {
-                    literal,
-                    span: token.span,
-                })
-            }
-            TokenKind::Constant(constant) => {
-                self.advance();
-                Ok(SourceExpr::Constant {
-                    constant,
-                    span: token.span,
-                })
-            }
+            TokenKind::Number(literal) => Ok(SourceExpr::Number {
+                literal,
+                span: token.span,
+            }),
+            TokenKind::Constant(constant) => Ok(SourceExpr::Constant {
+                constant,
+                span: token.span,
+            }),
             TokenKind::Function(function) => self.parse_function(function, token.span),
             TokenKind::OpenParen => {
-                self.advance();
                 let expr = self.parse_expression()?;
                 let Some(close) = self.peek() else {
                     return Err(self.unexpected_end());
@@ -548,7 +541,6 @@ impl Parser<'_> {
         function: Function,
         function_span: ByteSpan,
     ) -> Result<SourceExpr, ParseError> {
-        self.advance();
         let Some(open) = self.peek() else {
             return Err(ParseError {
                 kind: ParseErrorKind::MissingFunctionParenthesis,
@@ -628,6 +620,20 @@ impl Parser<'_> {
 
     fn advance(&mut self) {
         self.position += 1;
+    }
+
+    fn take(&mut self) -> Option<Token> {
+        let token = self.tokens.get_mut(self.position)?;
+        let span = token.span;
+        let token = core::mem::replace(
+            token,
+            Token {
+                kind: TokenKind::Plus,
+                span,
+            },
+        );
+        self.position += 1;
+        Some(token)
     }
 
     fn unexpected_end(&self) -> ParseError {
