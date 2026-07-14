@@ -795,6 +795,48 @@ CALCULATOR_BENCH_CASE=approximate CALCULATOR_BENCH_ITERATIONS=5 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Raw unit-arcsine dyadic rounding
+
+At base commit `7f695a3`, the positive-series `|x| <= 1/2` arcsine recurrence
+canonicalized its lower and upper-tail common-denominator fractions as Rational
+values, including large GCD and exact division, immediately before directed
+conversion back to dyadic endpoints. The retained path exposes the raw fraction
+parts and applies the same exact floor/ceil directly. Negative values reverse and
+negate the positive directed bounds. Non-degenerate endpoints are rounded
+independently, and their final ordering validation compares the resulting dyadics
+instead of reconstructing a rational cross product. The transformed `|x|>1/2`
+sqrt/atan/pi algorithm itself is unchanged.
+
+On 2026-07-15 with `rustc 1.97.0`, deterministic one-calculation allocation was:
+
+| Case | Before | After | Peak before / after |
+| --- | ---: | ---: | ---: |
+| `asin(1/3)` | 426,740 bytes / 1,031 blocks | 384,508 / 1,000 | 17,079 / 33 → 11,703 / 35 |
+| `asin(sin(1)/3)` | 850,867 / 1,303 | 756,339 / 1,273 | 32,560 / 40 → 21,664 / 42 |
+| transformed `asin((2+sin(1))/3)` | 1,155,212 / 4,023 | 942,892 / 3,597 | 60,757 / 85 → 40,885 / 79 |
+| `acos(1/3)` control | 519,394 / 1,348 | unchanged | 23,079 / 45 unchanged |
+
+The first two paths remove about 9.9%/11.1% of allocated bytes. Their two extra
+peak blocks hold the directly rounded endpoints while peak bytes fall by 31%/33%.
+The transformed path does not use the raw positive-series fraction; its reduction
+comes from validating final directed dyadics instead of comparing the two large
+transformed Rational bounds. Logical work remained 31, 200,216, 200,447, and 31
+units respectively.
+
+Separate ten-sample Criterion midpoint snapshots moved from 1.2193 ms to
+232.04 µs for `asin(1/3)` and from 3.7042 ms to 611.86 µs for the non-degenerate
+unit-series case. Wasm/npm benchmark definition v18 measured three iterations
+after one warmup. Base artifact
+`fff690b89e67b74df69242f3d4f327b26ea428835a4c852e571fe8e8a22fca6a`
+(818,558 bytes) measured 8.286/24.804 ms per iteration; candidate artifact
+`8e982c05fa4e1f671b0de0805f9871d0c092b8af54f4ca381b32aedafa3a8b7d`
+(820,526 bytes) measured 1.020/2.195 ms. Payloads remained 1,772/1,786 bytes and
+both artifacts stayed below the 860,000-byte budget.
+
+Raw and legacy canonical-Rational routes are asserted to produce identical dyadic
+endpoints for zero, ±1/7, ±1/3, ±1/2, 0/1/32/128-bit precision, and both directed
+bounds. Existing recurrence tests retain term-count/tail and overflow coverage.
+
 ## Primitive squared arcsine coefficients
 
 At base commit `9d0f271`, every arcsine Taylor step materialized
