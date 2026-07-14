@@ -51,3 +51,8 @@ increase is recorded as remaining profiling work. Same-host Criterion moved from
 moved from 6.419 ms to 1.379 ms per iteration with its 2,162-byte payload
 unchanged; the final 825,280-byte artifact SHA-256 is
 `852fcfdde5d85a45d1de8e17200b412ee92f21e8cd5f30c424b14e95bb45b28b`.
+
+Focused regressions, Rust no-default/workspace/doc/Wasm tests, all native and
+wasm-target lints, generated DTO/protocol/no-float/dependency gates, package
+check, example production build, external rational oracle, package-size gate,
+browser E2E, and Rust documentation build all passed on the final artifact.

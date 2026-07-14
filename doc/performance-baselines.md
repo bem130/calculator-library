@@ -879,10 +879,11 @@ after one warmup, moved from 6.419 ms to 1.379 ms per iteration. Serialized
 payload stayed at 2,162 bytes. This short run verifies the public boundary and
 is not a stable throughput guarantee.
 
-Controls stayed at 108,157 bytes / 5,449 blocks and 261 work units for
-`wide_add_256`, 172,272 / 2,726 and 400,447 for the approximate composite,
-12,758 / 551 and 231 for exact rational, 52,704 / 1,612 and 401,216 for exact
-symbolic, and 99,819 / 3,801 and 400,229 for algebraic. Reproduce with the
+Wide-add and approximate controls stayed at 108,157 bytes / 5,449 blocks and
+261 work units, and 172,272 / 2,726 and 400,447 respectively. Exact-rational
+allocation improved from 12,966 / 567 to 12,758 / 551 while its work stayed at
+231 units. Candidate exact-symbolic and algebraic controls were 52,704 / 1,612
+and 401,216 units, and 99,819 / 3,801 and 400,229 units respectively. Reproduce with the
 `wide_multiply_128` allocation/logical-work cases, Criterion
 `large_product/wide_multiply_128`, and the v19 Wasm/npm case.
 
