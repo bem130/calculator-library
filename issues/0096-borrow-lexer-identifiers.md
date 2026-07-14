@@ -45,3 +45,11 @@ only. The artifact moved from 828,720 bytes
 (`c4e863ac13c094a1147943165843e1725900bfda009090d64bbd4075f840a91a`)
 to 828,671 bytes
 (`7b8fbbe10259480120c58105088d0218a29097b608edc2da802363428288324d`).
+
+The final CI-equivalent gates passed formatting; native and Wasm clippy;
+no-default checks and 373 core tests; workspace 373 core, 37 native-Wasm, and 2
+CLI tests; doc tests; 23 Node-Wasm tests; generated/protocol/no-float checks;
+dependency policy and audits; package type/presentation checks; package and
+example builds; the external oracle; package-size budget; browser E2E; and
+documentation generation. The final example build retained the candidate
+SHA-256 and 828,671-byte artifact recorded above.
