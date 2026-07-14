@@ -811,9 +811,9 @@ On 2026-07-15 with `rustc 1.97.0`, deterministic one-calculation allocation was:
 
 | Case | Before | After | Peak before / after |
 | --- | ---: | ---: | ---: |
-| `asin(1/3)` | 426,740 bytes / 1,031 blocks | 384,508 / 1,000 | 17,079 / 33 → 11,703 / 35 |
-| `asin(sin(1)/3)` | 850,867 / 1,303 | 756,339 / 1,273 | 32,560 / 40 → 21,664 / 42 |
-| transformed `asin((2+sin(1))/3)` | 1,155,212 / 4,023 | 942,892 / 3,597 | 60,757 / 85 → 40,885 / 79 |
+| `asin(1/3)` | 426,740 bytes / 1,031 blocks | 384,596 / 1,002 | 17,079 / 33 → 11,703 / 35 |
+| `asin(sin(1)/3)` | 850,867 / 1,303 | 756,483 / 1,275 | 32,560 / 40 → 21,664 / 42 |
+| transformed `asin((2+sin(1))/3)` | 1,155,212 / 4,023 | 943,036 / 3,599 | 60,757 / 85 → 40,885 / 79 |
 | `acos(1/3)` control | 519,394 / 1,348 | unchanged | 23,079 / 45 unchanged |
 
 The first two paths remove about 9.9%/11.1% of allocated bytes. Their two extra
@@ -824,18 +824,23 @@ transformed Rational bounds. Logical work remained 31, 200,216, 200,447, and 31
 units respectively.
 
 Separate ten-sample Criterion midpoint snapshots moved from 1.2193 ms to
-232.04 µs for `asin(1/3)` and from 3.7042 ms to 611.86 µs for the non-degenerate
+243.36 µs for `asin(1/3)` and from 3.7042 ms to 621.78 µs for the non-degenerate
 unit-series case. Wasm/npm benchmark definition v18 measured three iterations
 after one warmup for `asin_third` / `asin_non_degenerate_unit`. Base artifact
 `fff690b89e67b74df69242f3d4f327b26ea428835a4c852e571fe8e8a22fca6a`
 (818,558 bytes) measured 8.286 / 24.804 ms per iteration; candidate artifact
-`8e982c05fa4e1f671b0de0805f9871d0c092b8af54f4ca381b32aedafa3a8b7d`
-(820,526 bytes) measured 1.020 / 2.195 ms. Payloads remained 1,772 / 1,786 bytes and
+`aa0d182eb89ea17f68776af011f0ce5669b992f7349b5073ddb08ad0e2fa5987`
+(820,570 bytes) measured 1.102 / 2.610 ms. Payloads remained 1,772 / 1,786 bytes and
 both artifacts stayed below the 860,000-byte budget.
 
 Raw and legacy canonical-Rational routes are asserted to produce identical dyadic
 endpoints for zero, ±1/7, ±1/3, ±1/2, 0/1/32/128-bit precision, and both directed
 bounds. Existing recurrence tests retain term-count/tail and overflow coverage.
+The final CI-equivalent gate rebuilt the package and vanilla example at that same
+candidate SHA and size, and passed native/no-default/Wasm tests, generated and
+protocol/no-float checks, dependency policy, TypeScript/package/example builds,
+the exact oracle, package-size budget, browser E2E (including the existing arcsine
+UI path), and workspace documentation.
 
 ## Primitive squared arcsine coefficients
 
