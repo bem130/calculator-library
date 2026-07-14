@@ -4642,10 +4642,11 @@ fn normalize_dyadic(mut coefficient: BigInt, mut exponent_two: BigInt) -> ExactD
             exponent_two: Integer::zero(),
         };
     }
-    while coefficient.is_even() {
-        coefficient >>= 1_u8;
-        exponent_two += 1_u8;
-    }
+    let trailing_zeros = coefficient
+        .trailing_zeros()
+        .expect("nonzero coefficient must have a finite trailing-zero count");
+    coefficient >>= trailing_zeros;
+    exponent_two += trailing_zeros;
     ExactDyadic {
         coefficient: Integer::from_bigint(coefficient),
         exponent_two: Integer::from_bigint(exponent_two),
@@ -4661,6 +4662,43 @@ mod tests {
 
     fn rational(numerator: i64, denominator: i64) -> Rational {
         Rational::new(Integer::from(numerator), Integer::from(denominator)).unwrap()
+    }
+
+    #[test]
+    fn bulk_dyadic_normalization_matches_bitwise_oracle() {
+        fn bitwise(mut coefficient: BigInt, mut exponent_two: BigInt) -> ExactDyadic {
+            if coefficient.is_zero() {
+                return ExactDyadic {
+                    coefficient: Integer::zero(),
+                    exponent_two: Integer::zero(),
+                };
+            }
+            while coefficient.is_even() {
+                coefficient >>= 1_u8;
+                exponent_two += 1_u8;
+            }
+            ExactDyadic {
+                coefficient: Integer::from_bigint(coefficient),
+                exponent_two: Integer::from_bigint(exponent_two),
+            }
+        }
+
+        assert_eq!(
+            normalize_dyadic(BigInt::zero(), BigInt::from(-99)),
+            bitwise(BigInt::zero(), BigInt::from(-99))
+        );
+        for shift in [0_usize, 1, 63, 64, 65, 127, 128, 129, 1_000] {
+            for odd in [-17_i64, -1, 1, 19] {
+                for exponent in [-1_000_i64, -1, 0, 1, 1_000] {
+                    let coefficient = BigInt::from(odd) << shift;
+                    let exponent = BigInt::from(exponent);
+                    assert_eq!(
+                        normalize_dyadic(coefficient.clone(), exponent.clone()),
+                        bitwise(coefficient, exponent)
+                    );
+                }
+            }
+        }
     }
 
     #[test]
