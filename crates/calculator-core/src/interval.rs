@@ -554,6 +554,9 @@ pub(crate) fn asin(
 ) -> Result<CertifiedInterval, IntervalError> {
     let (lower, upper) = inverse_sine_cosine_domain_bounds(value)?;
     if lower == upper {
+        if compare_absolute_rational_to_half(&lower) != Ordering::Greater {
+            return asin_unit_dyadic_bounds(&lower, precision_bits);
+        }
         let (lower, upper) = asin_rational_bounds(&lower, precision_bits)?;
         return from_rational_bounds(&lower, &upper, precision_bits);
     }
@@ -564,19 +567,32 @@ pub(crate) fn asin(
     } else {
         None
     };
-    let lower = asin_rational_bound_with_pi(
+    let lower = asin_dyadic_bound_with_pi(
         &lower,
         precision_bits,
         BoundDirection::Lower,
         shared_pi.as_ref(),
     )?;
-    let upper = asin_rational_bound_with_pi(
+    let upper = asin_dyadic_bound_with_pi(
         &upper,
         precision_bits,
         BoundDirection::Upper,
         shared_pi.as_ref(),
     )?;
-    from_rational_bounds(&lower, &upper, precision_bits)
+    Ok(CertifiedInterval { lower, upper })
+}
+
+fn asin_dyadic_bound_with_pi(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+    shared_pi: Option<&(Rational, Rational)>,
+) -> Result<ExactDyadic, IntervalError> {
+    if compare_absolute_rational_to_half(value) != Ordering::Greater {
+        return asin_unit_dyadic_bound(value, precision_bits, direction);
+    }
+    let bound = asin_rational_bound_with_pi(value, precision_bits, direction, shared_pi)?;
+    Ok(rational_to_dyadic_bound(&bound, precision_bits, direction))
 }
 
 pub(crate) fn acos(
@@ -2692,10 +2708,96 @@ fn asin_unit_rational_bounds(
     asin_common_denominator_bounds(value, term_count)
 }
 
+fn asin_unit_dyadic_bounds(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    if value.is_zero() {
+        let zero = ExactDyadic {
+            coefficient: Integer::zero(),
+            exponent_two: Integer::zero(),
+        };
+        return Ok(CertifiedInterval {
+            lower: zero.clone(),
+            upper: zero,
+        });
+    }
+    if value.is_negative() {
+        let positive = asin_unit_dyadic_bounds(&value.negate(), precision_bits)?;
+        return Ok(CertifiedInterval {
+            lower: negate_dyadic(&positive.upper),
+            upper: negate_dyadic(&positive.lower),
+        });
+    }
+    let term_count = series_terms(precision_bits)?;
+    let ((lower_numerator, lower_denominator), (upper_numerator, upper_denominator)) =
+        asin_common_denominator_parts(value, term_count)?;
+    Ok(CertifiedInterval {
+        lower: fraction_to_dyadic_bound(
+            &lower_numerator,
+            &lower_denominator,
+            precision_bits,
+            BoundDirection::Lower,
+        ),
+        upper: fraction_to_dyadic_bound(
+            &upper_numerator,
+            &upper_denominator,
+            precision_bits,
+            BoundDirection::Upper,
+        ),
+    })
+}
+
+fn asin_unit_dyadic_bound(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+) -> Result<ExactDyadic, IntervalError> {
+    if value.is_zero() {
+        return Ok(ExactDyadic {
+            coefficient: Integer::zero(),
+            exponent_two: Integer::zero(),
+        });
+    }
+    if value.is_negative() {
+        let positive_direction = match direction {
+            BoundDirection::Lower => BoundDirection::Upper,
+            BoundDirection::Upper => BoundDirection::Lower,
+        };
+        return Ok(negate_dyadic(&asin_unit_dyadic_bound(
+            &value.negate(),
+            precision_bits,
+            positive_direction,
+        )?));
+    }
+    let term_count = series_terms(precision_bits)?;
+    let (numerator, denominator) = asin_common_denominator_part(value, term_count, direction)?;
+    Ok(fraction_to_dyadic_bound(
+        &numerator,
+        &denominator,
+        precision_bits,
+        direction,
+    ))
+}
+
 fn asin_common_denominator_bounds(
     value: &Rational,
     term_count: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
+    let ((lower_numerator, lower_denominator), (upper_numerator, upper_denominator)) =
+        asin_common_denominator_parts(value, term_count)?;
+    Ok((
+        rational_from_parts(lower_numerator, lower_denominator)?,
+        rational_from_parts(upper_numerator, upper_denominator)?,
+    ))
+}
+
+type FractionParts = (BigInt, BigInt);
+
+fn asin_common_denominator_parts(
+    value: &Rational,
+    term_count: u32,
+) -> Result<(FractionParts, FractionParts), IntervalError> {
     preflight_asin_series_tail_index(term_count)?;
     let value_numerator = &value.numerator.inner;
     let value_denominator = &value.denominator.inner.inner;
@@ -2718,11 +2820,11 @@ fn asin_common_denominator_bounds(
     let (next_odd, next_denominator_factor) =
         asin_term_odd_and_denominator_factor(next_index, &denominator_squared)?;
     advance_asin_term(&mut term_numerator, &numerator_squared, next_odd);
-    let lower = rational_from_parts(sum_numerator.clone(), common_denominator.clone())?;
+    let lower = (sum_numerator.clone(), common_denominator.clone());
     sum_numerator *= &next_denominator_factor;
     term_numerator *= 2_u8;
     sum_numerator += term_numerator;
-    let upper = rational_from_parts(sum_numerator, common_denominator * next_denominator_factor)?;
+    let upper = (sum_numerator, common_denominator * next_denominator_factor);
     Ok((lower, upper))
 }
 
@@ -2731,6 +2833,15 @@ fn asin_common_denominator_bound(
     term_count: u32,
     direction: BoundDirection,
 ) -> Result<Rational, IntervalError> {
+    let (numerator, denominator) = asin_common_denominator_part(value, term_count, direction)?;
+    rational_from_parts(numerator, denominator)
+}
+
+fn asin_common_denominator_part(
+    value: &Rational,
+    term_count: u32,
+    direction: BoundDirection,
+) -> Result<FractionParts, IntervalError> {
     match direction {
         BoundDirection::Lower => preflight_asin_series_included_index(term_count)?,
         BoundDirection::Upper => preflight_asin_series_tail_index(term_count)?,
@@ -2751,7 +2862,7 @@ fn asin_common_denominator_bound(
         common_denominator *= denominator_factor;
     }
     if matches!(direction, BoundDirection::Lower) {
-        return rational_from_parts(sum_numerator, common_denominator);
+        return Ok((sum_numerator, common_denominator));
     }
     let next_index = term_count
         .checked_add(1)
@@ -2762,7 +2873,7 @@ fn asin_common_denominator_bound(
     sum_numerator *= &next_denominator_factor;
     term_numerator *= 2_u8;
     sum_numerator += term_numerator;
-    rational_from_parts(sum_numerator, common_denominator * next_denominator_factor)
+    Ok((sum_numerator, common_denominator * next_denominator_factor))
 }
 
 fn advance_asin_term(term: &mut BigInt, numerator_squared: &BigInt, odd: u32) {
@@ -5364,6 +5475,36 @@ mod tests {
                     (sum.clone(), sum.add(&scale_rational(&term, 2))),
                     "value={value:?}, term_count={term_count}",
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn raw_asin_dyadic_rounding_matches_canonical_rational_bounds() {
+        for precision_bits in [0, 1, 32, 128] {
+            for value in [
+                Rational::zero(),
+                rational(1, 7),
+                rational(-1, 7),
+                rational(1, 3),
+                rational(-1, 3),
+                rational(1, 2),
+                rational(-1, 2),
+            ] {
+                let (lower, upper) = asin_rational_bounds(&value, precision_bits).unwrap();
+                assert_eq!(
+                    asin_unit_dyadic_bounds(&value, precision_bits).unwrap(),
+                    from_rational_bounds(&lower, &upper, precision_bits).unwrap(),
+                    "value={value:?}, precision={precision_bits}",
+                );
+                for direction in [BoundDirection::Lower, BoundDirection::Upper] {
+                    let expected = asin_rational_bound(&value, precision_bits, direction).unwrap();
+                    assert_eq!(
+                        asin_unit_dyadic_bound(&value, precision_bits, direction).unwrap(),
+                        rational_to_dyadic_bound(&expected, precision_bits, direction),
+                        "value={value:?}, precision={precision_bits}",
+                    );
+                }
             }
         }
     }
