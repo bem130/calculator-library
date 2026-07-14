@@ -10441,8 +10441,8 @@ mod tests {
     }
 
     #[test]
-    fn multiplicative_literal_fallback_is_not_selected_for_an_unrelated_rewrite_limit() {
-        let parsed = parse_source("2 * sin(1)^2", &ParseSettings::default()).unwrap();
+    fn multiplicative_literal_fallback_is_selected_after_a_prior_rewrite_limit() {
+        let parsed = parse_source("sin(1)^2 * 2", &ParseSettings::default()).unwrap();
         let mut builder = DagBuilder {
             semantics: SemanticSettings::default(),
             canonical_budget: CanonicalBudget {
@@ -10460,7 +10460,7 @@ mod tests {
             builder.canonical_limit_reached,
             Some(ComputationLimitKind::RewriteSteps)
         );
-        assert!(!builder.multiplicative_literal_fold_limit_reached);
+        assert!(builder.multiplicative_literal_fold_limit_reached);
         assert!(matches!(
             builder.nodes[root.0 as usize],
             ExpressionNode::Multiply(_)
