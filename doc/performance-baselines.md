@@ -786,9 +786,9 @@ Only evaluation contains the changed lowering path; parse/present movement is a
 host-load control and is not attributed to this change.
 
 The final Wasm/npm artifact is
-`7a94bd76e52fb63be1dfdc006304dd7d1d561e5b00c1b5f7ec4afa6e54e32008`
-(823,345 bytes). A directly comparable three-iteration/one-warmup wide-add smoke
-moved from 2.646 ms to 1.401 ms per iteration with unchanged 1,728-byte payload.
+`85b810f369e8ec7f6abfbfbe5693b151a9ef99a7f67d122d5db3f5865806987b`
+(823,356 bytes). A directly comparable three-iteration/one-warmup wide-add smoke
+moved from 2.646 ms to 1.739 ms per iteration with unchanged 1,728-byte payload.
 This cold sample verifies the boundary and is not a stable throughput guarantee.
 
 `max_expression_nodes` counts the materialized DAG, so a literal-only `1+2` now
