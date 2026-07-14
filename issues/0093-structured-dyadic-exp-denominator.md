@@ -19,7 +19,8 @@ that structure at the final directed-dyadic rounding boundary.
   helpers.
 - Do not change precision, Taylor term selection, logical-work accounting,
   no-float policy, or public protocol.
-- Measure an amplified `exp(2^-100)` path plus ordinary and general-power controls;
+- Measure `exp(2^-100)` and an amplified `exp(2^-1000)` path plus ordinary and
+  general-power controls;
   reject the implementation if no material allocation or timing benefit appears.
 - Add exact equivalence/property regressions and complete native/Wasm/package/
   example gates plus diff, consistency, and merge-granularity review.

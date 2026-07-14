@@ -3046,6 +3046,24 @@ is 829,247 bytes and remains below budget. Reproduce with allocation cases
 `general_power`; the logical-work runner; and package benchmark case
 `exp_tiny_dyadic`.
 
+```sh
+for case in approximate_exp_tiny_dyadic approximate_exp_tiny_dyadic_1000 \
+  approximate_general_power approximate_exp_one approximate_exp_negative_10000
+do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- 'approximate_components/(exp_tiny_dyadic|general_power)$' --sample-size 10
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_CASE=exp_tiny_dyadic CALCULATOR_BENCH_ITERATIONS=3 \
+  CALCULATOR_BENCH_WARMUP=1 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
+
 Reproduce with:
 
 ```sh

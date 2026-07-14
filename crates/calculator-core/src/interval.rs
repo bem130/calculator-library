@@ -1464,15 +1464,15 @@ impl ExpSeriesState<'_> {
 
     fn into_upper(self) -> Result<Rational, IntervalError> {
         let mut state = self;
+        let upper_denominator = state
+            .common_denominator
+            .with_tail_factor(state.value_denominator, state.tail_index)?;
         let next_denominator_factor = state.value_denominator * state.tail_index;
         state.sum_numerator *= &next_denominator_factor;
         state.term_numerator *= state.value_numerator;
         state.term_numerator *= 2_u8;
         state.sum_numerator += state.term_numerator;
-        state.common_denominator = state
-            .common_denominator
-            .with_tail_factor(state.value_denominator, state.tail_index)?;
-        rational_from_parts(state.sum_numerator, state.common_denominator.materialize())
+        rational_from_parts(state.sum_numerator, upper_denominator.materialize())
     }
 
     fn into_bounds(self) -> Result<(Rational, Rational), IntervalError> {
@@ -1491,25 +1491,26 @@ impl ExpSeriesState<'_> {
         direction: BoundDirection,
     ) -> Result<(BigInt, ExpSeriesDenominator), IntervalError> {
         if matches!(direction, BoundDirection::Upper) {
+            let upper_denominator = self
+                .common_denominator
+                .with_tail_factor(self.value_denominator, self.tail_index)?;
             let next_denominator_factor = self.value_denominator * self.tail_index;
             self.sum_numerator *= &next_denominator_factor;
             self.term_numerator *= self.value_numerator;
             self.term_numerator *= 2_u8;
             self.sum_numerator += self.term_numerator;
-            self.common_denominator = self
-                .common_denominator
-                .with_tail_factor(self.value_denominator, self.tail_index)?;
+            self.common_denominator = upper_denominator;
         }
         Ok((self.sum_numerator, self.common_denominator))
     }
 
     fn upper_parts(&self) -> Result<(BigInt, ExpSeriesDenominator), IntervalError> {
-        let next_denominator_factor = self.value_denominator * self.tail_index;
-        let mut upper_numerator = &self.sum_numerator * &next_denominator_factor;
-        upper_numerator += &self.term_numerator * self.value_numerator * 2_u8;
         let upper_denominator = self
             .common_denominator
             .with_tail_factor(self.value_denominator, self.tail_index)?;
+        let next_denominator_factor = self.value_denominator * self.tail_index;
+        let mut upper_numerator = &self.sum_numerator * &next_denominator_factor;
+        upper_numerator += &self.term_numerator * self.value_numerator * 2_u8;
         Ok((upper_numerator, upper_denominator))
     }
 }
