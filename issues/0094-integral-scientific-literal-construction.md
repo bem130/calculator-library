@@ -48,3 +48,11 @@ measured 0.691 versus 0.672 ms with a stable 1,940-byte payload. Base artifact
 was 829,165 bytes; candidate
 `84e64abd994e78564aa01bd993c02cd44b9f3cfd5deb171b92c3811929b77f37`
 is 829,226 bytes and remains below the package budget.
+
+The final CI-equivalent gate run passed formatting; native and Wasm clippy;
+no-default checks and tests; 371 core, 37 native-Wasm, 2 CLI, and 23 Node-Wasm
+tests; doc tests; generated/protocol/no-float checks; dependency policy and
+audits; package type/presentation checks; package and example builds; external
+oracle; package-size budget; browser E2E; and documentation generation. The
+final release Wasm retained the measured candidate SHA-256 and 829,226-byte
+size above.
