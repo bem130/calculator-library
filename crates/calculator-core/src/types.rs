@@ -1163,6 +1163,33 @@ impl Rational {
     }
 
     pub(crate) fn compare(&self, rhs: &Self) -> Ordering {
+        if rhs.is_zero() {
+            return match self.numerator.inner.sign() {
+                Sign::Minus => Ordering::Less,
+                Sign::NoSign => Ordering::Equal,
+                Sign::Plus => Ordering::Greater,
+            };
+        }
+        if self.is_zero() {
+            return match rhs.numerator.inner.sign() {
+                Sign::Minus => Ordering::Greater,
+                Sign::NoSign => Ordering::Equal,
+                Sign::Plus => Ordering::Less,
+            };
+        }
+        if self.is_integer() && rhs.is_integer() {
+            return self.numerator.inner.cmp(&rhs.numerator.inner);
+        }
+        if rhs.is_integer() {
+            return self
+                .numerator
+                .inner
+                .cmp(&(&rhs.numerator.inner * &self.denominator.inner.inner));
+        }
+        if self.is_integer() {
+            return (&self.numerator.inner * &rhs.denominator.inner.inner)
+                .cmp(&rhs.numerator.inner);
+        }
         (&self.numerator.inner * &rhs.denominator.inner.inner)
             .cmp(&(&rhs.numerator.inner * &self.denominator.inner.inner))
     }
@@ -1875,6 +1902,31 @@ mod tests {
         assert_eq!(sum.numerator.to_string(), "37");
         assert_eq!(sum.denominator.inner.to_string(), "6");
         assert_eq!(fraction.subtract(&integer).to_string(), "-47/6");
+    }
+
+    #[test]
+    fn rational_integer_comparison_matches_cross_product_oracle() {
+        let large = BigInt::one() << 4096_usize;
+        let values = [
+            Rational::from_integer(Integer::from_bigint(-large.clone())),
+            Rational::from_integer(Integer::from(-1)),
+            Rational::zero(),
+            Rational::from_integer(Integer::one()),
+            Rational::from_integer(Integer::from_bigint(large)),
+            Rational::new(Integer::from(-7), Integer::from(3)).unwrap(),
+            Rational::new(Integer::from(-1), Integer::from(2)).unwrap(),
+            Rational::new(Integer::from(1), Integer::from(2)).unwrap(),
+            Rational::new(Integer::from(7), Integer::from(3)).unwrap(),
+        ];
+
+        for left in &values {
+            for right in &values {
+                let expected = (&left.numerator.inner * &right.denominator.inner.inner)
+                    .cmp(&(&right.numerator.inner * &left.denominator.inner.inner));
+                assert_eq!(left.compare(right), expected, "{left} versus {right}");
+                assert_eq!(right.compare(left), expected.reverse());
+            }
+        }
     }
 
     #[test]
