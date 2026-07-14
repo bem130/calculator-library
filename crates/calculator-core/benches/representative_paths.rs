@@ -171,11 +171,8 @@ fn calculate_representative_paths(criterion: &mut Criterion) {
 }
 
 fn calculate_wide_expression(criterion: &mut Criterion) {
-    let source = (1..=256)
-        .map(|value| value.to_string())
-        .collect::<Vec<_>>()
-        .join("+");
     let request = benchmark_request();
+    let source = wide_add_source(256);
     let outcome = calculate(&source, &request, &mut EvaluationContext::default())
         .expect("wide expression preflight must succeed");
     assert_eq!(exact_plain_text(&outcome), "32896");
@@ -191,6 +188,80 @@ fn calculate_wide_expression(criterion: &mut Criterion) {
         });
     });
     group.finish();
+
+    let mut scaling = criterion.benchmark_group("large_expression_scaling");
+    for terms in [16_u64, 64, 128, 256] {
+        let source = wide_add_source(terms);
+        let expected = (terms * (terms + 1) / 2).to_string();
+        let outcome = calculate(&source, &request, &mut EvaluationContext::default())
+            .expect("wide expression scaling preflight must succeed");
+        assert_eq!(exact_plain_text(&outcome), expected);
+        scaling.throughput(Throughput::Elements(terms));
+        scaling.bench_with_input(
+            BenchmarkId::from_parameter(terms),
+            &source,
+            |bencher, source| {
+                bencher.iter(|| {
+                    black_box(
+                        calculate(
+                            black_box(source),
+                            black_box(&request),
+                            &mut EvaluationContext::default(),
+                        )
+                        .expect("wide expression scaling calculation must not fail"),
+                    )
+                });
+            },
+        );
+    }
+    scaling.finish();
+
+    let parsed = parse(&source, &request.parse).expect("wide expression stage parse must succeed");
+    let evaluation_request = EvaluationRequest {
+        semantics: request.semantics,
+        limits: request.limits.clone(),
+    };
+    let evaluation = evaluate(
+        &parsed,
+        &evaluation_request,
+        &mut EvaluationContext::default(),
+    )
+    .expect("wide expression stage evaluation must succeed");
+    let presentation_request = PresentationRequest {
+        exact_output: request.exact_output,
+        scientific_output: request.scientific_output,
+        enclosure_output: request.enclosure_output,
+        limits: request.limits.clone(),
+    };
+    let mut stages = criterion.benchmark_group("large_expression_stages");
+    stages.bench_function("parse_256", |bencher| {
+        bencher.iter(|| black_box(parse(black_box(&source), black_box(&request.parse)).unwrap()));
+    });
+    stages.bench_function("evaluate_256", |bencher| {
+        bencher.iter(|| {
+            black_box(
+                evaluate(
+                    black_box(&parsed),
+                    black_box(&evaluation_request),
+                    &mut EvaluationContext::default(),
+                )
+                .unwrap(),
+            )
+        });
+    });
+    stages.bench_function("present_256", |bencher| {
+        bencher.iter(|| {
+            black_box(present(black_box(&evaluation), black_box(&presentation_request)).unwrap())
+        });
+    });
+    stages.finish();
+}
+
+fn wide_add_source(terms: u64) -> String {
+    (1..=terms)
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>()
+        .join("+")
 }
 
 fn validate_calculation(name: &str, source: &str, request: &CalculationRequest) {
