@@ -1783,6 +1783,19 @@ mod tests {
             }
         }
 
+        for (literal, error) in [
+            ("+", DecimalLiteralError::Empty),
+            ("-", DecimalLiteralError::Empty),
+            ("12x", DecimalLiteralError::InvalidDigit),
+            ("1e", DecimalLiteralError::InvalidExponent),
+            (
+                "1e999999999999999999999999999999",
+                DecimalLiteralError::InvalidExponent,
+            ),
+        ] {
+            assert_eq!(Rational::from_decimal_literal(literal), Err(error));
+        }
+
         for literal in ["12.3400e-3", "1.2e-3", "42e3", "42e-3"] {
             let actual = Rational::from_decimal_literal(literal).unwrap();
             let (numerator, denominator) = match literal {

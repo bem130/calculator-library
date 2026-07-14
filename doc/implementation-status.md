@@ -14,7 +14,7 @@
 * canonical Rational の符号反転は、signed numeratorだけを反転して既存の正分母をcloneする。GCDとexact divisionによる再正規化を行わず、zeroの一意表現と既約性を構造的に維持する。
 * 既存BigIntのzero/one分類はstructural predicateを使い、Rational表示、finite-decimal residue、radical分類、polynomial候補判定で比較用BigIntを構築しない。
 * `0.1 + 0.2 = 3/10` などの decimal lossless evaluation。
-* 小数点・指数を含まない符号付きdecimal integer literalは、digitsを一度だけBigIntへparseしてcanonical denominator-one Rationalを直接構築する。小数・指数literalは既存のexact scale/GCD経路を維持する。
+* Rational literal converterは、小数点・指数を含まないdecimal integer文字列のoptional signとdigitsを一度だけBigIntへparseしてcanonical denominator-one Rationalを直接構築する。source文法の符号は従来どおりunary operatorであり、小数・指数literalは既存のexact scale/GCD経路を維持する。
 * rational exact output の format preference。有限小数として正確に表せる値は `finiteDecimal` で表示でき、improper rational は `mixedFraction` で帯分数表示できる。正確に表せない finite decimal request は rational 表示へ戻す。
 * real principal power semantics に基づく rational power の exact root / domain error / symbolic fallback。
 * exact dyadic certified interval、decimal scientific certified interval presentation、adaptive scientific rounding。scientific output は exact rational だけでなく、certified interval の上下端を同じ有効桁数・丸めモードで丸めて一致する場合にも confirmed digits として返す。scientific output と decimal scientific enclosure はどちらも `x.xxx × 10^n` 形式の presentation tree を返す。既定の request は 5 significant digits の scientific output と decimal scientific enclosure を要求する。

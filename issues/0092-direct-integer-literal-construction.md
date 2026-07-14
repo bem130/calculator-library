@@ -16,8 +16,9 @@ At main commit `2718120`, one public 256-term wide-add calculation allocates
 
 ## Required change
 
-- Recognize a sign followed only by ASCII decimal digits before the general
-  decimal/exponent path.
+- In the Rational converter, recognize its optional sign followed only by ASCII
+  decimal digits before the general decimal/exponent path. Source grammar keeps
+  treating `+` and `-` as unary operators.
 - Parse those digits once into BigInt, apply the sign, and construct the
   canonical Rational integer directly.
 - Preserve leading-zero and signed-zero normalization and all existing error
