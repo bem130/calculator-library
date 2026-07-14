@@ -10615,5 +10615,26 @@ mod tests {
             .unwrap(),
             expected
         );
+
+        let zero_rational = RationalId(dag.rationals.len() as u32);
+        dag.rationals.push(Rational::zero());
+        let zero = ExprId(dag.nodes.len() as u32);
+        dag.nodes.push(ExpressionNode::Rational(zero_rational));
+        let zero_last = dag.push_list(vec![child, zero]);
+        assert_eq!(
+            evaluate_interval_expression_node(&dag, &ExpressionNode::Add(zero_last), None, 128,)
+                .unwrap(),
+            expected
+        );
+        assert_eq!(
+            evaluate_interval_expression_node(
+                &dag,
+                &ExpressionNode::Multiply(zero_last),
+                None,
+                128,
+            )
+            .unwrap(),
+            interval::from_rational(&Rational::zero(), 128)
+        );
     }
 }

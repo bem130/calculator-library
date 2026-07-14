@@ -5030,6 +5030,33 @@ mod tests {
     }
 
     #[test]
+    fn composite_product_uses_public_certified_interval_path() {
+        let mut context = EvaluationContext::default();
+        let outcome = calculate(
+            "sqrt(2)*ln(2)",
+            &CalculationRequest::default(),
+            &mut context,
+        )
+        .expect("composite product must remain publicly calculable");
+        let calculation = match outcome {
+            CalculationOutcome::Complete(calculation) => calculation,
+            CalculationOutcome::Partial { calculation, .. } => calculation,
+        };
+        assert!(matches!(
+            calculation.scientific,
+            ScientificOutput::Included(_)
+        ));
+        assert!(matches!(
+            calculation.enclosure,
+            EnclosureOutput::Included(_)
+        ));
+        assert!(calculation
+            .metadata
+            .methods
+            .contains(&MethodTag::CertifiedIntervalEvaluation));
+    }
+
+    #[test]
     fn prime_root_rational_power_is_real_algebraic() {
         let parsed = parse("2^(1/3)", &ParseSettings::default()).unwrap();
         let mut context = EvaluationContext::default();

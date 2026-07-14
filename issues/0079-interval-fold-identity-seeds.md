@@ -7,10 +7,10 @@ every n-ary multiplication with `[1, 1]`, then combines that identity with the
 first real child. Production expression lists are non-empty, so this performs an
 unnecessary directed dyadic operation for every composite Add or Multiply node.
 
-For addition, aligning a large-exponent first child with zero can also create a
-large transient integer before normalization and can report an artificial
-`ExponentTooLarge` error. For multiplication, multiplying both endpoints by one
-unnecessarily clones and allocates bigint storage.
+For addition, aligning a nonzero first child with exponent-zero identity storage
+can also create transient integer data that normalization immediately discards.
+For multiplication, multiplying both endpoints by one unnecessarily clones and
+allocates bigint storage.
 
 ## Requirements
 
