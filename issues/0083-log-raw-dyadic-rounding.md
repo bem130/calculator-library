@@ -37,3 +37,19 @@ blocks.
   E2E, and all repository gates are recorded.
 - Diff, whole-system consistency, and merge-granularity reviews have no blocker
   before a single integration into `main`.
+
+## Resolution
+
+The public exact and directed logarithm endpoint paths now retain raw series
+fractions through signed binary-range composition and final directed dyadic
+rounding. Canonical Rational adapters remain for internal consumers. Default and
+200-significant-digit native measurements, logical work, and Wasm/npm evidence
+are recorded in `doc/performance-baselines.md`. The final Wasm artifact is
+`b0e5f687e15699c4e600128f2214d6d0f7f00916e3d6713d92f0a295646d22d0`
+(821,780 bytes).
+
+Focused raw/canonical and precedence tests, no-default core tests, all workspace
+tests and docs, native and wasm32 clippy, wasm-pack Node tests,
+generated/protocol/no-float/type checks, dependency audits and deny, package and
+example builds, rational oracle, package-size budget, browser E2E, and workspace
+rustdoc passed. Diff and whole-system reviews have no remaining finding.
