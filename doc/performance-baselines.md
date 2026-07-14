@@ -673,6 +673,67 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Raw directed dyadic arctangent endpoints
+
+At base commit `defe4a4`, the public certified `atan` path canonicalized each
+alternating-series fraction with a GCD and exact division, canonicalized
+`pi/2-atan(1/x)` again for reciprocal-domain arguments, and immediately converted
+that Rational result back to a directed dyadic endpoint. The raw endpoint path
+retains the same recurrence or hybrid binary split and selects the same
+sum/adjacent fraction by parity. Unit fractions are rounded directly. Reciprocal
+fractions are combined exactly as
+`(pi_num*atan_den - 2*pi_den*atan_num)/(2*pi_den*atan_den)` and rounded once.
+Machin pi and inverse-trigonometric internal Rational consumers remain unchanged.
+
+On 2026-07-15 with `rustc 1.97.0`, deterministic one-calculation allocation
+changed as follows:
+
+| Case | Base bytes / blocks | Candidate bytes / blocks | Base peak | Candidate peak |
+| --- | ---: | ---: | ---: | ---: |
+| `atan(1/2)` | 20,774 / 760 | 19,438 / 735 | 2,167 / 37 | 2,143 / 37 |
+| `atan(2)` | 45,586 / 965 | 37,010 / 889 | 4,368 / 41 | 4,320 / 45 |
+| `atan(2+sin(1))` | 525,594 / 2,061 | 367,762 / 1,884 | 26,696 / 47 | 17,384 / 44 |
+
+The target's allocated bytes fell about 30.0% and peak live bytes about 34.9%.
+Same-host twenty-sample Criterion ranges moved from 9.184--9.537 ms to
+0.635--0.697 ms for the non-degenerate target, from 474--522 us to 304--315 us
+for `atan(2)`, and from 34.6--44.0 us to 28.0--36.4 us for `atan(1/2)`.
+Logical work remained 31, 5, and 200,225 units respectively.
+
+The focused Wasm/npm comparison used base artifact
+`aa0d182eb89ea17f68776af011f0ce5669b992f7349b5073ddb08ad0e2fa5987`
+(820,570 bytes) and candidate artifact
+`825e038e35d3e6ea5665dbb71a0b9ba9421385c94e0f546a55d7859486aac2cb`
+(821,645 bytes), both below the package budget. Three iterations after one warmup
+moved `atan(2+sin(1))` from 60.40 ms to 3.49 ms per iteration. Serialized payload
+size stayed 1,776 bytes; retained JS heap was 3,688 and 3,496 bytes. These small
+Wasm samples establish boundary integration and corroborate the native profile,
+not a stable cross-host latency guarantee.
+
+Raw-vs-canonical oracle tests cover zero, signs, unit boundaries, reciprocal
+arguments, the nonunit binary-split path, and 0/1/32/128-bit precisions. Separate
+tests preserve exact input ordering before work and final dyadic ordering for
+unit, mixed, and reciprocal non-degenerate intervals at coarse precision.
+Transformed asin/acos allocation controls remain on their Rational atan helper
+paths. Reproduce with:
+
+```sh
+for case in approximate_atan_half approximate_atan_two approximate_atan_non_degenerate
+do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- 'approximate_components/atan_' --sample-size 20
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_CASE=atan_non_degenerate CALCULATOR_BENCH_ITERATIONS=3 \
+  CALCULATOR_BENCH_WARMUP=1 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
+
 ## Shared half-pi periodic trigonometric scans
 
 At base commit `f83ed66`, non-degenerate periodic `sin`, `cos`, and `tan`
