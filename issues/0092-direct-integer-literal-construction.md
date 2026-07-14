@@ -62,3 +62,10 @@ was 825,746 bytes; candidate
 is 826,091 bytes and remains below the package budget. Native Criterion and
 deterministic allocation are the primary evidence; the short Wasm run confirms
 the public boundary, output payload, and direction of the focused improvement.
+
+The final gate run passed Rust formatting; native and Wasm Clippy; core
+no-default check and tests; workspace and documentation tests; Node Wasm tests;
+generated DTO, protocol snapshot, regeneration-diff, no-float, dependency,
+oracle, package-size, and public-enum checks; package checking; example build;
+browser E2E; and workspace documentation generation. The candidate Wasm
+artifact hash and size remained the values recorded above.
