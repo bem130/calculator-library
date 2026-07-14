@@ -524,28 +524,28 @@ pub(crate) fn atan(
 ) -> Result<CertifiedInterval, IntervalError> {
     let lower = dyadic_to_rational(&value.lower)?;
     let upper = dyadic_to_rational(&value.upper)?;
+    validate_ordered_rational_bounds(&lower, &upper)?;
     if lower == upper {
-        let (lower, upper) = atan_rational_bounds(&lower, precision_bits)?;
-        return from_rational_bounds(&lower, &upper, precision_bits);
+        return atan_rational_dyadic_bounds(&lower, precision_bits);
     }
     let shared_pi = if !is_unit_rational(&lower) && !is_unit_rational(&upper) {
         Some(pi_bounds(precision_bits)?)
     } else {
         None
     };
-    let lower = atan_rational_bound_with_pi(
+    let lower = atan_rational_dyadic_bound_with_pi(
         &lower,
         precision_bits,
         BoundDirection::Lower,
         shared_pi.as_ref(),
     )?;
-    let upper = atan_rational_bound_with_pi(
+    let upper = atan_rational_dyadic_bound_with_pi(
         &upper,
         precision_bits,
         BoundDirection::Upper,
         shared_pi.as_ref(),
     )?;
-    from_rational_bounds(&lower, &upper, precision_bits)
+    Ok(CertifiedInterval { lower, upper })
 }
 
 pub(crate) fn asin(
@@ -1954,6 +1954,7 @@ fn log_binary_split_leaf_block(
     })
 }
 
+#[cfg(test)]
 fn atan_rational_bounds(
     value: &Rational,
     precision_bits: u32,
@@ -1963,6 +1964,151 @@ fn atan_rational_bounds(
         return Ok((upper.negate(), lower.negate()));
     }
     atan_nonnegative_rational_bounds(value, precision_bits)
+}
+
+struct RawFractionParts {
+    numerator: BigInt,
+    denominator: BigInt,
+}
+
+fn compare_fraction_parts(left: &RawFractionParts, right: &RawFractionParts) -> Ordering {
+    debug_assert!(left.denominator.sign() == Sign::Plus);
+    debug_assert!(right.denominator.sign() == Sign::Plus);
+    (&left.numerator * &right.denominator).cmp(&(&right.numerator * &left.denominator))
+}
+
+fn raw_fraction_to_dyadic_bound(
+    parts: &RawFractionParts,
+    precision_bits: u32,
+    direction: BoundDirection,
+) -> ExactDyadic {
+    debug_assert!(parts.denominator.sign() == Sign::Plus);
+    fraction_to_dyadic_bound(
+        &parts.numerator,
+        &parts.denominator,
+        precision_bits,
+        direction,
+    )
+}
+
+fn atan_rational_dyadic_bounds(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<CertifiedInterval, IntervalError> {
+    if value.is_negative() {
+        let positive = atan_rational_dyadic_bounds(&value.negate(), precision_bits)?;
+        return Ok(CertifiedInterval {
+            lower: negate_dyadic(&positive.upper),
+            upper: negate_dyadic(&positive.lower),
+        });
+    }
+    if value.is_zero() {
+        let zero = ExactDyadic {
+            coefficient: Integer::zero(),
+            exponent_two: Integer::zero(),
+        };
+        return Ok(CertifiedInterval {
+            lower: zero.clone(),
+            upper: zero,
+        });
+    }
+    let term_count = series_terms(precision_bits)?;
+    if is_unit_rational(value) {
+        let (lower, upper) = atan_series_common_denominator_raw_bounds(value, term_count)?;
+        return Ok(CertifiedInterval {
+            lower: raw_fraction_to_dyadic_bound(&lower, precision_bits, BoundDirection::Lower),
+            upper: raw_fraction_to_dyadic_bound(&upper, precision_bits, BoundDirection::Upper),
+        });
+    }
+    let reciprocal = reciprocal_nonzero_rational(value)?;
+    let (reciprocal_lower, reciprocal_upper) =
+        atan_series_common_denominator_raw_bounds(&reciprocal, term_count)?;
+    let (pi_lower, pi_upper) = pi_bounds(precision_bits)?;
+    Ok(CertifiedInterval {
+        lower: atan_reciprocal_raw_dyadic_bound(
+            &pi_lower,
+            &reciprocal_upper,
+            precision_bits,
+            BoundDirection::Lower,
+        ),
+        upper: atan_reciprocal_raw_dyadic_bound(
+            &pi_upper,
+            &reciprocal_lower,
+            precision_bits,
+            BoundDirection::Upper,
+        ),
+    })
+}
+
+fn atan_rational_dyadic_bound_with_pi(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+    shared_pi: Option<&(Rational, Rational)>,
+) -> Result<ExactDyadic, IntervalError> {
+    if value.is_negative() {
+        let positive_direction = match direction {
+            BoundDirection::Lower => BoundDirection::Upper,
+            BoundDirection::Upper => BoundDirection::Lower,
+        };
+        return Ok(negate_dyadic(&atan_rational_dyadic_bound_with_pi(
+            &value.negate(),
+            precision_bits,
+            positive_direction,
+            shared_pi,
+        )?));
+    }
+    if value.is_zero() {
+        return Ok(ExactDyadic {
+            coefficient: Integer::zero(),
+            exponent_two: Integer::zero(),
+        });
+    }
+    let term_count = series_terms(precision_bits)?;
+    if is_unit_rational(value) {
+        let parts = atan_series_common_denominator_raw_bound(value, term_count, direction)?;
+        return Ok(raw_fraction_to_dyadic_bound(
+            &parts,
+            precision_bits,
+            direction,
+        ));
+    }
+    let reciprocal = reciprocal_nonzero_rational(value)?;
+    let reciprocal_direction = match direction {
+        BoundDirection::Lower => BoundDirection::Upper,
+        BoundDirection::Upper => BoundDirection::Lower,
+    };
+    let reciprocal_parts =
+        atan_series_common_denominator_raw_bound(&reciprocal, term_count, reciprocal_direction)?;
+    let owned_pi;
+    let pi = match (shared_pi, direction) {
+        (Some((lower, _)), BoundDirection::Lower) => lower,
+        (Some((_, upper)), BoundDirection::Upper) => upper,
+        (None, _) => {
+            owned_pi = pi_bound(precision_bits, direction)?;
+            &owned_pi
+        }
+    };
+    Ok(atan_reciprocal_raw_dyadic_bound(
+        pi,
+        &reciprocal_parts,
+        precision_bits,
+        direction,
+    ))
+}
+
+fn atan_reciprocal_raw_dyadic_bound(
+    pi: &Rational,
+    reciprocal: &RawFractionParts,
+    precision_bits: u32,
+    direction: BoundDirection,
+) -> ExactDyadic {
+    let pi_denominator = &pi.denominator.inner.inner;
+    let mut numerator = &pi.numerator.inner * &reciprocal.denominator;
+    let correction = &reciprocal.numerator * pi_denominator * 2_u8;
+    numerator -= correction;
+    let denominator = pi_denominator * &reciprocal.denominator * 2_u8;
+    fraction_to_dyadic_bound(&numerator, &denominator, precision_bits, direction)
 }
 
 fn atan_rational_bound(
@@ -2037,6 +2183,7 @@ fn atan_unit_rational_bound(
     atan_series_common_denominator_bound(value, series_terms(precision_bits)?, direction)
 }
 
+#[cfg(test)]
 fn atan_nonnegative_rational_bounds(
     value: &Rational,
     precision_bits: u32,
@@ -2058,6 +2205,7 @@ fn atan_nonnegative_rational_bounds(
     atan_unit_rational_bounds(value, precision_bits)
 }
 
+#[cfg(test)]
 fn atan_unit_rational_bounds(
     value: &Rational,
     precision_bits: u32,
@@ -2072,29 +2220,56 @@ fn atan_series_common_denominator_bounds(
     value: &Rational,
     term_count: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
-    if value.is_zero() {
-        return Ok((Rational::zero(), Rational::zero()));
-    }
-    if atan_series_uses_binary_split(value, term_count) {
-        return atan_binary_split_state(value, term_count, true)?.into_bounds();
-    }
-    atan_series_recurrence_bounds(value, term_count)
+    let (lower, upper) = atan_series_common_denominator_raw_bounds(value, term_count)?;
+    Ok((
+        rational_from_parts(lower.numerator, lower.denominator)?,
+        rational_from_parts(upper.numerator, upper.denominator)?,
+    ))
 }
 
-fn atan_series_recurrence_bounds(
+fn atan_series_common_denominator_raw_bounds(
     value: &Rational,
     term_count: u32,
-) -> Result<(Rational, Rational), IntervalError> {
-    if value.numerator.inner.is_one() {
-        return atan_series_unit_numerator_bounds(value, term_count);
+) -> Result<(RawFractionParts, RawFractionParts), IntervalError> {
+    if value.is_zero() {
+        let zero = || RawFractionParts {
+            numerator: BigInt::zero(),
+            denominator: BigInt::one(),
+        };
+        return Ok((zero(), zero()));
     }
-    atan_series_general_recurrence_bounds(value, term_count)
+    if atan_series_uses_binary_split(value, term_count) {
+        return atan_binary_split_state(value, term_count, true)?.into_raw_bounds();
+    }
+    atan_series_recurrence_raw_bounds(value, term_count)
 }
 
+fn atan_series_recurrence_raw_bounds(
+    value: &Rational,
+    term_count: u32,
+) -> Result<(RawFractionParts, RawFractionParts), IntervalError> {
+    if value.numerator.inner.is_one() {
+        return atan_series_unit_numerator_raw_bounds(value, term_count);
+    }
+    atan_series_general_recurrence_raw_bounds(value, term_count)
+}
+
+#[cfg(test)]
 fn atan_series_general_recurrence_bounds(
     value: &Rational,
     term_count: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
+    let (lower, upper) = atan_series_general_recurrence_raw_bounds(value, term_count)?;
+    Ok((
+        rational_from_parts(lower.numerator, lower.denominator)?,
+        rational_from_parts(upper.numerator, upper.denominator)?,
+    ))
+}
+
+fn atan_series_general_recurrence_raw_bounds(
+    value: &Rational,
+    term_count: u32,
+) -> Result<(RawFractionParts, RawFractionParts), IntervalError> {
     let value_numerator = &value.numerator.inner;
     let value_denominator = &value.denominator.inner.inner;
     let numerator_squared = value_numerator * value_numerator;
@@ -2129,7 +2304,10 @@ fn atan_series_general_recurrence_bounds(
         .ok_or(IntervalError::ExponentTooLarge)?;
     let next_term_numerator = term_numerator * numerator_squared;
     let next_denominator_factor = denominator_squared * next_odd_denominator;
-    let sum = rational_from_parts(sum_numerator.clone(), common_denominator.clone())?;
+    let sum = RawFractionParts {
+        numerator: sum_numerator.clone(),
+        denominator: common_denominator.clone(),
+    };
     sum_numerator *= &next_denominator_factor;
     let next_correction = next_term_numerator * odd_product;
     if next_index.is_multiple_of(2) {
@@ -2137,9 +2315,11 @@ fn atan_series_general_recurrence_bounds(
     } else {
         sum_numerator -= next_correction;
     }
-    let adjacent =
-        rational_from_parts(sum_numerator, common_denominator * next_denominator_factor)?;
-    if compare_rationals(&sum, &adjacent) == Ordering::Less {
+    let adjacent = RawFractionParts {
+        numerator: sum_numerator,
+        denominator: common_denominator * next_denominator_factor,
+    };
+    if compare_fraction_parts(&sum, &adjacent) == Ordering::Less {
         Ok((sum, adjacent))
     } else {
         Ok((adjacent, sum))
@@ -2151,16 +2331,40 @@ fn atan_series_common_denominator_bound(
     term_count: u32,
     direction: BoundDirection,
 ) -> Result<Rational, IntervalError> {
+    let parts = atan_series_common_denominator_raw_bound(value, term_count, direction)?;
+    rational_from_parts(parts.numerator, parts.denominator)
+}
+
+fn atan_series_common_denominator_raw_bound(
+    value: &Rational,
+    term_count: u32,
+    direction: BoundDirection,
+) -> Result<RawFractionParts, IntervalError> {
     if value.is_zero() {
-        return Ok(Rational::zero());
+        return Ok(RawFractionParts {
+            numerator: BigInt::zero(),
+            denominator: BigInt::one(),
+        });
     }
     let use_sum = atan_series_sum_is_bound(term_count, direction)?;
     if atan_series_uses_binary_split(value, term_count) {
-        return atan_binary_split_state(value, term_count, !use_sum)?.into_bound(direction);
+        return atan_binary_split_state(value, term_count, !use_sum)?.into_raw_bound(direction);
     }
-    atan_series_recurrence_bound(value, term_count, direction)
+    atan_series_recurrence_raw_bound(value, term_count, direction)
 }
 
+fn atan_series_recurrence_raw_bound(
+    value: &Rational,
+    term_count: u32,
+    direction: BoundDirection,
+) -> Result<RawFractionParts, IntervalError> {
+    if value.numerator.inner.is_one() {
+        return atan_series_unit_numerator_raw_bound(value, term_count, direction);
+    }
+    atan_series_general_recurrence_raw_bound(value, term_count, direction)
+}
+
+#[cfg(test)]
 fn atan_series_recurrence_bound(
     value: &Rational,
     term_count: u32,
@@ -2172,11 +2376,21 @@ fn atan_series_recurrence_bound(
     atan_series_general_recurrence_bound(value, term_count, direction)
 }
 
+#[cfg(test)]
 fn atan_series_general_recurrence_bound(
     value: &Rational,
     term_count: u32,
     direction: BoundDirection,
 ) -> Result<Rational, IntervalError> {
+    let parts = atan_series_general_recurrence_raw_bound(value, term_count, direction)?;
+    rational_from_parts(parts.numerator, parts.denominator)
+}
+
+fn atan_series_general_recurrence_raw_bound(
+    value: &Rational,
+    term_count: u32,
+    direction: BoundDirection,
+) -> Result<RawFractionParts, IntervalError> {
     let value_numerator = &value.numerator.inner;
     let value_denominator = &value.denominator.inner.inner;
     let numerator_squared = value_numerator * value_numerator;
@@ -2207,7 +2421,10 @@ fn atan_series_general_recurrence_bound(
         .ok_or(IntervalError::ExponentTooLarge)?;
     let use_sum = atan_series_sum_is_bound(term_count, direction)?;
     if use_sum {
-        return rational_from_parts(sum_numerator, common_denominator);
+        return Ok(RawFractionParts {
+            numerator: sum_numerator,
+            denominator: common_denominator,
+        });
     }
     let next_odd_denominator = next_index
         .checked_mul(2)
@@ -2222,13 +2439,28 @@ fn atan_series_general_recurrence_bound(
     } else {
         sum_numerator -= next_correction;
     }
-    rational_from_parts(sum_numerator, common_denominator * next_denominator_factor)
+    Ok(RawFractionParts {
+        numerator: sum_numerator,
+        denominator: common_denominator * next_denominator_factor,
+    })
 }
 
+#[cfg(test)]
 fn atan_series_unit_numerator_bounds(
     value: &Rational,
     term_count: u32,
 ) -> Result<(Rational, Rational), IntervalError> {
+    let (lower, upper) = atan_series_unit_numerator_raw_bounds(value, term_count)?;
+    Ok((
+        rational_from_parts(lower.numerator, lower.denominator)?,
+        rational_from_parts(upper.numerator, upper.denominator)?,
+    ))
+}
+
+fn atan_series_unit_numerator_raw_bounds(
+    value: &Rational,
+    term_count: u32,
+) -> Result<(RawFractionParts, RawFractionParts), IntervalError> {
     debug_assert!(value.numerator.inner.is_one());
     preflight_atan_series_tail_index(term_count)?;
     let value_denominator = &value.denominator.inner.inner;
@@ -2259,27 +2491,42 @@ fn atan_series_unit_numerator_bounds(
         .and_then(|value| value.checked_add(1))
         .ok_or(IntervalError::ExponentTooLarge)?;
     let next_denominator_factor = denominator_squared * next_odd_denominator;
-    let sum = rational_from_parts(sum_numerator.clone(), common_denominator.clone())?;
+    let sum = RawFractionParts {
+        numerator: sum_numerator.clone(),
+        denominator: common_denominator.clone(),
+    };
     sum_numerator *= &next_denominator_factor;
     if next_index.is_multiple_of(2) {
         sum_numerator += odd_product;
     } else {
         sum_numerator -= odd_product;
     }
-    let adjacent =
-        rational_from_parts(sum_numerator, common_denominator * next_denominator_factor)?;
-    if compare_rationals(&sum, &adjacent) == Ordering::Less {
+    let adjacent = RawFractionParts {
+        numerator: sum_numerator,
+        denominator: common_denominator * next_denominator_factor,
+    };
+    if compare_fraction_parts(&sum, &adjacent) == Ordering::Less {
         Ok((sum, adjacent))
     } else {
         Ok((adjacent, sum))
     }
 }
 
+#[cfg(test)]
 fn atan_series_unit_numerator_bound(
     value: &Rational,
     term_count: u32,
     direction: BoundDirection,
 ) -> Result<Rational, IntervalError> {
+    let parts = atan_series_unit_numerator_raw_bound(value, term_count, direction)?;
+    rational_from_parts(parts.numerator, parts.denominator)
+}
+
+fn atan_series_unit_numerator_raw_bound(
+    value: &Rational,
+    term_count: u32,
+    direction: BoundDirection,
+) -> Result<RawFractionParts, IntervalError> {
     debug_assert!(value.numerator.inner.is_one());
     preflight_atan_series_tail_index(term_count)?;
     let value_denominator = &value.denominator.inner.inner;
@@ -2306,7 +2553,10 @@ fn atan_series_unit_numerator_bound(
         .checked_add(1)
         .ok_or(IntervalError::ExponentTooLarge)?;
     if atan_series_sum_is_bound(term_count, direction)? {
-        return rational_from_parts(sum_numerator, common_denominator);
+        return Ok(RawFractionParts {
+            numerator: sum_numerator,
+            denominator: common_denominator,
+        });
     }
     let next_odd_denominator = next_index
         .checked_mul(2)
@@ -2319,7 +2569,10 @@ fn atan_series_unit_numerator_bound(
     } else {
         sum_numerator -= odd_product;
     }
-    rational_from_parts(sum_numerator, common_denominator * next_denominator_factor)
+    Ok(RawFractionParts {
+        numerator: sum_numerator,
+        denominator: common_denominator * next_denominator_factor,
+    })
 }
 
 fn preflight_atan_series_tail_index(term_count: u32) -> Result<(), IntervalError> {
@@ -2360,25 +2613,37 @@ struct AtanBinarySplitState {
 }
 
 impl AtanBinarySplitState {
+    #[cfg(test)]
     fn into_bound(self, direction: BoundDirection) -> Result<Rational, IntervalError> {
+        let parts = self.into_raw_bound(direction)?;
+        rational_from_parts(parts.numerator, parts.denominator)
+    }
+
+    fn into_raw_bound(self, direction: BoundDirection) -> Result<RawFractionParts, IntervalError> {
         if atan_series_sum_is_bound(self.term_count, direction)? {
-            rational_from_parts(self.sum_numerator, self.common_denominator)
+            Ok(RawFractionParts {
+                numerator: self.sum_numerator,
+                denominator: self.common_denominator,
+            })
         } else {
-            self.into_adjacent()
+            self.into_raw_adjacent()
         }
     }
 
-    fn into_bounds(self) -> Result<(Rational, Rational), IntervalError> {
-        let sum = rational_from_parts(self.sum_numerator.clone(), self.common_denominator.clone())?;
-        let adjacent = self.into_adjacent()?;
-        if compare_rationals(&sum, &adjacent) == Ordering::Less {
+    fn into_raw_bounds(self) -> Result<(RawFractionParts, RawFractionParts), IntervalError> {
+        let sum = RawFractionParts {
+            numerator: self.sum_numerator.clone(),
+            denominator: self.common_denominator.clone(),
+        };
+        let adjacent = self.into_raw_adjacent()?;
+        if compare_fraction_parts(&sum, &adjacent) == Ordering::Less {
             Ok((sum, adjacent))
         } else {
             Ok((adjacent, sum))
         }
     }
 
-    fn into_adjacent(self) -> Result<Rational, IntervalError> {
+    fn into_raw_adjacent(self) -> Result<RawFractionParts, IntervalError> {
         let last_product_numerator = self
             .last_product_numerator
             .expect("adjacent atan split retains the final term product");
@@ -2395,10 +2660,10 @@ impl AtanBinarySplitState {
             -(self.value_numerator * last_product_numerator * self.numerator_squared * final_odd);
         let adjacent_numerator =
             self.sum_numerator * &next_denominator_factor + next_term_scaled_numerator;
-        rational_from_parts(
-            adjacent_numerator,
-            self.common_denominator * next_denominator_factor,
-        )
+        Ok(RawFractionParts {
+            numerator: adjacent_numerator,
+            denominator: self.common_denominator * next_denominator_factor,
+        })
     }
 }
 
@@ -5530,6 +5795,52 @@ mod tests {
             };
             assert_eq!(asin(&value, 0), Err(IntervalError::InvalidBounds));
         }
+    }
+
+    #[test]
+    fn raw_atan_dyadic_rounding_matches_canonical_rational_bounds() {
+        for precision_bits in [0, 1, 32, 128] {
+            for value in [
+                rational(-2, 1),
+                rational(-1, 1),
+                rational(-1, 2),
+                Rational::zero(),
+                rational(1, 2),
+                Rational::one(),
+                rational(2, 1),
+                rational(17, 7),
+            ] {
+                let (lower, upper) = atan_rational_bounds(&value, precision_bits).unwrap();
+                assert_eq!(
+                    atan_rational_dyadic_bounds(&value, precision_bits).unwrap(),
+                    from_rational_bounds(&lower, &upper, precision_bits).unwrap(),
+                    "value={value:?}, precision={precision_bits}",
+                );
+                for direction in [BoundDirection::Lower, BoundDirection::Upper] {
+                    let expected = atan_rational_bound(&value, precision_bits, direction).unwrap();
+                    assert_eq!(
+                        atan_rational_dyadic_bound_with_pi(
+                            &value,
+                            precision_bits,
+                            direction,
+                            None,
+                        )
+                        .unwrap(),
+                        rational_to_dyadic_bound(&expected, precision_bits, direction),
+                        "value={value:?}, precision={precision_bits}",
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn raw_atan_rounding_rejects_reversed_inputs_before_coarse_rounding() {
+        let value = CertifiedInterval {
+            lower: rational_to_dyadic_bound(&rational(3, 4), 2, BoundDirection::Lower),
+            upper: rational_to_dyadic_bound(&rational(1, 4), 2, BoundDirection::Upper),
+        };
+        assert_eq!(atan(&value, 0), Err(IntervalError::InvalidBounds));
     }
 
     fn legacy_asin_common_denominator_bounds(
