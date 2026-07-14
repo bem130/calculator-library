@@ -266,6 +266,62 @@ fn wide_add_source(terms: u64) -> String {
         .join("+")
 }
 
+fn calculate_wide_product(criterion: &mut Criterion) {
+    let request = benchmark_request();
+    let source = wide_multiply_source(128);
+    let outcome = calculate(&source, &request, &mut EvaluationContext::default())
+        .expect("wide product preflight must succeed");
+    assert_eq!(exact_plain_text(&outcome).len(), 216);
+    let mut group = criterion.benchmark_group("large_product");
+    group.throughput(Throughput::Elements(128));
+    group.bench_function("wide_multiply_128", |bencher| {
+        bencher.iter(|| {
+            black_box(
+                calculate(
+                    black_box(&source),
+                    black_box(&request),
+                    &mut EvaluationContext::default(),
+                )
+                .expect("wide product must not fail"),
+            )
+        });
+    });
+    group.finish();
+
+    let mut scaling = criterion.benchmark_group("large_product_scaling");
+    for terms in [16_u64, 32, 64, 128] {
+        let source = wide_multiply_source(terms);
+        let outcome = calculate(&source, &request, &mut EvaluationContext::default())
+            .expect("wide product scaling preflight must succeed");
+        assert!(!exact_plain_text(&outcome).is_empty());
+        scaling.throughput(Throughput::Elements(terms));
+        scaling.bench_with_input(
+            BenchmarkId::from_parameter(terms),
+            &source,
+            |bencher, source| {
+                bencher.iter(|| {
+                    black_box(
+                        calculate(
+                            black_box(source),
+                            black_box(&request),
+                            &mut EvaluationContext::default(),
+                        )
+                        .expect("wide product scaling calculation must not fail"),
+                    )
+                });
+            },
+        );
+    }
+    scaling.finish();
+}
+
+fn wide_multiply_source(terms: u64) -> String {
+    (1..=terms)
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>()
+        .join("*")
+}
+
 fn validate_calculation(name: &str, source: &str, request: &CalculationRequest) {
     let outcome = calculate(source, request, &mut EvaluationContext::default())
         .expect("representative calculation preflight must succeed");
@@ -430,6 +486,6 @@ criterion_group! {
         .sample_size(10)
         .warm_up_time(Duration::from_secs(1))
         .measurement_time(Duration::from_secs(1));
-    targets = calculate_representative_paths, calculate_wide_expression, reduce_session_input, profile_approximate_stages, profile_approximate_components
+    targets = calculate_representative_paths, calculate_wide_expression, calculate_wide_product, reduce_session_input, profile_approximate_stages, profile_approximate_components
 }
 criterion_main!(representative_paths);
