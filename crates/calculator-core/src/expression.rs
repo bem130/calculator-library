@@ -347,6 +347,7 @@ struct DagBuilder {
     canonical_term_limit: usize,
     canonical_limit_reached: Option<ComputationLimitKind>,
     additive_literal_fold_limit_reached: bool,
+    multiplicative_literal_fold_limit_reached: bool,
     domain_obligations: Vec<DomainObligation>,
     structural_sizes: Vec<usize>,
 }
@@ -8329,6 +8330,12 @@ impl DagBuilder {
                     self.lower_additive_terms(expression, false, &mut terms, &mut constant)?;
                     return Ok(self.add_many_with_constant(terms, constant));
                 }
+                if *op == BinaryOperator::Multiply {
+                    let mut factors = Vec::new();
+                    let mut coefficient = Rational::one();
+                    self.lower_multiplicative_factors(expression, &mut factors, &mut coefficient)?;
+                    return Ok(self.multiply_many_with_coefficient(factors, coefficient));
+                }
                 let left = self.lower(left)?;
                 let right = self.lower(right)?;
                 Ok(match op {
@@ -8389,6 +8396,53 @@ impl DagBuilder {
                 } else {
                     self.push_node(ExpressionNode::Function { function, argument })
                 })
+            }
+        }
+    }
+
+    fn lower_multiplicative_factors(
+        &mut self,
+        expression: &SourceExpr,
+        factors: &mut Vec<ExprId>,
+        coefficient: &mut Rational,
+    ) -> Result<(), EvaluationError> {
+        if let Some((literal, negative)) = additive_numeric_literal(expression, false) {
+            let value = Rational::from_decimal_literal(literal)
+                .map_err(decimal_literal_error_to_evaluation_error)?;
+            let value = if negative { value.negate() } else { value };
+            let work = rational_multiply_work(coefficient, &value);
+            if self.canonical_limit_reached.is_none()
+                && self.canonical_budget.reserve(0, work).is_ok()
+            {
+                *coefficient = coefficient.multiply(&value);
+            } else {
+                if self.canonical_limit_reached.is_none() {
+                    self.canonical_limit_reached
+                        .get_or_insert(ComputationLimitKind::LogicalWorkUnits);
+                }
+                self.multiplicative_literal_fold_limit_reached = true;
+                factors.push(self.push_rational(value));
+            }
+            return Ok(());
+        }
+        match expression {
+            SourceExpr::Binary {
+                op: BinaryOperator::Multiply,
+                left,
+                right,
+                ..
+            } => {
+                self.lower_multiplicative_factors(left, factors, coefficient)?;
+                self.lower_multiplicative_factors(right, factors, coefficient)
+            }
+            SourceExpr::Number { .. }
+            | SourceExpr::Constant { .. }
+            | SourceExpr::Unary { .. }
+            | SourceExpr::Binary { .. }
+            | SourceExpr::Percent { .. }
+            | SourceExpr::Function { .. } => {
+                factors.push(self.lower(expression)?);
+                Ok(())
             }
         }
     }
@@ -8952,8 +9006,37 @@ impl DagBuilder {
         self.normalize_arithmetic_expression(expression)
     }
 
+    fn multiply_many_with_coefficient(
+        &mut self,
+        mut values: Vec<ExprId>,
+        coefficient: Rational,
+    ) -> ExprId {
+        if self.multiplicative_literal_fold_limit_reached {
+            if coefficient != Rational::one() || values.is_empty() {
+                values.push(self.push_rational(coefficient));
+            }
+            return match values.as_slice() {
+                [value] => *value,
+                [_, ..] => {
+                    let list = self.push_list(values);
+                    self.push_node(ExpressionNode::Multiply(list))
+                }
+                [] => unreachable!("an empty product receives its coefficient"),
+            };
+        }
+        let expression = self.multiply_many_factors_with_coefficient(values, coefficient);
+        self.normalize_arithmetic_expression(expression)
+    }
+
     fn multiply_many_factors(&mut self, values: Vec<ExprId>) -> ExprId {
-        let mut coefficient = Rational::one();
+        self.multiply_many_factors_with_coefficient(values, Rational::one())
+    }
+
+    fn multiply_many_factors_with_coefficient(
+        &mut self,
+        values: Vec<ExprId>,
+        mut coefficient: Rational,
+    ) -> ExprId {
         let mut factors = Vec::new();
         for value in values {
             self.collect_product_factors(value, &mut coefficient, &mut factors);
@@ -10155,6 +10238,22 @@ fn rational_add_work(left: &Rational, right: &Rational) -> usize {
         .saturating_add(normalization)
 }
 
+fn rational_multiply_work(left: &Rational, right: &Rational) -> usize {
+    let left_numerator = integer_structural_size(&left.numerator);
+    let right_numerator = integer_structural_size(&right.numerator);
+    let left_denominator = integer_structural_size(&left.denominator.inner);
+    let right_denominator = integer_structural_size(&right.denominator.inner);
+    let numerator_size = left_numerator.saturating_add(right_numerator);
+    let denominator_size = left_denominator.saturating_add(right_denominator);
+    let products = left_numerator
+        .saturating_mul(right_numerator)
+        .saturating_add(left_denominator.saturating_mul(right_denominator));
+    let normalization = numerator_size
+        .saturating_mul(denominator_size)
+        .saturating_mul(3);
+    products.saturating_add(normalization)
+}
+
 fn decimal_literal_error_to_evaluation_error(error: DecimalLiteralError) -> EvaluationError {
     match error {
         DecimalLiteralError::InvalidExponent | DecimalLiteralError::ExponentTooLarge => {
@@ -10285,6 +10384,60 @@ mod tests {
         let reverse = rational_add_work(&fraction, &integer);
         assert_eq!(forward, reverse);
         assert!(forward >= integer_size.saturating_mul(2));
+    }
+
+    #[test]
+    fn multiplicative_numeric_literals_materialize_only_the_folded_coefficient() {
+        let dag = lower("2 * -3 * +0.5 * 4");
+        assert_eq!(evaluate_rational_dag(&dag).unwrap().to_string(), "-12");
+        assert_eq!(dag.nodes.len(), 1);
+        assert_eq!(dag.rationals.len(), 1);
+
+        for (source, expected) in [
+            ("2*(3*4)", "24"),
+            ("-2 * -3 * 4", "24"),
+            ("2 * 0 * 999", "0"),
+            ("0.25 * 8", "2"),
+        ] {
+            let dag = lower(source);
+            assert_eq!(evaluate_rational_dag(&dag).unwrap().to_string(), expected);
+            assert_eq!(dag.nodes.len(), 1);
+            assert_eq!(dag.rationals.len(), 1);
+        }
+    }
+
+    #[test]
+    fn multiplicative_literal_fold_retains_nonliteral_factors() {
+        let dag = lower("2 * sin(1) * 3");
+        assert!(dag.nodes.iter().any(|node| matches!(
+            node,
+            ExpressionNode::Function {
+                function: Function::Sin,
+                ..
+            }
+        )));
+        assert!(dag.rationals.iter().any(|value| value.to_string() == "6"));
+    }
+
+    #[test]
+    fn multiplicative_literal_fold_does_not_resume_after_work_limit() {
+        let parsed =
+            parse_source("2 * 18446744073709551616 * 1", &ParseSettings::default()).unwrap();
+        let dag = lower_source_expression(
+            &parsed,
+            SemanticSettings::default(),
+            &ResourceLimits {
+                max_logical_work_units: 10,
+                ..ResourceLimits::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            dag.normalization.limit_reached,
+            Some(ComputationLimitKind::LogicalWorkUnits)
+        );
+        assert!(dag.rationals.iter().any(|value| *value == Rational::one()));
+        assert!(matches!(dag.node(dag.root()), ExpressionNode::Multiply(_)));
     }
 
     #[test]
