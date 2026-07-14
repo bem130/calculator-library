@@ -887,6 +887,36 @@ and 401,216 units, and 99,819 / 3,801 and 400,229 units respectively. Reproduce 
 `wide_multiply_128` allocation/logical-work cases, Criterion
 `large_product/wide_multiply_128`, and the v19 Wasm/npm case.
 
+## Allocation-free Rational integer predicates
+
+At base commit `6e40832`, `Rational::is_integer` compared its canonical positive
+denominator with a newly constructed `BigInt::one()`. Arithmetic dispatch calls
+this predicate repeatedly; the Issue 87 integer product path therefore exposed
+the comparison temporary as 1,016 avoidable blocks across the public calculation.
+The predicate now asks the stored BigInt whether it is one, without materializing
+another arbitrary-precision integer.
+
+On 2026-07-15 with `rustc 1.97.0`, deterministic allocation changed as follows;
+peak live allocation and logical work were unchanged for every case:
+
+| Case | Base bytes / blocks | Candidate bytes / blocks | Peak / work units |
+| --- | ---: | ---: | ---: |
+| `wide_multiply_128` | 80,930 / 3,664 | 72,802 / 2,648 | 18,904 / 511; 1,339 |
+| `wide_add_256` | 108,157 / 5,449 | 99,965 / 4,425 | 38,104 / 1,023; 261 |
+| exact rational | 12,758 / 551 | 12,590 / 530 | 2,615 / 51; 231 |
+| exact symbolic | 52,704 / 1,612 | 51,984 / 1,522 | 8,853 / 98; 401,216 |
+| algebraic | 99,819 / 3,801 | 99,251 / 3,730 | 4,884 / 104; 400,229 |
+| approximate composite | 172,272 / 2,726 | 172,264 / 2,725 | 9,886 / 57; 400,447 |
+
+Same-host Criterion measured the wide product at `[165.64,205.12]` us, versus
+`[183.60,212.70]` us at base. The final Wasm/npm artifact is
+`091ea180ff8623ceba34aeabfd5cd810daeb062d396a2a8ff9e455bde7a439b9`
+(825,688 bytes). The unchanged v19 three-iteration/one-warmup smoke moved from
+1.379 to 1.304 ms per iteration; payload stayed at 2,162 bytes. These short
+timing samples corroborate the deterministic allocation result rather than form
+a throughput guarantee. Growing BigInt multiplication and the unchanged public
+parse/presentation boundary remain the principal wide-product work.
+
 ## Raw directed dyadic arctangent endpoints
 
 At base commit `defe4a4`, the public certified `atan` path canonicalized each

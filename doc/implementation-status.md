@@ -10,6 +10,7 @@
 
 * 有理数の exact parse、四則演算、整数累乗、percent lowering。
 * canonical Rational の乗算は、zero と整数の multiplicative identity を汎用正規化なしで処理し、integer/integer では分母積・GCD・exact division を構築せず分子だけを乗算する。integer/fraction と fraction/fraction は共有因子を相殺する既存の汎用経路を維持し、logical work は実際に保持する各経路の構造コストを課金する。
+* canonical Rational のinteger判定は、既存の正分母を構造的にone判定する。比較のたびに一時`BigInt::one()`を構築せず、算術dispatch全体の短命allocationを除く。
 * `0.1 + 0.2 = 3/10` などの decimal lossless evaluation。
 * rational exact output の format preference。有限小数として正確に表せる値は `finiteDecimal` で表示でき、improper rational は `mixedFraction` で帯分数表示できる。正確に表せない finite decimal request は rational 表示へ戻す。
 * real principal power semantics に基づく rational power の exact root / domain error / symbolic fallback。
