@@ -8395,6 +8395,20 @@ impl DagBuilder {
         terms: &mut Vec<ExprId>,
         constant: &mut Rational,
     ) -> Result<(), EvaluationError> {
+        if let Some((literal, negative)) = additive_numeric_literal(expression, negative) {
+            let value = Rational::from_decimal_literal(literal)
+                .map_err(decimal_literal_error_to_evaluation_error)?;
+            let value = if negative { value.negate() } else { value };
+            let work = rational_add_work(constant, &value);
+            if self.canonical_budget.reserve(0, work).is_ok() {
+                *constant = constant.add(&value);
+            } else {
+                self.canonical_limit_reached
+                    .get_or_insert(ComputationLimitKind::LogicalWorkUnits);
+                terms.push(self.push_rational(value));
+            }
+            return Ok(());
+        }
         match expression {
             SourceExpr::Binary {
                 op: BinaryOperator::Add,
@@ -8414,13 +8428,8 @@ impl DagBuilder {
                 self.lower_additive_terms(left, negative, terms, constant)?;
                 self.lower_additive_terms(right, !negative, terms, constant)
             }
-            SourceExpr::Number { literal, .. } => {
-                let value = Rational::from_decimal_literal(literal)
-                    .map_err(decimal_literal_error_to_evaluation_error)?;
-                *constant = constant.add(&if negative { value.negate() } else { value });
-                Ok(())
-            }
-            SourceExpr::Constant { .. }
+            SourceExpr::Number { .. }
+            | SourceExpr::Constant { .. }
             | SourceExpr::Unary { .. }
             | SourceExpr::Binary { .. }
             | SourceExpr::Percent { .. }
@@ -8676,6 +8685,20 @@ impl DagBuilder {
     fn add_many_with_constant(&mut self, values: Vec<ExprId>, constant: Rational) -> ExprId {
         if values.is_empty() {
             return self.push_rational(constant);
+        }
+        if self.canonical_limit_reached.is_some() {
+            let mut values = values;
+            if !constant.is_zero() {
+                values.push(self.push_rational(constant));
+            }
+            return match values.as_slice() {
+                [value] => *value,
+                [_, ..] => {
+                    let list = self.push_list(values);
+                    self.push_node(ExpressionNode::Add(list))
+                }
+                [] => self.push_rational(Rational::zero()),
+            };
         }
         let expression = self.add_many_linear(values, constant);
         self.normalize_arithmetic_expression(expression)
@@ -10065,6 +10088,50 @@ fn function_rank(function: Function) -> u8 {
     }
 }
 
+fn additive_numeric_literal(expression: &SourceExpr, negative: bool) -> Option<(&str, bool)> {
+    match expression {
+        SourceExpr::Number { literal, .. } => Some((literal, negative)),
+        SourceExpr::Unary {
+            op: UnaryOperator::Plus,
+            expr,
+            ..
+        } => additive_numeric_literal(expr, negative),
+        SourceExpr::Unary {
+            op: UnaryOperator::Negate,
+            expr,
+            ..
+        } => additive_numeric_literal(expr, !negative),
+        SourceExpr::Constant { .. }
+        | SourceExpr::Binary { .. }
+        | SourceExpr::Percent { .. }
+        | SourceExpr::Function { .. } => None,
+    }
+}
+
+fn rational_add_work(left: &Rational, right: &Rational) -> usize {
+    let left_numerator = integer_structural_size(&left.numerator);
+    let right_numerator = integer_structural_size(&right.numerator);
+    if left.is_integer() && right.is_integer() {
+        return left_numerator.max(right_numerator);
+    }
+    let left_denominator = integer_structural_size(&left.denominator.inner);
+    let right_denominator = integer_structural_size(&right.denominator.inner);
+    if right.is_integer() {
+        return right_numerator
+            .saturating_mul(left_denominator)
+            .saturating_add(left_numerator.max(left_denominator));
+    }
+    if left.is_integer() {
+        return left_numerator
+            .saturating_mul(right_denominator)
+            .saturating_add(right_numerator.max(right_denominator));
+    }
+    left_numerator
+        .saturating_mul(right_denominator)
+        .saturating_add(right_numerator.saturating_mul(left_denominator))
+        .saturating_add(left_denominator.saturating_mul(right_denominator))
+}
+
 fn decimal_literal_error_to_evaluation_error(error: DecimalLiteralError) -> EvaluationError {
     match error {
         DecimalLiteralError::InvalidExponent | DecimalLiteralError::ExponentTooLarge => {
@@ -10106,11 +10173,36 @@ mod tests {
 
     #[test]
     fn additive_numeric_literals_materialize_only_the_folded_constant() {
-        let dag = lower("1.25 - (2 - 0.75) + 0.5");
+        let dag = lower("1.25 - (2 - 0.75) + -0.5 + +1");
         assert_eq!(evaluate_rational_dag(&dag).unwrap().to_string(), "1/2");
         assert_eq!(dag.nodes.len(), 1);
         assert_eq!(dag.rationals.len(), 1);
         assert!(dag.domain_obligations.is_empty());
+
+        for (source, expected) in [
+            ("1-(2-(3-4))", "-2"),
+            ("1 + -2 + 3", "2"),
+            ("1 + +2 - 3", "0"),
+            ("1 - 1 + 0", "0"),
+        ] {
+            let dag = lower(source);
+            assert_eq!(evaluate_rational_dag(&dag).unwrap().to_string(), expected);
+            assert_eq!(dag.nodes.len(), 1);
+            assert_eq!(dag.rationals.len(), 1);
+        }
+    }
+
+    #[test]
+    fn additive_literal_fold_keeps_nonliteral_terms_in_the_dag() {
+        let dag = lower("1 + sin(1) - 2 + 3");
+        assert!(dag.nodes.iter().any(|node| matches!(
+            node,
+            ExpressionNode::Function {
+                function: Function::Sin,
+                ..
+            }
+        )));
+        assert!(dag.rationals.iter().any(|value| value.to_string() == "2"));
     }
 
     #[test]

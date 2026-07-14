@@ -1,11 +1,12 @@
 extern crate std;
 
-use alloc::{format, string::String};
+use alloc::{format, string::String, string::ToString};
 
 use crate::{
-    calculate, parse, CalculationRequest, CalculatorError, EnclosureOutputRequest,
-    EvaluationContext, ExactFormatPreference, ExactOutputRequest, InputLimitErrorKind, ParseError,
-    ParseSettings, ResourceLimitRequest, ResourceLimits, ScientificOutputRequest,
+    calculate, parse, CalculationOutcome, CalculationRequest, CalculatorError,
+    ComputationLimitKind, EnclosureOutputRequest, EvaluationContext, ExactFormatPreference,
+    ExactOutputRequest, IncompleteReason, InputLimitErrorKind, ParseError, ParseSettings,
+    ResourceLimitRequest, ResourceLimits, ScientificOutputRequest,
 };
 
 #[test]
@@ -37,6 +38,16 @@ fn source_resource_limits_are_enforced_before_evaluation() {
     );
 
     limits = ResourceLimits {
+        max_source_depth: 2,
+        ..ResourceLimits::default()
+    };
+    assert_input_limit(
+        "1 + (2 + (3 + 4))",
+        limits,
+        InputLimitErrorKind::SourceAstTooDeep,
+    );
+
+    limits = ResourceLimits {
         max_expression_nodes: 2,
         ..ResourceLimits::default()
     };
@@ -54,6 +65,40 @@ fn source_resource_limits_are_enforced_before_evaluation() {
         ..CalculationRequest::default()
     };
     assert!(calculate("1 + 2", &request, &mut EvaluationContext::default()).is_ok());
+}
+
+#[test]
+fn additive_literal_fold_charges_structural_logical_work() {
+    let source = (1_u32..=256)
+        .map(|value| value.to_string())
+        .collect::<alloc::vec::Vec<_>>()
+        .join("+");
+    let default = calculate(
+        &source,
+        &CalculationRequest::default(),
+        &mut EvaluationContext::default(),
+    )
+    .unwrap();
+    let request = |units| CalculationRequest {
+        limits: ResourceLimitRequest::Custom(ResourceLimits {
+            max_logical_work_units: units,
+            ..ResourceLimits::default()
+        }),
+        ..CalculationRequest::default()
+    };
+    assert_eq!(
+        calculate(&source, &request(261), &mut EvaluationContext::default()).unwrap(),
+        default
+    );
+    assert!(matches!(
+        calculate(&source, &request(260), &mut EvaluationContext::default()).unwrap(),
+        CalculationOutcome::Partial {
+            reason: IncompleteReason::ComputationLimit {
+                kind: ComputationLimitKind::LogicalWorkUnits
+            },
+            ..
+        }
+    ));
 }
 
 #[test]
