@@ -10250,6 +10250,33 @@ mod tests {
     }
 
     #[test]
+    fn additive_literal_fallback_is_not_selected_for_an_unrelated_rewrite_limit() {
+        let parsed = parse_source("1 + sin(1)^2 + cos(1)^2", &ParseSettings::default()).unwrap();
+        let mut builder = DagBuilder {
+            semantics: SemanticSettings::default(),
+            canonical_budget: CanonicalBudget {
+                rewrite_steps_remaining: 0,
+                logical_work_remaining: ResourceLimits::default().max_logical_work_units,
+            },
+            canonical_term_limit: usize::try_from(ResourceLimits::default().max_expression_nodes)
+                .unwrap(),
+            ..DagBuilder::default()
+        };
+
+        let root = builder.lower(&parsed).unwrap();
+
+        assert_eq!(
+            builder.canonical_limit_reached,
+            Some(ComputationLimitKind::RewriteSteps)
+        );
+        assert!(!builder.additive_literal_fold_limit_reached);
+        assert!(matches!(
+            builder.nodes[root.0 as usize],
+            ExpressionNode::Add(_)
+        ));
+    }
+
+    #[test]
     fn additive_literal_mixed_work_covers_product_and_sum_in_both_orders() {
         let integer = Rational::from_decimal_literal(&"9".repeat(2_048)).unwrap();
         let fraction = Rational::from_decimal_literal("0.5").unwrap();
