@@ -670,8 +670,37 @@ cargo run --profile bench -p calculator-core --features std \
   --example logical_work_baseline
 corepack pnpm --dir packages/calculator run build:wasm
 CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
-  corepack pnpm --silent --dir packages/calculator run benchmark
+corepack pnpm --silent --dir packages/calculator run benchmark
 ```
+
+## Integral scientific literal construction
+
+At base `1815cf4`, zero scientific literals still constructed the full decimal
+scale and normalized `0/10^scale`. The converter now validates the complete
+mantissa and exponent first, then returns canonical zero without a scale power.
+Final scale zero or negative also returns the known denominator-one integer
+directly; positive-scale fractional values retain general normalization.
+
+One public `0e-100000` calculation moved from 1,900,744 bytes / 3,254 blocks,
+peak 198,298 / 44, to 3,016 / 98, peak 1,130 / 10. `12345e100` moved from
+21,488 / 685 to 21,376 / 681 with its 1,599 / 47 peak unchanged. The exact
+rational control remained 12,182 / 501. Ten-sample Criterion ranges moved the
+zero case from 2.167--2.576 ms to 3.451--3.772 us; the ordinary control's ranges
+overlapped at 58.46--67.87 us base and 46.34--67.10 us candidate. Logical work
+is 3 and 46 units respectively and is not changed by the converter shortcut.
+
+The three-iteration/one-warmup Wasm/npm smoke moved the zero case from 10.285 to
+0.317 ms/iteration with its 1,720-byte payload unchanged. The ordinary control
+measured 0.691 versus 0.672 ms with a stable 1,940-byte payload. Base artifact
+`7d5cc154557d057903760c1a9096062e5b4cf75ca8c5cd549561598024521a32`
+was 829,165 bytes; candidate
+`84e64abd994e78564aa01bd993c02cd44b9f3cfd5deb171b92c3811929b77f37`
+is 829,226 bytes and remains below budget.
+
+Reproduce with allocation cases `exact_zero_large_scale`,
+`exact_integral_scientific`, and `exact_rational`; Criterion filter
+`calculate/(exact_integral_scientific|exact_zero_large_scale)$`; the logical-work
+runner; and focused npm cases with the same names.
 
 ## Rational integer-operand addition
 

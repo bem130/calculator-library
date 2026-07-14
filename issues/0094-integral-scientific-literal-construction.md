@@ -21,3 +21,30 @@ result and can unnecessarily restrict valid zero literals.
   exponent boundaries, very large zero scales, and fractional controls.
 - Record native allocation/timing/logical-work and Wasm/npm boundary evidence,
   run repository gates, and complete diff, consistency, and merge reviews.
+
+## Resolution
+
+The converter now returns canonical zero after mantissa/exponent validation but
+before constructing a scale power. A nonzero literal with final scale zero uses
+the parsed numerator directly; a negative final scale constructs the exact power
+of ten and returns the product as a denominator-one Rational without GCD or exact
+division. Positive-scale fractional values keep the general canonical path.
+
+At base `1815cf4`, one public `0e-100000` calculation allocated 1,900,744 bytes /
+3,254 blocks and peaked at 198,298 / 44. The candidate allocated 3,016 / 98 and
+peaked at 1,130 / 10. `12345e100` moved from 21,488 / 685 to 21,376 / 681 with
+the same 1,599 / 47 peak. The exact-rational control remained 12,182 / 501.
+
+Same-host ten-sample Criterion ranges moved `0e-100000` from
+2.167--2.576 ms to 3.451--3.772 us. The ordinary integral-scientific control
+measured 58.46--67.87 us at base and 46.34--67.10 us in the candidate, so no
+timing claim is made for that control. Logical work is 3 units for the zero case
+and 46 for the nonzero case; the optimization does not change accounting.
+
+A three-iteration/one-warmup Wasm/npm smoke moved `0e-100000` from 10.285 to
+0.317 ms/iteration while its payload remained 1,720 bytes. The ordinary control
+measured 0.691 versus 0.672 ms with a stable 1,940-byte payload. Base artifact
+`7d5cc154557d057903760c1a9096062e5b4cf75ca8c5cd549561598024521a32`
+was 829,165 bytes; candidate
+`84e64abd994e78564aa01bd993c02cd44b9f3cfd5deb171b92c3811929b77f37`
+is 829,226 bytes and remains below the package budget.

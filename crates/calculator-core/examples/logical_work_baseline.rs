@@ -12,6 +12,8 @@ fn main() {
         ),
         ("exact_symbolic", "(exp(1)+sin(1))*cos(1)-exp(1)*cos(1)"),
         ("exact_trig_identity", "sin(1)^2+cos(1)^2"),
+        ("exact_integral_scientific", "12345e100"),
+        ("exact_zero_large_scale", "0e-100000"),
         ("approximate", "sin(1)+ln(2)+2^sqrt(2)"),
         ("euler", "e"),
         ("exp_negative_10000", "exp(-10000)"),

@@ -21,6 +21,8 @@ const cases = [
     ["exact_mixed_subtract", "-5/6 - 7", "-47/6"],
     ["exact_symbolic", "(exp(1)+sin(1))*cos(1)-exp(1)*cos(1)", "sin(1)*cos(1)"],
     ["exact_trig_identity", "sin(1)^2+cos(1)^2", "1"],
+    ["exact_integral_scientific", "12345e100", `12345${"0".repeat(100)}`],
+    ["exact_zero_large_scale", "0e-100000", "0"],
     ["approximate", "sin(1)+ln(2)+2^sqrt(2)", "2^sqrt(2)+sin(1)+ln(2)"],
     ["log_non_degenerate", "ln(2+sin(1))", "ln(sin(1)+2)"],
     ["log_large_positive", "ln(340282366920938463463374607431768211457)", "ln(340282366920938463463374607431768211457)"],
@@ -79,7 +81,7 @@ if (selectedCase === undefined || selectedCase === "session_dispatch_sequence") 
 
 process.stdout.write(`${JSON.stringify({
     schemaVersion: 1,
-    benchmarkDefinition: "representative-paths-v21",
+    benchmarkDefinition: "representative-paths-v22",
     artifact: {
         wasmSha256: createHash("sha256").update(wasmBytes).digest("hex"),
         wasmBytes: wasmBytes.byteLength,
