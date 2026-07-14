@@ -771,6 +771,10 @@ the representative approximate case. Five iterations after one warmup measured
 `fff690b89e67b74df69242f3d4f327b26ea428835a4c852e571fe8e8a22fca6a`
 (818,558 bytes). Both remain below the 860,000-byte budget; this snapshot verifies
 the public Wasm/facade path and is not used as a stable timing guarantee.
+The final CI-equivalent gate rebuilt the package and example at the same candidate
+SHA and size, and passed native/no-default/Wasm tests, generated/protocol/no-float
+checks, dependency policy, TypeScript/package/example builds, the exact oracle,
+package-size budget, browser E2E, and workspace documentation.
 
 Reproduce with:
 
