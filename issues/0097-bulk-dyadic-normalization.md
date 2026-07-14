@@ -51,3 +51,13 @@ optimized artifact moved from 828,671 bytes
 to 829,237 bytes
 (`9f80e03f47ebbfae9ff417689a6f9f01447d09d0ac1732eaf54c6b68f33f3108`)
 and remains below the package budget.
+
+Repository validation passed with 374 core tests, 37 native Wasm tests, 23
+Node/Wasm tests, no-default-feature checks/tests, workspace/doc tests, clippy on
+native and wasm32, generated DTO/protocol/no-float checks, dependency audit,
+TypeScript checks, example build, external rational oracle, package-size gate,
+browser E2E, and Rust documentation. Diff review requested explicit wasm32 limb
+boundaries and an exact reproduction command for the concurrent timing control;
+the regression now includes 31/32/33-bit shifts and the command is recorded.
+The follow-up focused test passed. Diff and whole-system reviews found no
+remaining correctness, accounting, contract, or integration blocker.
