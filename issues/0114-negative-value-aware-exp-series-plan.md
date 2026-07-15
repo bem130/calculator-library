@@ -29,3 +29,22 @@ reciprocal enclosure requires it, not in their Taylor truncation quality.
 - Record native, Wasm/npm, package/example, and browser evidence; complete
   focused and repository gates, reviews, and merge-granularity review before one
   integration into `main`.
+
+## Resolution
+
+Canonical negative exact points whose positive magnitude satisfies the Issue 113
+small-argument boundary now select that magnitude's exact tail plan. The paired
+positive enclosure is still constructed once and inverted as `1/upper ..
+1/lower`; no zero underflow, literal special case, precision change, or resource
+limit change is involved. Binary-scaled, near-one, non-degenerate, and general
+Rational paths retain their previous dispatch.
+
+At 128-bit enclosure precision, deterministic one-call allocation for
+`exp(-2^-100)` changed from 30,257 bytes / 460 blocks (5,519 / 34 peak) to
+11,385 / 422 (2,319 / 46 peak). The peak byte count fell even though short-lived
+block concurrency increased. Positive tiny, half, near-one, non-degenerate,
+`exp(-2)`, `exp(-10000)`, and general-power controls retained their preceding
+allocation values. The expanded logical-work run, now including the negative
+tiny case, has SHA-256
+`7342dcca027f7a801364ddc8624fba95d88617161fbfc32dec27e63ea11c4773`;
+all pre-existing rows remained byte-identical.

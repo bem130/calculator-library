@@ -3467,6 +3467,32 @@ A three-iteration/one-warmup Wasm/npm snapshot used artifact
 (784,484 bytes); approximate evaluation measured 7.14 ms/iteration and retained
 the unchanged 1,812-byte payload.
 
+## Negative tiny exact exponential planning
+
+At base `dc28555`, a negative canonical exact point bypassed the value-aware
+positive plan and ran the precision-only Rational recurrence before reciprocal
+composition. The retained path plans from the exact positive magnitude, builds
+one paired positive enclosure, and preserves the existing `1/upper .. 1/lower`
+direction.
+
+| Case | Base bytes / blocks (peak) | Candidate bytes / blocks (peak) |
+| --- | ---: | ---: |
+| `exp(-2^-100)` | 30,257 / 460 (5,519 / 34) | 11,385 / 422 (2,319 / 46) |
+| `exp(2^-100)` | 9,819 / 356 (2,090 / 29) | unchanged |
+| `exp(1/2)` | 9,362 / 347 (1,990 / 29) | unchanged |
+| `exp(127/128)` | 9,664 / 357 (2,078 / 37) | unchanged |
+| non-degenerate exp | 74,113 / 970 (6,220 / 59) | unchanged |
+| `exp(-10000)` | 502,356 / 1,458 (16,047 / 32) | unchanged |
+| general power | 101,393 / 692 (6,223 / 43) | unchanged |
+
+The expanded logical-work runner adds the negative tiny case and has SHA-256
+`7342dcca027f7a801364ddc8624fba95d88617161fbfc32dec27e63ea11c4773`;
+the pre-existing rows are byte-identical. Reproduce with allocation cases
+`approximate_exp_negative_tiny_dyadic`,
+`approximate_exp_negative_tiny_dyadic_1000`, and the controls above; Criterion
+component `exp_negative_tiny_dyadic`; the logical-work runner; and npm benchmark
+case `exp_negative_tiny_dyadic`.
+
 ## Structured dyadic exponential denominators
 
 At base `45f49da`, the dyadic exponential recurrence treated each input
