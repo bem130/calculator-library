@@ -40,3 +40,13 @@ The optimized Wasm artifact is 830,527 bytes at
 within budget. A ten-iteration/two-warmup large-log boundary run retained its
 1,834-byte payload and measured 0.635 ms/iteration; it establishes integration,
 not a timing claim.
+
+Repository validation passed formatting, workspace/all-feature and wasm-target
+Clippy, no-default check/test, 382 core tests, 37 native Wasm tests, 23 Node
+Wasm tests, doctests, generated/protocol/no-float checks, `cargo deny`, DTO
+regeneration, package check, example build, arithmetic oracle, package-size
+budget, browser E2E, and rustdoc. Focused coverage includes positive points,
+nonpositive domain errors, a true non-degenerate interval, and structurally
+different but Rational-equal dyadic endpoints through the legacy fallback.
+Both pnpm audits remain blocked by the retired registry endpoint returning HTTP
+410; manifests and lockfiles are unchanged.
