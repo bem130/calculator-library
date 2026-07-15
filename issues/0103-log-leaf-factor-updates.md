@@ -53,3 +53,12 @@ run is not a timing claim. The optimized artifact moved from 829,645 bytes
 (`10bea59a6984261b3fe247e3cb3a493d3c4ddb0ca39d6ff437c7a90fd2816b9f`)
 to 829,606 bytes
 (`0efe50189549911e2be400ee92f860d1e5632254646a3b1a3231775a5a8ec4d3`).
+
+Repository validation passed formatting, workspace/all-feature and wasm-target
+Clippy, no-default check/test, 379 core tests, 37 native Wasm tests, 23 Node
+Wasm tests, doctests, generated/protocol/no-float checks, `cargo deny`, DTO
+regeneration, package check, example build, arithmetic oracle, package-size
+budget, browser E2E, and rustdoc. Both pnpm audit commands remain blocked by
+the registry's retired legacy endpoint returning HTTP 410; registry-error
+tolerance allowed the remaining gates to run, and dependency manifests and
+lockfiles are unchanged.
