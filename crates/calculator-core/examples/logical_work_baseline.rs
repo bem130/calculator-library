@@ -20,6 +20,10 @@ fn main() {
         ("exp_near_one", "exp(127/128)"),
         ("exp_nondegenerate_unit", "exp((1+sin(1))/4)"),
         ("exp_negative_10000", "exp(-10000)"),
+        (
+            "exp_negative_tiny_dyadic",
+            "exp(-1/1267650600228229401496703205376)",
+        ),
         ("exp_positive_10000", "exp(10000)"),
         ("log_non_degenerate", "ln(2+sin(1))"),
         (

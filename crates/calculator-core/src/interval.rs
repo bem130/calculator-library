@@ -239,6 +239,17 @@ pub(crate) fn exp(
             let series_plan = exp_series_plan_for_direct_value(&point, precision_bits)?;
             return exp_series_dyadic_bounds_with_plan(&point, &series_plan, precision_bits);
         }
+        if point.is_negative() {
+            let magnitude = point.negate();
+            if exp_has_value_aware_series_plan(&magnitude) {
+                let series_plan = exp_series_plan_for_direct_value(&magnitude, precision_bits)?;
+                let (positive_lower, positive_upper) =
+                    exp_series_rational_bounds_with_plan(&magnitude, &series_plan)?;
+                let lower = reciprocal_nonzero_rational(&positive_upper)?;
+                let upper = reciprocal_nonzero_rational(&positive_lower)?;
+                return from_rational_bounds(&lower, &upper, precision_bits);
+            }
+        }
         let (lower, upper) = exp_rational_bounds(&point, precision_bits)?;
         return from_rational_bounds(&lower, &upper, precision_bits);
     }
@@ -302,6 +313,18 @@ fn exp_can_round_series_directly(value: &Rational) -> bool {
         && !value.is_zero()
         && !value.denominator.inner.inner.is_one()
         && value.numerator.inner.magnitude() <= value.denominator.inner.inner.magnitude()
+}
+
+fn exp_has_value_aware_series_plan(value: &Rational) -> bool {
+    exp_can_round_series_directly(value)
+        && value
+            .denominator
+            .inner
+            .inner
+            .magnitude()
+            .bits()
+            .saturating_sub(value.numerator.inner.magnitude().bits())
+            >= MIN_VALUE_AWARE_EXP_DENOMINATOR_BIT_GAP
 }
 
 fn exp_uses_binary_scaling(value: &Rational) -> bool {
@@ -4463,8 +4486,7 @@ fn exp_series_plan_for_direct_value(
         .map_err(|_| IntervalError::ExponentTooLarge)?;
     let numerator = value.numerator.inner.magnitude();
     let denominator = value.denominator.inner.inner.magnitude();
-    if denominator.bits().saturating_sub(numerator.bits()) < MIN_VALUE_AWARE_EXP_DENOMINATOR_BIT_GAP
-    {
+    if !exp_has_value_aware_series_plan(value) {
         return exp_series_plan(precision_bits);
     }
     let mut numerator_power = numerator.clone();
@@ -5575,6 +5597,51 @@ mod tests {
                 .term_count
                 < exp_series_plan(128).unwrap().term_count
         );
+    }
+
+    #[test]
+    fn negative_value_aware_exp_plan_preserves_reciprocal_enclosure() {
+        for precision_bits in [1_u32, 64, 128] {
+            for shift in [8_usize, 100, 1000] {
+                let magnitude =
+                    Rational::new(Integer::one(), Integer::from_bigint(BigInt::one() << shift))
+                        .unwrap();
+                let negative = magnitude.negate();
+                let input = from_rational_bounds(&negative, &negative, precision_bits).unwrap();
+                let actual = exp(&input, precision_bits).unwrap();
+
+                let legacy_plan = exp_series_plan(precision_bits).unwrap();
+                let (legacy_lower, legacy_upper) =
+                    exp_series_rational_bounds_with_plan(&magnitude, &legacy_plan).unwrap();
+                let expected = from_rational_bounds(
+                    &reciprocal_nonzero_rational(&legacy_upper).unwrap(),
+                    &reciprocal_nonzero_rational(&legacy_lower).unwrap(),
+                    precision_bits,
+                )
+                .unwrap();
+                assert_eq!(actual, expected);
+                assert!(actual.lower.coefficient.inner.sign() == Sign::Plus);
+                let one = ExactDyadic {
+                    coefficient: Integer::one(),
+                    exponent_two: Integer::zero(),
+                };
+                assert!(compare_dyadic(&actual.upper, &one).unwrap() != Ordering::Greater);
+            }
+        }
+    }
+
+    #[test]
+    fn negative_value_aware_exp_plan_keeps_fallback_boundaries() {
+        let precision_bits = 128;
+        for magnitude in [rational(1, 2), rational(1, 64), rational(1, 128)] {
+            let negative = magnitude.negate();
+            let input = from_rational_bounds(&negative, &negative, precision_bits).unwrap();
+            let (lower, upper) = exp_rational_bounds(&negative, precision_bits).unwrap();
+            assert_eq!(
+                exp(&input, precision_bits).unwrap(),
+                from_rational_bounds(&lower, &upper, precision_bits).unwrap()
+            );
+        }
     }
 
     #[test]
