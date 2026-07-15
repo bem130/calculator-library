@@ -49,9 +49,9 @@ tiny case, has SHA-256
 `7342dcca027f7a801364ddc8624fba95d88617161fbfc32dec27e63ea11c4773`;
 all pre-existing rows remained byte-identical.
 
-The optimized Wasm artifact is 831,900 bytes with SHA-256
-`554cf35d9db3482cf2abf028039ddd27c8bf06559519161836950ca79c873478`.
-The focused ten-iteration/two-warmup npm smoke measured 0.432 ms/iteration and
+The optimized Wasm artifact is 831,928 bytes with SHA-256
+`582caeda2246a9192613f683e08e531c140c8a764fdeb532b958c05691ebc7f5`.
+The focused ten-iteration/two-warmup npm smoke measured 0.464 ms/iteration and
 the unchanged 1,828-byte payload; this short cold-path sample is recorded only
 as a public-path smoke, not a timing claim. Repository gates passed with 387
 core tests, 37 native Wasm tests, and 23 wasm32 tests, plus formatting, native
@@ -68,3 +68,8 @@ peak). The CLI retains the exact symbolic text, and the added browser regression
 checks that the decimal-scientific enclosure for the negative tiny point is
 strictly positive and no greater than one. The npm benchmark definition was
 advanced to `representative-paths-v23` for the two new cases.
+
+Same-host 20-sample Criterion ranges for `exp(-2^-100)` moved from
+182.26--206.13 us at base `dc28555` to 10.105--10.601 us at the final candidate.
+The base optimized Wasm artifact was 831,200 bytes; the candidate is 831,928
+bytes (+728), both within the package budget.
