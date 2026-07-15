@@ -798,8 +798,67 @@ fn asin_dyadic_bound_with_pi(
     if compare_absolute_rational_to_half(value) != Ordering::Greater {
         return asin_unit_dyadic_bound(value, precision_bits, direction);
     }
+    if !value.is_negative()
+        && !is_positive_one_rational(value)
+        && !rational_square_is_below_half(value)
+    {
+        return positive_high_asin_dyadic_bound(value, precision_bits, direction, shared_pi);
+    }
     let bound = asin_rational_bound_with_pi(value, precision_bits, direction, shared_pi)?;
     Ok(rational_to_dyadic_bound(&bound, precision_bits, direction))
+}
+
+fn positive_high_asin_dyadic_bound(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+    shared_pi: Option<&(Rational, Rational)>,
+) -> Result<ExactDyadic, IntervalError> {
+    debug_assert!(!value.is_negative());
+    debug_assert!(!is_positive_one_rational(value));
+    debug_assert!(!rational_square_is_below_half(value));
+    let atan_direction = match direction {
+        BoundDirection::Lower => BoundDirection::Upper,
+        BoundDirection::Upper => BoundDirection::Lower,
+    };
+    let complement = one_minus_rational_square(value)?;
+    let numerator = match direction {
+        BoundDirection::Lower => sqrt_rational_upper(&complement, precision_bits)?,
+        BoundDirection::Upper => sqrt_rational_lower(&complement, precision_bits)?,
+    };
+    let ratio = divide_rational(&dyadic_to_rational(&numerator)?, value)?;
+    if !is_unit_rational(&ratio) {
+        let canonical = asin_rational_bound_with_pi(value, precision_bits, direction, shared_pi)?;
+        return Ok(rational_to_dyadic_bound(
+            &canonical,
+            precision_bits,
+            direction,
+        ));
+    }
+    let atan = atan_series_common_denominator_raw_bound(
+        &ratio,
+        series_terms(precision_bits)?,
+        atan_direction,
+    )?;
+    let owned_pi;
+    let pi = match (shared_pi, direction) {
+        (Some((lower, _)), BoundDirection::Lower) => lower,
+        (Some((_, upper)), BoundDirection::Upper) => upper,
+        (None, _) => {
+            owned_pi = pi_bound(precision_bits, direction)?;
+            &owned_pi
+        }
+    };
+    let pi_denominator = &pi.denominator.inner.inner;
+    let numerator =
+        &pi.numerator.inner * &atan.denominator - &atan.numerator * pi_denominator * 2_u8;
+    let denominator = pi_denominator * &atan.denominator * 2_u8;
+    Ok(fraction_to_dyadic_bound(
+        &numerator,
+        &denominator,
+        precision_bits,
+        direction,
+    ))
 }
 
 pub(crate) fn acos(
@@ -7481,6 +7540,43 @@ mod tests {
                         "value={value:?}, precision={precision_bits}",
                     );
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn positive_high_asin_raw_endpoint_matches_canonical_rational_rounding() {
+        for precision_bits in [0_u32, 1, 64, 128] {
+            let pi = pi_bounds(precision_bits).unwrap();
+            for value in [rational(708, 1_000), rational(3, 4), rational(999, 1_000)] {
+                for direction in [BoundDirection::Lower, BoundDirection::Upper] {
+                    let canonical =
+                        asin_rational_bound_with_pi(&value, precision_bits, direction, Some(&pi))
+                            .unwrap();
+                    assert_eq!(
+                        positive_high_asin_dyadic_bound(
+                            &value,
+                            precision_bits,
+                            direction,
+                            Some(&pi),
+                        )
+                        .unwrap(),
+                        rational_to_dyadic_bound(&canonical, precision_bits, direction),
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn positive_high_asin_keeps_mid_negative_and_special_fallbacks() {
+        for value in [rational(5, 8), rational(-3, 4), Rational::one()] {
+            let point = from_rational(&value, 128);
+            assert_eq!(point.lower, point.upper);
+            for precision_bits in [64_u32, 128] {
+                let bounds = asin_rational_bounds(&value, precision_bits).unwrap();
+                let expected = from_rational_bounds(&bounds.0, &bounds.1, precision_bits).unwrap();
+                assert_eq!(asin(&point, precision_bits).unwrap(), expected);
             }
         }
     }
