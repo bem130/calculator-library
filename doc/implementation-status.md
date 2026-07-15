@@ -154,6 +154,7 @@ nonunit atanのhybrid binary-split leafは、各項のnumerator/denominator squa
 正の非退化outer acosは、反単調に選択した両endpointのatan交代級数をraw numerator/denominatorのままdirected dyadicへ丸める。negative outerの`pi-atan`、central/mixedの`pi/2-asin`、special/exact pointはcanonical Rational経路を維持する。endpoint計算後のexact入力順序検査により、粗い丸めがreversed inputを隠さない。logical-work、no-float、公開protocolを変更しない。
 負の非退化outer acosも、両endpointが同じouter分類ならatan交代級数をraw numerator/denominatorのままshared πと正確に合成し、`pi-atan`を一度だけdirected dyadicへ丸める。粗いsqrt boundでratioがunit範囲を超える場合、符号/分類mixed、central、special/exact pointは既存canonical経路へfallbackする。反単調endpoint、入力順序、logical-work、no-float、公開protocolを維持する。
 負の非退化central acosは、両endpointが`|x|<=1/2`ならunit asinのraw共通分母を`pi/2+asin(|x|)`としてshared πと正確に合成し、一度だけdirected dyadicへ丸める。positive、符号/分類mixed、outer、zero、special/exact pointは既存経路を維持する。
+正の非退化central acosも、両endpointが`0<x<=1/2`なら反対方向のunit asin raw共通分母を`pi/2-asin(x)`としてshared πと正確に合成し、一度だけdirected dyadicへ丸める。zero、符号/分類mixed、outer、special/exact pointは既存経路を維持する。
 
 ## Deliberately Not Contract
 

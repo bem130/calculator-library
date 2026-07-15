@@ -3616,6 +3616,20 @@ Wasm moved from 835,889 to 836,732 bytes; candidate SHA-256 is
 The v25 npm case moved from 60.929 to 4.257 ms/iteration with the same
 1,788-byte payload. Issue 122 records oracle, CLI, browser, and gate evidence.
 
+## Raw half-pi-minus-asin endpoints for positive central acos
+
+At base `b8eea33`, positive central acos canonicalized its unit-asin series and
+`pi/2-asin(x)` before rounding. Raw composition reduced
+`acos((1+sin(1))/4)` from 514,966 bytes / 1,636 blocks (25,277 / 69 peak) to
+436,950 / 1,567 (17,517 / 62 peak). Native ranges moved from 3.17--3.53 ms to
+0.459--0.482 ms. The target uses 200,448 minimum logical-work units and the
+matching base/candidate runner SHA-256 is
+`c26664ee5491163d519586976c98f433a1e45c8aed35ded9effa4d0b81d50e30`.
+Wasm moved from 836,732 to 837,564 bytes; candidate SHA-256 is
+`6c708a2d469d1c1ad783a3b0c2c770e0c606fade0b2ca84835439fbc2c9348e4`.
+The v26 npm case moved from 20.086 to 2.732 ms/iteration with the same
+1,788-byte payload. Issue 123 records fallback, CLI, browser, and gate evidence.
+
 ## Rejected balanced dyadic exponential finite sum
 
 At base `f13b268`, `approximate_general_power` used 101,393 bytes / 692 blocks
