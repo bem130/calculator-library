@@ -32,6 +32,14 @@ allocation measurement was byte-for-byte and block-for-block unchanged:
 Logical-work output retained SHA-256
 `a925d3238a37ac073ae380a8c0200c9c654944a71f9a3e573660740d55d6fbd7`.
 
+The corresponding before/after peak bytes / blocks were 2,047 / 43 for exact
+mixed subtraction, 1,407 / 24 for `exp(1)`, 1,560 / 19 for `ln(2)`, 6,223 / 43
+for general power, 6,316 / 36 for the cumulative exp-power-log path, and 12,590
+/ 40 for non-degenerate log. Because deterministic public allocation, block
+count, peak, and logical work were all unchanged, the candidate failed the
+early acceptance criterion; native timing and Wasm/npm measurements were not
+run for code that would not be retained.
+
 The exact expression uses canonical lowering rather than this arithmetic method,
 and the formerly Rational-heavy exp/log recurrences now retain raw fraction or
 structured denominator state. Direct subtraction therefore did not remove work
