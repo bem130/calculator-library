@@ -3600,14 +3600,14 @@ fn acos_rational_bound_with_pi(
             BoundDirection::Upper => halve_rational(&pi.1),
         };
     }
-    let magnitude_storage;
-    let magnitude = if value.is_negative() {
-        magnitude_storage = value.negate();
-        &magnitude_storage
-    } else {
-        value
-    };
     if direct_outer_transform {
+        let magnitude_storage;
+        let magnitude = if value.is_negative() {
+            magnitude_storage = value.negate();
+            &magnitude_storage
+        } else {
+            value
+        };
         return direct_outer_acos_bound(value, magnitude, precision_bits, direction, shared_pi);
     }
     let pi = shared_pi.ok_or(IntervalError::UnsupportedExpression)?;
@@ -5622,7 +5622,7 @@ mod tests {
 
     #[test]
     fn value_aware_exp_plan_selects_the_minimal_proven_tail() {
-        for precision_bits in [64_u32, 128] {
+        for precision_bits in [1_u32, 64, 128] {
             for value in [
                 rational(1, 2),
                 rational(3, 4),
@@ -6240,6 +6240,34 @@ mod tests {
                     );
                 }
 
+                let (legacy_lower, legacy_upper) =
+                    acos_rational_bounds_with_pi(&positive, precision_bits, Some(&pi)).unwrap();
+                let direct_lower = acos_rational_bound_with_pi(
+                    &positive,
+                    precision_bits,
+                    BoundDirection::Lower,
+                    None,
+                    true,
+                )
+                .unwrap();
+                let direct_upper = acos_rational_bound_with_pi(
+                    &positive,
+                    precision_bits,
+                    BoundDirection::Upper,
+                    None,
+                    true,
+                )
+                .unwrap();
+                assert!(compare_rationals(&legacy_lower, &direct_lower) != Ordering::Greater);
+                assert!(compare_rationals(&direct_lower, &direct_upper) != Ordering::Greater);
+                assert!(compare_rationals(&direct_upper, &legacy_upper) != Ordering::Greater);
+                if precision_bits > 1 {
+                    assert_eq!(
+                        compare_rationals(&direct_lower, &Rational::zero()),
+                        Ordering::Greater
+                    );
+                }
+
                 let negative = positive.negate();
                 let (legacy_lower, legacy_upper) =
                     acos_rational_bounds_with_pi(&negative, precision_bits, Some(&pi)).unwrap();
@@ -6292,6 +6320,47 @@ mod tests {
                     precision_bits,
                     BoundDirection::Upper,
                     None,
+                )
+                .unwrap(),
+                precision_bits,
+            )
+            .unwrap();
+            assert_eq!(acos(&input, precision_bits).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn outer_acos_classification_and_negative_antitone_endpoints_match_boundaries() {
+        for value in [rational(707, 1_000), rational(-707, 1_000)] {
+            assert!(!acos_endpoint_uses_direct_outer_transform(&value));
+        }
+        for value in [rational(708, 1_000), rational(-708, 1_000)] {
+            assert!(acos_endpoint_uses_direct_outer_transform(&value));
+        }
+
+        for precision_bits in [64_u32, 128] {
+            let input =
+                from_rational_bounds(&rational(-4, 5), &rational(-3, 4), precision_bits).unwrap();
+            let lower_endpoint = dyadic_to_rational(&input.lower).unwrap();
+            let upper_endpoint = dyadic_to_rational(&input.upper).unwrap();
+            let pi = pi_bounds(precision_bits).unwrap();
+            let lower_magnitude = upper_endpoint.negate();
+            let upper_magnitude = lower_endpoint.negate();
+            let expected = from_rational_bounds(
+                &direct_outer_acos_bound(
+                    &upper_endpoint,
+                    &lower_magnitude,
+                    precision_bits,
+                    BoundDirection::Lower,
+                    Some(&pi),
+                )
+                .unwrap(),
+                &direct_outer_acos_bound(
+                    &lower_endpoint,
+                    &upper_magnitude,
+                    precision_bits,
+                    BoundDirection::Upper,
+                    Some(&pi),
                 )
                 .unwrap(),
                 precision_bits,

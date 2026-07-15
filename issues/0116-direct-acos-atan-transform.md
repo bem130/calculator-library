@@ -60,3 +60,12 @@ tests, 23 wasm32 tests, doc tests, generated DTO/protocol/no-float checks,
 package/example builds, browser E2E, size budgets, and `cargo deny`. Both pnpm
 audit commands reached the registry's retired endpoint and returned HTTP 410;
 this is an external audit-service failure rather than an advisory result.
+
+Review moved negative-magnitude construction inside the direct branch and
+restored the unrelated one-bit exponential-plan regression. The added negative
+central non-degenerate allocation control is 1,020,045 bytes / 1,797 blocks
+(48,790 / 74 peak), versus 1,019,757 / 1,793 at base with the same peak. The
+remaining 288 bytes / four blocks are the endpoint region classification; the
+central evaluator itself remains on the legacy path. Boundary tests cover
+both signs at 707/1000 and 708/1000, and positive direct bounds are contained
+by the former paired certified bounds at 1, 64, and 128 bits.

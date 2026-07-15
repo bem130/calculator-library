@@ -3485,6 +3485,12 @@ A ten-iteration/two-warmup npm public-path run measured 111.44 ms/iteration
 with a 1,794-byte payload. This short run validates the Wasm/npm boundary and
 is not a timing claim. CLI and browser checks preserve the exact symbolic
 source and verify a strictly positive enclosure below two radians.
+Review added a negative central non-degenerate control: base 1,019,757 bytes /
+1,793 blocks versus candidate 1,020,045 / 1,797, with the same 48,790 / 74 peak.
+The residual 288 bytes / four blocks classify the two endpoints; eager
+negative-magnitude cloning was removed and the central evaluator retains its
+legacy path. Boundary regressions cover both signs immediately below and above
+the direct-transform threshold.
 
 Reproduce with:
 
