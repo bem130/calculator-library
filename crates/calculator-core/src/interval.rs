@@ -4960,6 +4960,21 @@ mod tests {
             );
         }
 
+        let noncanonical_equal = CertifiedInterval {
+            lower: ExactDyadic {
+                coefficient: Integer::one(),
+                exponent_two: Integer::zero(),
+            },
+            upper: ExactDyadic {
+                coefficient: Integer::from(2),
+                exponent_two: Integer::from(-1),
+            },
+        };
+        assert_eq!(
+            log(&noncanonical_equal, precision_bits).unwrap(),
+            log_rational_dyadic_bounds(&Rational::one(), precision_bits).unwrap(),
+        );
+
         let input = from_rational_bounds(&rational(1, 2), &rational(3, 2), precision_bits).unwrap();
         let lower = dyadic_to_rational(&input.lower).unwrap();
         let upper = dyadic_to_rational(&input.upper).unwrap();
