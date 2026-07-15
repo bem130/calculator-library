@@ -88,3 +88,15 @@ measurements were intentionally not run. After restoring the original runtime,
 the focused exact test and allocation baseline above passed, followed by the
 complete repository Rust, contract, package/example, oracle, browser, size, and
 documentation gates. No public artifact or protocol changed.
+
+The restored tip passed 387 core tests, 37 native Wasm tests, and 23 wasm32
+tests, plus formatting, native/Wasm clippy, no-default-feature, doctest,
+generated DTO, protocol snapshot, no-float, dependency policy, package-size,
+frozen package/example installs, TypeScript/package checks, example build,
+external oracle, browser E2E, and rustdoc. The unchanged expanded logical-work
+output retained SHA-256
+`7342dcca027f7a801364ddc8624fba95d88617161fbfc32dec27e63ea11c4773`.
+Exact pnpm audit requests returned HTTP 410 and the paired
+`--ignore-registry-errors` checks completed. Runtime sources, tests, benchmarks,
+manifests, and lockfiles are byte-identical to base `f13b268`; only this issue
+and the performance evidence document differ.

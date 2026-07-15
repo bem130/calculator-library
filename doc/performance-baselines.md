@@ -3488,6 +3488,10 @@ leaf dispatch, reverse variant, toolchain, and focused exact test. Candidate
 timing/Wasm/public-path gates were skipped after the mandatory deterministic
 blocks/peak gate failed; full repository gates were rerun after restoring the
 runtime.
+The restored tip retained logical-work SHA-256
+`7342dcca027f7a801364ddc8624fba95d88617161fbfc32dec27e63ea11c4773`
+and passed 387 core, 37 native Wasm, and 23 wasm32 tests plus all repository
+contract, package/example, oracle, browser, size, and documentation gates.
 
 ## Negative tiny exact exponential planning
 
