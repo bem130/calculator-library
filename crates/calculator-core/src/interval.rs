@@ -6910,6 +6910,36 @@ mod tests {
     }
 
     #[test]
+    fn coarse_mid_transform_fallback_preserves_canonical_results() {
+        let positive = rational(5, 8);
+        assert_eq!(
+            positive_mid_asin_raw_bound(&positive, 0, BoundDirection::Upper).unwrap(),
+            None,
+        );
+        for direction in [BoundDirection::Lower, BoundDirection::Upper] {
+            let canonical_asin = asin_rational_bound_with_pi(&positive, 0, direction, None)
+                .map(|bound| rational_to_dyadic_bound(&bound, 0, direction));
+            assert_eq!(
+                positive_mid_asin_dyadic_bound(&positive, 0, direction),
+                canonical_asin,
+            );
+        }
+
+        let pi = pi_bounds(0).unwrap();
+        for value in [rational(-5, 8), positive] {
+            for direction in [BoundDirection::Lower, BoundDirection::Upper] {
+                let canonical = acos_rational_bound_with_pi(&value, 0, direction, Some(&pi), false)
+                    .map(|bound| rational_to_dyadic_bound(&bound, 0, direction));
+                assert_eq!(
+                    mid_acos_dyadic_bound(&value, 0, direction, &pi),
+                    canonical,
+                    "value={value:?}",
+                );
+            }
+        }
+    }
+
+    #[test]
     fn negative_central_acos_raw_endpoint_matches_canonical_rational_rounding() {
         for precision_bits in [0_u32, 1, 64, 128] {
             let pi = pi_bounds(precision_bits).unwrap();
