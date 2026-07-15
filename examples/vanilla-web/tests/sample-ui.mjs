@@ -124,6 +124,7 @@ async function runBrowserChecks(url, origin) {
         await assertSpecialAngles(page);
         await assertSimpleRadicalAlgebra(page);
         await assertInitialExpLog(page);
+        await assertNondegenerateOuterAcos(page);
         await assertNegativeTinyExponential(page);
         await assertLargeNegativeExponential(page);
         await assertArbitraryBaseLogExp(page);
@@ -471,6 +472,23 @@ async function assertLargeNegativeExponential(page) {
     assert(cancellationState.enabledWhileActive, "active calculation did not enable cancellation");
     assert(cancellationState.disabledAfterCancel, "cancel button remained enabled after cancellation");
     await waitForText(page, "#status", "Canceled");
+}
+
+async function assertNondegenerateOuterAcos(page) {
+    await setExpression(page, "acos((2+sin(1))/3)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= acos(1/3*sin(1)+2/3)");
+    await waitForText(page, "#scientific-state", "5 digits");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
+    const interval = parseDecimalScientificInterval(await textContent(page, "#enclosure-output"));
+    assert(
+        rationalCompareWithRational(interval.lower, 0n, 1n) > 0,
+        "outer acos enclosure must stay positive",
+    );
+    assert(
+        rationalCompareWithRational(interval.upper, 2n, 1n) < 0,
+        "outer acos enclosure must remain below two radians",
+    );
 }
 
 async function assertNegativeTinyExponential(page) {
