@@ -3480,6 +3480,15 @@ evaluation also regressed bytes, no runtime change was retained. Do not repeat
 leaf-width tuning without a representation that removes that simultaneous live
 state.
 
+Reproduce the restored baseline with
+`CALCULATOR_ALLOCATION_ITERATIONS=1 cargo run --profile bench -p
+calculator-core --features std --example allocation_baseline --
+approximate_general_power`. Issue 115 records the exact segment merge formulas,
+leaf dispatch, reverse variant, toolchain, and focused exact test. Candidate
+timing/Wasm/public-path gates were skipped after the mandatory deterministic
+blocks/peak gate failed; full repository gates were rerun after restoring the
+runtime.
+
 ## Negative tiny exact exponential planning
 
 At base `dc28555`, a negative canonical exact point bypassed the value-aware
