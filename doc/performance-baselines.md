@@ -863,6 +863,20 @@ the logical-work row `acos_zero`, and npm benchmark case `acos_zero`. Do not
 retry dispatcher-only pi halving unless the exact-representation dispatch or
 enclosure construction changes.
 
+## Shared exp denominator ownership rejection
+
+At main `8901472`, a prototype borrowed the common final series denominator for
+the lower nondegenerate exp endpoint and moved ownership only into the upper
+endpoint. Public `2^sqrt(2)` did not enter that equal-denominator fast path and
+remained exactly 101,393 bytes / 692 blocks (6,223 / 43 peak). The targeted
+`exp((1+sin(1))/4)` path was also byte/block/peak-identical at 74,113 / 970
+(6,220 / 59 peak).
+
+The runtime change was removed. The dominant DHAT shift/multiply groups belong
+to endpoint-specific growing numerator recurrence rather than an observable
+shared-denominator clone. Do not repeat ownership-only changes without first
+isolating a clone allocation from that recurrence.
+
 ## Convergent integer square-root baseline (Issue 98)
 
 The prior floor square root doubled a bound and then bisected the entire input
