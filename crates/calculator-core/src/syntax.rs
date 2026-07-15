@@ -827,6 +827,7 @@ mod tests {
     use crate::types::{
         BinaryOperator, ImplicitMultiplicationPolicy, ParseSettings, PercentParsePolicy,
     };
+    use alloc::string::ToString;
 
     fn parse_ok(source: &str) -> SourceExpr {
         parse_source(source, &ParseSettings::default()).expect(source)
@@ -991,6 +992,22 @@ mod tests {
                 }],
             }
         );
+    }
+
+    #[test]
+    fn streaming_parser_preserves_wide_expression_shape() {
+        for (separator, terms, expected_nodes, expected_depth) in
+            [("+", 256_u32, 511_u32, 256_u32), ("*", 128, 255, 128)]
+        {
+            let source = (1..=terms)
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>()
+                .join(separator);
+            let expression = parse_ok(&source);
+            let stats = expression.stats().expect("wide expression stats");
+            assert_eq!(stats.nodes, expected_nodes, "{separator}");
+            assert_eq!(stats.depth, expected_depth, "{separator}");
+        }
     }
 
     #[test]
