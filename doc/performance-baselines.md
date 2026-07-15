@@ -3413,6 +3413,31 @@ budget. Payloads remained 1,772 bytes. The Wasm benchmark now accepts
 `CALCULATOR_BENCH_CASE` to make alternating focused boundary measurements
 reproducible without changing case definitions.
 
+## Value-aware plans for small exact exponentials
+
+At base `879ea79`, direct exponential series used the worst-case unit-interval
+term count for every exact point. The retained hybrid uses exact integer
+comparison of `2*x^(N+1)/(N+1)! <= 2^-precision` only when the denominator is at
+least eight bits wider than the numerator; larger arguments keep the cheaper
+precision-only plan. At 128 bits, `exp(2^-100)` selects one term instead of 34.
+Non-degenerate, binary-scaled, and general Rational routes retain their existing
+plans after endpoint-specific exact-power planning proved allocation-negative.
+
+One-call `exp(2^-100)` allocation moved from 21,211 bytes / 391 blocks to 9,819
+/ 356, and peak live allocation from 4,122 / 36 to 2,090 / 29. `exp(1/2)`,
+`exp(127/128)`, `exp((1+sin(1))/4)`, general power, its cumulative exp stage,
+`exp(1)`, and `exp(-10000)` were byte-for-byte and peak-for-peak unchanged.
+The expanded logical-work output was byte-identical at SHA-256
+`104e384cad59527a87fc0ddfee4eb5e9f67c45c6506e2fb61f07d0abc57757b0`.
+
+Separate ten-sample Criterion ranges moved the tiny case from 14.60--17.85 us
+to 7.81--9.57 us. The `2^-1000` control ranges overlapped, so no claim is made
+for it. The optimized Wasm artifact is 831,200 bytes at
+`40d24bf9d0919a09cb73337e75b67989259de548221ef5f6e8c6360941e0a6f0`,
+506 bytes above base and within budget. Ten-iteration/two-warmup npm smokes were
+0.352 ms/iteration at base and 0.363 ms candidate with the same 1,824-byte
+payload; these short runs support no Wasm timing claim.
+
 ## Primitive exponential recurrence indices
 
 At base commit `5506090`, the common-denominator exponential recurrence converted
