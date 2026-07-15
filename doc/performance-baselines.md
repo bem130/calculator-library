@@ -824,7 +824,7 @@ the measured implementation.
 
 The previous lexer grew a zero-capacity token vector geometrically. The
 candidate performs an allocation-free lexical validation/count pass and then
-allocates exactly the number of tokens it will materialize. Same-host
+requests capacity for exactly the number of tokens it will materialize. Same-host
 one-calculation DHAT totals were:
 
 | case | base bytes / blocks | candidate bytes / blocks | base peak | candidate peak |
