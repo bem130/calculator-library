@@ -46,3 +46,13 @@ artifact moved from 829,184 bytes
 to 829,230 bytes
 (`5cea3933bbd249eca968400337cb48b9b2dcbd79785d12d6a6c896ce409a44bd`)
 and remains below budget.
+
+Repository validation passed with 376 core tests, 37 native Wasm tests, 23
+Node/Wasm tests, no-default checks/tests, workspace/doc tests, native and wasm32
+clippy, generated DTO/protocol/no-float checks, `cargo deny`, TypeScript checks,
+example build, external rational oracle, package-size gate, browser E2E, and
+rustdoc. npm dependencies and lockfiles are unchanged; both pnpm audits again
+reported npm registry HTTP 410 for the retired legacy audit endpoint and were
+run with registry-error tolerance so the remaining gates could proceed. Diff
+and whole-system reviews found no correctness, termination, accounting,
+portability, contract, or evidence issue.
