@@ -848,6 +848,21 @@ Reproduce with allocation case `approximate_acos_five_eighths`, Criterion
 component `acos_five_eighths`, the logical-work runner and npm benchmark case
 `acos_five_eighths`.
 
+## Exact zero acos dispatcher rejection
+
+At main `6bdb503`, a prototype rounded each pi endpoint as
+`numerator/(2*denominator)` inside the exact-zero acos interval dispatcher.
+The public calculation had already reduced `acos(0)` to exact `pi/2`, so base
+and prototype allocation were identical at 26,771 bytes / 575 blocks
+(4,032 / 38 peak). Ten-sample Criterion ranges were 212.73--232.85 us at base
+and 226.80--228.35 us for the prototype; no improvement is claimed.
+
+The runtime change was removed. Reproduce the retained public-path baseline
+with allocation case `approximate_acos_zero`, Criterion component `acos_zero`,
+the logical-work row `acos_zero`, and npm benchmark case `acos_zero`. Do not
+retry dispatcher-only pi halving unless the exact-representation dispatch or
+enclosure construction changes.
+
 ## Convergent integer square-root baseline (Issue 98)
 
 The prior floor square root doubled a bound and then bisected the entire input
