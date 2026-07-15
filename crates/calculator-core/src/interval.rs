@@ -859,28 +859,43 @@ fn positive_mid_asin_dyadic_bound(
 ) -> Result<ExactDyadic, IntervalError> {
     debug_assert!(!value.is_negative());
     debug_assert!(rational_square_is_below_half(value));
-    let complement = one_minus_rational_square(value)?;
-    let denominator = match direction {
-        BoundDirection::Lower => sqrt_rational_upper(&complement, precision_bits)?,
-        BoundDirection::Upper => sqrt_rational_lower(&complement, precision_bits)?,
-    };
-    let ratio = divide_rational(value, &dyadic_to_rational(&denominator)?)?;
-    if !is_unit_rational(&ratio) {
+    let Some(atan) = positive_mid_asin_raw_bound(value, precision_bits, direction)? else {
         let canonical = asin_rational_bound_with_pi(value, precision_bits, direction, None)?;
         return Ok(rational_to_dyadic_bound(
             &canonical,
             precision_bits,
             direction,
         ));
-    }
-    let atan =
-        atan_series_common_denominator_raw_bound(&ratio, series_terms(precision_bits)?, direction)?;
+    };
     Ok(fraction_to_dyadic_bound(
         &atan.numerator,
         &atan.denominator,
         precision_bits,
         direction,
     ))
+}
+
+fn positive_mid_asin_raw_bound(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+) -> Result<Option<RawFractionParts>, IntervalError> {
+    debug_assert!(!value.is_negative());
+    debug_assert!(rational_square_is_below_half(value));
+    let complement = one_minus_rational_square(value)?;
+    let denominator = match direction {
+        BoundDirection::Lower => sqrt_rational_upper(&complement, precision_bits)?,
+        BoundDirection::Upper => sqrt_rational_lower(&complement, precision_bits)?,
+    };
+    if denominator.coefficient.is_zero() {
+        return Ok(None);
+    }
+    let ratio = divide_rational(value, &dyadic_to_rational(&denominator)?)?;
+    if !is_unit_rational(&ratio) {
+        return Ok(None);
+    }
+    atan_series_common_denominator_raw_bound(&ratio, series_terms(precision_bits)?, direction)
+        .map(Some)
 }
 
 fn positive_high_asin_dyadic_bound(
@@ -1010,6 +1025,16 @@ pub(crate) fn acos(
                     )?,
                 )
             };
+            return ordered_dyadic_interval(lower, upper);
+        }
+        if compare_absolute_rational_to_half(&lower_endpoint) == Ordering::Greater
+            && rational_square_is_below_half(&lower_endpoint)
+        {
+            let pi = pi_bounds(precision_bits)?;
+            let lower =
+                mid_acos_dyadic_bound(&lower_endpoint, precision_bits, BoundDirection::Lower, &pi)?;
+            let upper =
+                mid_acos_dyadic_bound(&upper_endpoint, precision_bits, BoundDirection::Upper, &pi)?;
             return ordered_dyadic_interval(lower, upper);
         }
         let (lower, upper) = acos_rational_bounds(&lower_endpoint, precision_bits)?;
@@ -4051,6 +4076,58 @@ fn positive_central_acos_dyadic_bound(
     ))
 }
 
+fn mid_acos_dyadic_bound(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+    shared_pi: &(Rational, Rational),
+) -> Result<ExactDyadic, IntervalError> {
+    debug_assert!(compare_absolute_rational_to_half(value) == Ordering::Greater);
+    debug_assert!(rational_square_is_below_half(value));
+    let magnitude_storage;
+    let magnitude = if value.is_negative() {
+        magnitude_storage = value.negate();
+        &magnitude_storage
+    } else {
+        value
+    };
+    let asin_direction = if value.is_negative() {
+        direction
+    } else {
+        match direction {
+            BoundDirection::Lower => BoundDirection::Upper,
+            BoundDirection::Upper => BoundDirection::Lower,
+        }
+    };
+    let Some(asin) = positive_mid_asin_raw_bound(magnitude, precision_bits, asin_direction)? else {
+        let canonical =
+            acos_rational_bound_with_pi(value, precision_bits, direction, Some(shared_pi), false)?;
+        return Ok(rational_to_dyadic_bound(
+            &canonical,
+            precision_bits,
+            direction,
+        ));
+    };
+    let pi = match direction {
+        BoundDirection::Lower => &shared_pi.0,
+        BoundDirection::Upper => &shared_pi.1,
+    };
+    let pi_denominator = &pi.denominator.inner.inner;
+    let correction = &asin.numerator * pi_denominator * 2_u8;
+    let numerator = if value.is_negative() {
+        &pi.numerator.inner * &asin.denominator + correction
+    } else {
+        &pi.numerator.inner * &asin.denominator - correction
+    };
+    let denominator = pi_denominator * asin.denominator * 2_u8;
+    Ok(fraction_to_dyadic_bound(
+        &numerator,
+        &denominator,
+        precision_bits,
+        direction,
+    ))
+}
+
 fn pi_minus_raw_fraction_dyadic_bound(
     pi: &Rational,
     correction: &RawFractionParts,
@@ -6801,6 +6878,35 @@ mod tests {
             upper: upper.upper,
         };
         assert_eq!(acos(&reversed, 0), Err(IntervalError::InvalidBounds));
+    }
+
+    #[test]
+    fn mid_acos_raw_endpoint_matches_canonical_rational_rounding() {
+        for precision_bits in [1_u32, 64, 128] {
+            let pi = pi_bounds(precision_bits).unwrap();
+            for value in [
+                rational(-7, 10),
+                rational(-5, 8),
+                rational(5, 8),
+                rational(7, 10),
+            ] {
+                for direction in [BoundDirection::Lower, BoundDirection::Upper] {
+                    let canonical = acos_rational_bound_with_pi(
+                        &value,
+                        precision_bits,
+                        direction,
+                        Some(&pi),
+                        false,
+                    )
+                    .unwrap();
+                    assert_eq!(
+                        mid_acos_dyadic_bound(&value, precision_bits, direction, &pi).unwrap(),
+                        rational_to_dyadic_bound(&canonical, precision_bits, direction),
+                        "value={value:?}, precision={precision_bits}",
+                    );
+                }
+            }
+        }
     }
 
     #[test]
