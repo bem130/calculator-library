@@ -7569,14 +7569,43 @@ mod tests {
     }
 
     #[test]
-    fn positive_high_asin_keeps_mid_negative_and_special_fallbacks() {
-        for value in [rational(5, 8), rational(-3, 4), Rational::one()] {
-            let point = from_rational(&value, 128);
-            assert_eq!(point.lower, point.upper);
-            for precision_bits in [64_u32, 128] {
-                let bounds = asin_rational_bounds(&value, precision_bits).unwrap();
-                let expected = from_rational_bounds(&bounds.0, &bounds.1, precision_bits).unwrap();
-                assert_eq!(asin(&point, precision_bits).unwrap(), expected);
+    fn positive_high_asin_public_dispatch_and_fallbacks_match_canonical_endpoints() {
+        for (lower_value, upper_value) in [
+            (rational(3, 4), rational(4, 5)),
+            (rational(5, 8), rational(3, 4)),
+            (rational(-3, 4), rational(3, 4)),
+            (rational(3, 4), Rational::one()),
+        ] {
+            let input = from_rational_bounds(&lower_value, &upper_value, 128).unwrap();
+            let lower_endpoint = dyadic_to_rational(&input.lower).unwrap();
+            let upper_endpoint = dyadic_to_rational(&input.upper).unwrap();
+            for precision_bits in [1_u32, 64, 128] {
+                let shared_pi = if compare_absolute_rational_to_half(&lower_endpoint)
+                    == Ordering::Greater
+                    && compare_absolute_rational_to_half(&upper_endpoint) == Ordering::Greater
+                {
+                    Some(pi_bounds(precision_bits).unwrap())
+                } else {
+                    None
+                };
+                let lower = asin_rational_bound_with_pi(
+                    &lower_endpoint,
+                    precision_bits,
+                    BoundDirection::Lower,
+                    shared_pi.as_ref(),
+                )
+                .unwrap();
+                let upper = asin_rational_bound_with_pi(
+                    &upper_endpoint,
+                    precision_bits,
+                    BoundDirection::Upper,
+                    shared_pi.as_ref(),
+                )
+                .unwrap();
+                assert_eq!(
+                    asin(&input, precision_bits).unwrap(),
+                    from_rational_bounds(&lower, &upper, precision_bits).unwrap(),
+                );
             }
         }
     }
