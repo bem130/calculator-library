@@ -5289,6 +5289,58 @@ mod tests {
     }
 
     #[test]
+    fn exact_point_exp_dispatch_matches_independent_endpoint_routes() {
+        let precision_bits = 128;
+        for value in [
+            Rational::one(),
+            rational(1, 8),
+            rational(-10_000, 1),
+            rational(10_000, 1),
+        ] {
+            let input = from_rational_bounds(&value, &value, precision_bits).unwrap();
+            let point = dyadic_to_rational(&input.lower).unwrap();
+            let expected = if exp_uses_binary_scaling(&point) {
+                CertifiedInterval {
+                    lower: exp_binary_scaled_bound(&point, precision_bits, BoundDirection::Lower)
+                        .unwrap(),
+                    upper: exp_binary_scaled_bound(&point, precision_bits, BoundDirection::Upper)
+                        .unwrap(),
+                }
+            } else if exp_can_round_series_directly(&point) {
+                let plan = exp_series_plan(precision_bits).unwrap();
+                exp_series_dyadic_bounds_with_plan(&point, &plan, precision_bits).unwrap()
+            } else {
+                let (lower, upper) = exp_rational_bounds(&point, precision_bits).unwrap();
+                from_rational_bounds(&lower, &upper, precision_bits).unwrap()
+            };
+            assert_eq!(exp(&input, precision_bits).unwrap(), expected);
+        }
+
+        let input = from_rational_bounds(&rational(1, 3), &rational(2, 3), precision_bits).unwrap();
+        let lower = dyadic_to_rational(&input.lower).unwrap();
+        let upper = dyadic_to_rational(&input.upper).unwrap();
+        assert_eq!(
+            exp(&input, precision_bits).unwrap(),
+            CertifiedInterval {
+                lower: exp_dyadic_bound_with_plan(
+                    &lower,
+                    &exp_series_plan(precision_bits).unwrap(),
+                    BoundDirection::Lower,
+                    precision_bits,
+                )
+                .unwrap(),
+                upper: exp_dyadic_bound_with_plan(
+                    &upper,
+                    &exp_series_plan(precision_bits).unwrap(),
+                    BoundDirection::Upper,
+                    precision_bits,
+                )
+                .unwrap(),
+            }
+        );
+    }
+
+    #[test]
     fn raw_exponential_dyadic_rounding_matches_canonical_rational_route() {
         fn canonical_binary_bound(
             value: &Rational,
