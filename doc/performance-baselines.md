@@ -680,7 +680,8 @@ division inside each binary range-reduction step used 110,268 bytes / 1,702
 blocks (12,106 / 25 peak) for the 128-step large-positive log. Canonical parity
 scaling uses 95,900 / 934 (12,114 / 25): 14,368 bytes and 768 blocks fewer,
 with an 8-byte peak increase and unchanged peak blocks. Non-degenerate log moved
-from 158,665 / 954 to 158,393 / 942, `ln(2)` from 10,062 / 408 to 9,990 / 402,
+from 158,665 / 954 (12,582 / 40 peak) to 158,393 / 942 (12,590 / 40), another
+8-byte peak increase with unchanged peak blocks. `ln(2)` moved from 10,062 / 408 to 9,990 / 402,
 and general power from 101,465 / 698 to 101,393 / 692, without peak-block
 regressions. Ten-sample large-log Criterion ranges moved from 108.63--112.34 us
 to 88.413--101.54 us and Criterion detected an improvement. Issue 67 records

@@ -31,7 +31,8 @@ base `a12ffbc`でhelperだけを汎用Rational演算へ戻した一時variantと
 (12,582 / 40)から158,393 / 942 (12,590 / 40)、`ln(2)`は10,062 / 408
 (1,560 / 19)から9,990 / 402 (1,560 / 19)、general powerは101,465 / 698
 (6,223 / 43)から101,393 / 692 (6,223 / 43)へ改善した。large logのpeak bytesは
-8 bytes増えるがpeak blocksは不変で、totalは14,368 bytes / 768 blocks減る。
+8 bytes増え、non-degenerate logも12,582から12,590へ8 bytes増える。両者とも
+peak blocksは不変で、large logのtotalは14,368 bytes / 768 blocks減る。
 
 10-sample Criterionのlarge-positive logはgeneric 108.63--112.34 usからcanonical
 88.413--101.54 usへ移り、Criterionも改善を検出した。generic runtime差分は完全に
