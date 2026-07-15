@@ -43,6 +43,7 @@ const cases = [
     ["acos_five_eighths", "acos(5/8)", "acos(5/8)"],
     ["acos_non_degenerate_transform", "acos((2+sin(1))/3)", "acos(1/3*sin(1)+2/3)"],
     ["acos_non_degenerate_negative_outer", "acos((-6+sin(1))/7)", "acos(1/7*sin(1)-6/7)"],
+    ["acos_non_degenerate_negative_central", "acos((-1+sin(1))/3)", "acos(1/3*sin(1)-1/3)"],
     ["sin_one", "sin(1)", "sin(1)"],
     ["cos_one", "cos(1)", "cos(1)"],
     ["tan_one", "tan(1)", "tan(1)"],
@@ -84,7 +85,7 @@ if (selectedCase === undefined || selectedCase === "session_dispatch_sequence") 
 
 process.stdout.write(`${JSON.stringify({
     schemaVersion: 1,
-    benchmarkDefinition: "representative-paths-v24",
+    benchmarkDefinition: "representative-paths-v25",
     artifact: {
         wasmSha256: createHash("sha256").update(wasmBytes).digest("hex"),
         wasmBytes: wasmBytes.byteLength,
