@@ -144,6 +144,11 @@ const APPROXIMATE_COMPONENTS: &[(&str, &str, ExpectedExact)] = &[
     ("atan_half", "atan(1/2)", ExpectedExact::GeneralSymbolic),
     ("asin_third", "asin(1/3)", ExpectedExact::GeneralSymbolic),
     (
+        "asin_three_fourths",
+        "asin(3/4)",
+        ExpectedExact::GeneralSymbolic,
+    ),
+    (
         "asin_non_degenerate_unit",
         "asin(sin(1)/3)",
         ExpectedExact::GeneralSymbolic,

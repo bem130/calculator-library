@@ -761,8 +761,24 @@ pub(crate) fn asin(
         if compare_absolute_rational_to_half(&lower) != Ordering::Greater {
             return asin_unit_dyadic_bounds(&lower, precision_bits);
         }
-        let (lower, upper) = asin_rational_bounds(&lower, precision_bits)?;
-        return from_rational_bounds(&lower, &upper, precision_bits);
+        let shared_pi = if rational_square_is_below_half(&lower) {
+            None
+        } else {
+            Some(pi_bounds(precision_bits)?)
+        };
+        let lower_bound = asin_dyadic_bound_with_pi(
+            &lower,
+            precision_bits,
+            BoundDirection::Lower,
+            shared_pi.as_ref(),
+        )?;
+        let upper_bound = asin_dyadic_bound_with_pi(
+            &upper,
+            precision_bits,
+            BoundDirection::Upper,
+            shared_pi.as_ref(),
+        )?;
+        return ordered_dyadic_interval(lower_bound, upper_bound);
     }
     let shared_pi = if compare_absolute_rational_to_half(&lower) == Ordering::Greater
         && compare_absolute_rational_to_half(&upper) == Ordering::Greater

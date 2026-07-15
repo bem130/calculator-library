@@ -36,6 +36,7 @@ const cases = [
     ["atan_two", "atan(2)", "atan(2)"],
     ["atan_non_degenerate", "atan(2+sin(1))", "atan(sin(1)+2)"],
     ["asin_third", "asin(1/3)", "asin(1/3)"],
+    ["asin_three_fourths", "asin(3/4)", "asin(3/4)"],
     ["asin_non_degenerate_unit", "asin(sin(1)/3)", "asin(1/3*sin(1))"],
     ["asin_non_degenerate_mid_transform", "asin((1+sin(1))/3)", "asin(1/3*sin(1)+1/3)"],
     ["asin_non_degenerate_transform", "asin((2+sin(1))/3)", "asin(1/3*sin(1)+2/3)"],
