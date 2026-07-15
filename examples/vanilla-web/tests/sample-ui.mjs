@@ -124,6 +124,7 @@ async function runBrowserChecks(url, origin) {
         await assertSpecialAngles(page);
         await assertSimpleRadicalAlgebra(page);
         await assertInitialExpLog(page);
+        await assertNegativeTinyExponential(page);
         await assertLargeNegativeExponential(page);
         await assertArbitraryBaseLogExp(page);
         await assertRationalPowers(page);
@@ -470,6 +471,27 @@ async function assertLargeNegativeExponential(page) {
     assert(cancellationState.enabledWhileActive, "active calculation did not enable cancellation");
     assert(cancellationState.disabledAfterCancel, "cancel button remained enabled after cancellation");
     await waitForText(page, "#status", "Canceled");
+}
+
+async function assertNegativeTinyExponential(page) {
+    await setExpression(page, "exp(-1/1267650600228229401496703205376)");
+    await page.click("#calculate");
+    await waitForText(
+        page,
+        "#exact-output",
+        "= exp(-1/1267650600228229401496703205376)",
+    );
+    await waitForText(page, "#scientific-state", "5 digits");
+    await waitForText(page, "#enclosure-state", "DECIMAL SCIENTIFIC");
+    const interval = parseDecimalScientificInterval(await textContent(page, "#enclosure-output"));
+    assert(
+        rationalCompareWithRational(interval.lower, 0n, 1n) > 0,
+        "negative tiny exponential enclosure must stay strictly positive",
+    );
+    assert(
+        rationalCompareWithRational(interval.upper, 1n, 1n) <= 0,
+        "negative tiny exponential enclosure must not exceed one",
+    );
 }
 
 async function assertArbitraryBaseLogExp(page) {

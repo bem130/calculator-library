@@ -48,3 +48,23 @@ allocation values. The expanded logical-work run, now including the negative
 tiny case, has SHA-256
 `7342dcca027f7a801364ddc8624fba95d88617161fbfc32dec27e63ea11c4773`;
 all pre-existing rows remained byte-identical.
+
+The optimized Wasm artifact is 831,900 bytes with SHA-256
+`554cf35d9db3482cf2abf028039ddd27c8bf06559519161836950ca79c873478`.
+The focused ten-iteration/two-warmup npm smoke measured 0.432 ms/iteration and
+the unchanged 1,828-byte payload; this short cold-path sample is recorded only
+as a public-path smoke, not a timing claim. Repository gates passed with 387
+core tests, 37 native Wasm tests, and 23 wasm32 tests, plus formatting, native
+and Wasm clippy, no-default-feature, doctest, generated contract, protocol
+snapshot, no-float, dependency policy, package/example frozen installs,
+TypeScript/package checks, example build, external oracle, package-size,
+browser E2E, and rustdoc gates. Exact pnpm audit requests returned HTTP 410;
+the paired `--ignore-registry-errors` checks completed, with manifests and
+lockfiles unchanged.
+
+Review found and removed an eager magnitude clone on ineligible negative
+points; `exp(-2)` returned to its base 9,106 bytes / 336 blocks (1,612 / 29
+peak). The CLI retains the exact symbolic text, and the added browser regression
+checks that the decimal-scientific enclosure for the negative tiny point is
+strictly positive and no greater than one. The npm benchmark definition was
+advanced to `representative-paths-v23` for the two new cases.

@@ -3493,6 +3493,16 @@ the pre-existing rows are byte-identical. Reproduce with allocation cases
 component `exp_negative_tiny_dyadic`; the logical-work runner; and npm benchmark
 case `exp_negative_tiny_dyadic`.
 
+The final optimized Wasm artifact is 831,900 bytes with SHA-256
+`554cf35d9db3482cf2abf028039ddd27c8bf06559519161836950ca79c873478`.
+A ten-iteration/two-warmup npm smoke measured 0.432 ms/iteration with an
+unchanged 1,828-byte payload; the short run is public-path validation rather
+than a timing claim.
+After review removed an eager clone on ineligible negative points, the
+`exp(-2)` control is exactly its base 9,106 bytes / 336 blocks (1,612 / 29
+peak). The browser regression verifies a strictly positive enclosure no greater
+than one, and the CLI retains the exact symbolic source.
+
 ## Structured dyadic exponential denominators
 
 At base `45f49da`, the dyadic exponential recurrence treated each input

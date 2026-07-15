@@ -239,16 +239,14 @@ pub(crate) fn exp(
             let series_plan = exp_series_plan_for_direct_value(&point, precision_bits)?;
             return exp_series_dyadic_bounds_with_plan(&point, &series_plan, precision_bits);
         }
-        if point.is_negative() {
+        if point.is_negative() && exp_magnitude_has_value_aware_series_plan(&point) {
             let magnitude = point.negate();
-            if exp_has_value_aware_series_plan(&magnitude) {
-                let series_plan = exp_series_plan_for_direct_value(&magnitude, precision_bits)?;
-                let (positive_lower, positive_upper) =
-                    exp_series_rational_bounds_with_plan(&magnitude, &series_plan)?;
-                let lower = reciprocal_nonzero_rational(&positive_upper)?;
-                let upper = reciprocal_nonzero_rational(&positive_lower)?;
-                return from_rational_bounds(&lower, &upper, precision_bits);
-            }
+            let series_plan = exp_series_plan_for_direct_value(&magnitude, precision_bits)?;
+            let (positive_lower, positive_upper) =
+                exp_series_rational_bounds_with_plan(&magnitude, &series_plan)?;
+            let lower = reciprocal_nonzero_rational(&positive_upper)?;
+            let upper = reciprocal_nonzero_rational(&positive_lower)?;
+            return from_rational_bounds(&lower, &upper, precision_bits);
         }
         let (lower, upper) = exp_rational_bounds(&point, precision_bits)?;
         return from_rational_bounds(&lower, &upper, precision_bits);
@@ -316,7 +314,13 @@ fn exp_can_round_series_directly(value: &Rational) -> bool {
 }
 
 fn exp_has_value_aware_series_plan(value: &Rational) -> bool {
-    exp_can_round_series_directly(value)
+    exp_can_round_series_directly(value) && exp_magnitude_has_value_aware_series_plan(value)
+}
+
+fn exp_magnitude_has_value_aware_series_plan(value: &Rational) -> bool {
+    !value.is_zero()
+        && !value.denominator.inner.inner.is_one()
+        && value.numerator.inner.magnitude() <= value.denominator.inner.inner.magnitude()
         && value
             .denominator
             .inner
