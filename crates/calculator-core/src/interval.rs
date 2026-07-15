@@ -840,6 +840,28 @@ pub(crate) fn acos(
         }
         return ordered_dyadic_interval(lower, upper);
     }
+    if upper_direct && lower_direct && upper_endpoint.is_negative() && lower_endpoint.is_negative()
+    {
+        let pi = shared_pi
+            .as_ref()
+            .ok_or(IntervalError::UnsupportedExpression)?;
+        let lower = negative_outer_acos_dyadic_bound(
+            &upper_endpoint,
+            precision_bits,
+            BoundDirection::Lower,
+            pi,
+        )?;
+        let upper = negative_outer_acos_dyadic_bound(
+            &lower_endpoint,
+            precision_bits,
+            BoundDirection::Upper,
+            pi,
+        )?;
+        if compare_rationals(&lower_endpoint, &upper_endpoint) == Ordering::Greater {
+            return Err(IntervalError::InvalidBounds);
+        }
+        return ordered_dyadic_interval(lower, upper);
+    }
     let lower = acos_rational_bound_with_pi(
         &upper_endpoint,
         precision_bits,
@@ -3661,6 +3683,69 @@ fn positive_outer_acos_dyadic_bound(
     atan_rational_dyadic_bound_with_pi(&ratio, precision_bits, direction, None)
 }
 
+fn negative_outer_acos_dyadic_bound(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+    shared_pi: &(Rational, Rational),
+) -> Result<ExactDyadic, IntervalError> {
+    debug_assert!(value.is_negative());
+    debug_assert!(acos_endpoint_uses_direct_outer_transform(value));
+    let magnitude = value.negate();
+    let atan_direction = match direction {
+        BoundDirection::Lower => BoundDirection::Upper,
+        BoundDirection::Upper => BoundDirection::Lower,
+    };
+    let complement = one_minus_rational_square(&magnitude)?;
+    let numerator = match atan_direction {
+        BoundDirection::Lower => sqrt_rational_lower(&complement, precision_bits)?,
+        BoundDirection::Upper => sqrt_rational_upper(&complement, precision_bits)?,
+    };
+    let ratio = divide_rational(&dyadic_to_rational(&numerator)?, &magnitude)?;
+    if !is_unit_rational(&ratio) {
+        let canonical = direct_outer_acos_bound(
+            value,
+            &magnitude,
+            precision_bits,
+            direction,
+            Some(shared_pi),
+        )?;
+        return Ok(rational_to_dyadic_bound(
+            &canonical,
+            precision_bits,
+            direction,
+        ));
+    }
+    let atan = atan_series_common_denominator_raw_bound(
+        &ratio,
+        series_terms(precision_bits)?,
+        atan_direction,
+    )?;
+    let pi = match direction {
+        BoundDirection::Lower => &shared_pi.0,
+        BoundDirection::Upper => &shared_pi.1,
+    };
+    Ok(pi_minus_raw_fraction_dyadic_bound(
+        pi,
+        &atan,
+        precision_bits,
+        direction,
+    ))
+}
+
+fn pi_minus_raw_fraction_dyadic_bound(
+    pi: &Rational,
+    correction: &RawFractionParts,
+    precision_bits: u32,
+    direction: BoundDirection,
+) -> ExactDyadic {
+    let pi_denominator = &pi.denominator.inner.inner;
+    let numerator =
+        &pi.numerator.inner * &correction.denominator - &correction.numerator * pi_denominator;
+    let denominator = pi_denominator * &correction.denominator;
+    fraction_to_dyadic_bound(&numerator, &denominator, precision_bits, direction)
+}
+
 fn acos_endpoint_uses_direct_outer_transform(value: &Rational) -> bool {
     !value.is_zero()
         && !is_positive_one_rational(value)
@@ -6358,6 +6443,46 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn negative_outer_acos_raw_endpoint_matches_canonical_rational_rounding() {
+        for precision_bits in [0_u32, 1, 64, 128] {
+            let pi = pi_bounds(precision_bits).unwrap();
+            for value in [
+                rational(-708, 1_000),
+                rational(-3, 4),
+                rational(-999, 1_000),
+            ] {
+                for direction in [BoundDirection::Lower, BoundDirection::Upper] {
+                    let canonical = acos_rational_bound_with_pi(
+                        &value,
+                        precision_bits,
+                        direction,
+                        Some(&pi),
+                        true,
+                    )
+                    .unwrap();
+                    assert_eq!(
+                        negative_outer_acos_dyadic_bound(&value, precision_bits, direction, &pi,)
+                            .unwrap(),
+                        rational_to_dyadic_bound(&canonical, precision_bits, direction),
+                        "value={value:?}, precision={precision_bits}",
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn negative_outer_acos_rejects_reversed_input_before_coarse_rounding() {
+        let lower = from_rational(&rational(-3, 4), 128);
+        let upper = from_rational(&rational(-4, 5), 128);
+        let reversed = CertifiedInterval {
+            lower: lower.lower,
+            upper: upper.upper,
+        };
+        assert_eq!(acos(&reversed, 0), Err(IntervalError::InvalidBounds));
     }
 
     #[test]
