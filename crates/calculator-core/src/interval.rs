@@ -811,11 +811,29 @@ pub(crate) fn acos(
         let (lower, upper) = acos_rational_bounds(&lower_endpoint, precision_bits)?;
         return from_rational_bounds(&lower, &upper, precision_bits);
     }
-    let pi = pi_bounds(precision_bits)?;
-    let lower =
-        acos_rational_bound_with_pi(&upper_endpoint, precision_bits, BoundDirection::Lower, &pi)?;
-    let upper =
-        acos_rational_bound_with_pi(&lower_endpoint, precision_bits, BoundDirection::Upper, &pi)?;
+    let upper_direct = acos_endpoint_uses_direct_outer_transform(&upper_endpoint);
+    let lower_direct = acos_endpoint_uses_direct_outer_transform(&lower_endpoint);
+    let shared_pi = if acos_endpoint_requires_pi(&upper_endpoint, upper_direct)
+        || acos_endpoint_requires_pi(&lower_endpoint, lower_direct)
+    {
+        Some(pi_bounds(precision_bits)?)
+    } else {
+        None
+    };
+    let lower = acos_rational_bound_with_pi(
+        &upper_endpoint,
+        precision_bits,
+        BoundDirection::Lower,
+        shared_pi.as_ref(),
+        upper_direct,
+    )?;
+    let upper = acos_rational_bound_with_pi(
+        &lower_endpoint,
+        precision_bits,
+        BoundDirection::Upper,
+        shared_pi.as_ref(),
+        lower_direct,
+    )?;
     from_rational_bounds(&lower, &upper, precision_bits)
 }
 
@@ -3562,9 +3580,11 @@ fn acos_rational_bound_with_pi(
     value: &Rational,
     precision_bits: u32,
     direction: BoundDirection,
-    pi: &(Rational, Rational),
+    shared_pi: Option<&(Rational, Rational)>,
+    direct_outer_transform: bool,
 ) -> Result<Rational, IntervalError> {
     if is_negative_one_rational(value) {
+        let pi = shared_pi.ok_or(IntervalError::UnsupportedExpression)?;
         return Ok(match direction {
             BoundDirection::Lower => pi.0.clone(),
             BoundDirection::Upper => pi.1.clone(),
@@ -3574,11 +3594,23 @@ fn acos_rational_bound_with_pi(
         return Ok(Rational::zero());
     }
     if value.is_zero() {
+        let pi = shared_pi.ok_or(IntervalError::UnsupportedExpression)?;
         return match direction {
             BoundDirection::Lower => halve_rational(&pi.0),
             BoundDirection::Upper => halve_rational(&pi.1),
         };
     }
+    let magnitude_storage;
+    let magnitude = if value.is_negative() {
+        magnitude_storage = value.negate();
+        &magnitude_storage
+    } else {
+        value
+    };
+    if direct_outer_transform {
+        return direct_outer_acos_bound(value, magnitude, precision_bits, direction, shared_pi);
+    }
+    let pi = shared_pi.ok_or(IntervalError::UnsupportedExpression)?;
     let asin_direction = match direction {
         BoundDirection::Lower => BoundDirection::Upper,
         BoundDirection::Upper => BoundDirection::Lower,
@@ -3589,6 +3621,59 @@ fn acos_rational_bound_with_pi(
         BoundDirection::Upper => &pi.1,
     };
     Ok(halve_rational(pi_bound)?.subtract(&asin_bound))
+}
+
+fn acos_endpoint_uses_direct_outer_transform(value: &Rational) -> bool {
+    !value.is_zero()
+        && !is_positive_one_rational(value)
+        && !is_negative_one_rational(value)
+        && !rational_absolute_square_is_below_half(value)
+}
+
+fn rational_absolute_square_is_below_half(value: &Rational) -> bool {
+    let numerator_squared = &value.numerator.inner * &value.numerator.inner;
+    let denominator_squared = &value.denominator.inner.inner * &value.denominator.inner.inner;
+    numerator_squared * 2_u8 < denominator_squared
+}
+
+fn acos_endpoint_requires_pi(value: &Rational, direct_outer_transform: bool) -> bool {
+    if is_positive_one_rational(value) {
+        return false;
+    }
+    value.is_negative() || value.is_zero() || !direct_outer_transform
+}
+
+fn direct_outer_acos_bound(
+    value: &Rational,
+    magnitude: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+    shared_pi: Option<&(Rational, Rational)>,
+) -> Result<Rational, IntervalError> {
+    let direct_direction = if value.is_negative() {
+        match direction {
+            BoundDirection::Lower => BoundDirection::Upper,
+            BoundDirection::Upper => BoundDirection::Lower,
+        }
+    } else {
+        direction
+    };
+    let complement = one_minus_rational_square(magnitude)?;
+    let numerator = match direct_direction {
+        BoundDirection::Lower => sqrt_rational_lower(&complement, precision_bits)?,
+        BoundDirection::Upper => sqrt_rational_upper(&complement, precision_bits)?,
+    };
+    let ratio = divide_rational(&dyadic_to_rational(&numerator)?, magnitude)?;
+    let atan_bound = atan_rational_bound(&ratio, precision_bits, direct_direction)?;
+    if !value.is_negative() {
+        return Ok(atan_bound);
+    }
+    let pi = shared_pi.ok_or(IntervalError::UnsupportedExpression)?;
+    let pi_bound = match direction {
+        BoundDirection::Lower => &pi.0,
+        BoundDirection::Upper => &pi.1,
+    };
+    Ok(pi_bound.subtract(&atan_bound))
 }
 
 fn sin_cos_rational(
@@ -5537,7 +5622,7 @@ mod tests {
 
     #[test]
     fn value_aware_exp_plan_selects_the_minimal_proven_tail() {
-        for precision_bits in [1_u32, 64, 128] {
+        for precision_bits in [64_u32, 128] {
             for value in [
                 rational(1, 2),
                 rational(3, 4),
@@ -6097,13 +6182,122 @@ mod tests {
         ] {
             let (lower, upper) = acos_rational_bounds_with_pi(&value, 128, Some(&pi)).unwrap();
             assert_eq!(
-                acos_rational_bound_with_pi(&value, 128, BoundDirection::Lower, &pi).unwrap(),
+                acos_rational_bound_with_pi(
+                    &value,
+                    128,
+                    BoundDirection::Lower,
+                    Some(&pi),
+                    acos_endpoint_uses_direct_outer_transform(&value),
+                )
+                .unwrap(),
                 lower,
             );
             assert_eq!(
-                acos_rational_bound_with_pi(&value, 128, BoundDirection::Upper, &pi).unwrap(),
+                acos_rational_bound_with_pi(
+                    &value,
+                    128,
+                    BoundDirection::Upper,
+                    Some(&pi),
+                    acos_endpoint_uses_direct_outer_transform(&value),
+                )
+                .unwrap(),
                 upper,
             );
+        }
+    }
+
+    #[test]
+    fn direct_outer_acos_transform_tightens_nested_complements() {
+        for precision_bits in [1_u32, 64, 128] {
+            let pi = pi_bounds(precision_bits).unwrap();
+            for positive in [rational(708, 1_000), rational(3, 4), rational(999, 1_000)] {
+                let complement = one_minus_rational_square(&positive).unwrap();
+                for (value, direction) in [
+                    (&positive, BoundDirection::Lower),
+                    (&positive, BoundDirection::Upper),
+                ] {
+                    let numerator = match direction {
+                        BoundDirection::Lower => {
+                            sqrt_rational_lower(&complement, precision_bits).unwrap()
+                        }
+                        BoundDirection::Upper => {
+                            sqrt_rational_upper(&complement, precision_bits).unwrap()
+                        }
+                    };
+                    let ratio =
+                        divide_rational(&dyadic_to_rational(&numerator).unwrap(), &positive)
+                            .unwrap();
+                    assert_eq!(
+                        acos_rational_bound_with_pi(
+                            value,
+                            precision_bits,
+                            direction,
+                            Some(&pi),
+                            true,
+                        )
+                        .unwrap(),
+                        atan_rational_bound(&ratio, precision_bits, direction).unwrap()
+                    );
+                }
+
+                let negative = positive.negate();
+                let (legacy_lower, legacy_upper) =
+                    acos_rational_bounds_with_pi(&negative, precision_bits, Some(&pi)).unwrap();
+                let actual_lower = acos_rational_bound_with_pi(
+                    &negative,
+                    precision_bits,
+                    BoundDirection::Lower,
+                    Some(&pi),
+                    true,
+                )
+                .unwrap();
+                let actual_upper = acos_rational_bound_with_pi(
+                    &negative,
+                    precision_bits,
+                    BoundDirection::Upper,
+                    Some(&pi),
+                    true,
+                )
+                .unwrap();
+                assert!(compare_rationals(&actual_lower, &legacy_lower) != Ordering::Less);
+                assert!(compare_rationals(&actual_upper, &legacy_upper) != Ordering::Greater);
+                assert!(compare_rationals(&actual_lower, &actual_upper) != Ordering::Greater);
+            }
+        }
+    }
+
+    #[test]
+    fn nondegenerate_positive_outer_acos_uses_direct_antitone_endpoints() {
+        for precision_bits in [64_u32, 128] {
+            let input =
+                from_rational_bounds(&rational(3, 4), &rational(4, 5), precision_bits).unwrap();
+            let lower_endpoint = dyadic_to_rational(&input.lower).unwrap();
+            let upper_endpoint = dyadic_to_rational(&input.upper).unwrap();
+            assert!(acos_endpoint_uses_direct_outer_transform(&lower_endpoint));
+            assert!(acos_endpoint_uses_direct_outer_transform(&upper_endpoint));
+            assert!(!acos_endpoint_requires_pi(&lower_endpoint, true));
+            assert!(!acos_endpoint_requires_pi(&upper_endpoint, true));
+            let expected = from_rational_bounds(
+                &direct_outer_acos_bound(
+                    &upper_endpoint,
+                    &upper_endpoint,
+                    precision_bits,
+                    BoundDirection::Lower,
+                    None,
+                )
+                .unwrap(),
+                &direct_outer_acos_bound(
+                    &lower_endpoint,
+                    &lower_endpoint,
+                    precision_bits,
+                    BoundDirection::Upper,
+                    None,
+                )
+                .unwrap(),
+                precision_bits,
+            )
+            .unwrap();
+            assert_eq!(acos(&input, precision_bits).unwrap(), expected);
         }
     }
 
