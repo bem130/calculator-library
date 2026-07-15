@@ -38,6 +38,10 @@ fn main() {
         ("asin_non_degenerate_transform", "asin((2+sin(1))/3)"),
         ("acos_third", "acos(1/3)"),
         ("acos_non_degenerate_transform", "acos((2+sin(1))/3)"),
+        (
+            "acos_non_degenerate_negative_central",
+            "acos((-1+sin(1))/3)",
+        ),
         ("acos_three_fourths", "acos(3/4)"),
         ("acos_five_eighths", "acos(5/8)"),
         ("sin_one", "sin(1)"),

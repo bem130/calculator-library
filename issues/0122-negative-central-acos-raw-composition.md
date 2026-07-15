@@ -35,8 +35,9 @@ Against base `e87ece6`, `acos((-1+sin(1))/3)` moved from 1,019,757 bytes /
 negative outer controls were byte-identical. A 20-sample native run measured
 base at 8.43--9.29 ms and candidate at 1.44--1.87 ms.
 
-Logical-work output stayed byte-identical at SHA-256
-`7342dcca027f7a801364ddc8624fba95d88617161fbfc32dec27e63ea11c4773`.
+With the target case included at 200,442 minimum units, base and candidate
+logical-work output stayed byte-identical at SHA-256
+`f56e49bdbfc3284adb7a21f5959076d7bbe86b9780b4cdb736771d3e030a620d`.
 Optimized Wasm moved from 835,889 bytes
 (`8f0c0c618cd609b2b319114263dfa7558fb7cc77ecd31aa7792a7be2080bbd89`)
 to 836,732 bytes

@@ -3608,8 +3608,9 @@ then `pi/2-asin(x)` before dyadic rounding. Raw final-boundary composition
 reduced `acos((-1+sin(1))/3)` from 1,019,757 bytes / 1,793 blocks
 (48,790 / 74 peak) to 825,605 / 1,713 (33,598 / 71 peak). Outer controls were
 byte-identical. Native 20-sample ranges moved from 8.43--9.29 ms to
-1.44--1.87 ms. Logical-work SHA-256 remained
-`7342dcca027f7a801364ddc8624fba95d88617161fbfc32dec27e63ea11c4773`.
+1.44--1.87 ms. The added target uses 200,442 minimum logical-work units; base
+and candidate runner output matched byte-for-byte at SHA-256
+`f56e49bdbfc3284adb7a21f5959076d7bbe86b9780b4cdb736771d3e030a620d`.
 Wasm moved from 835,889 to 836,732 bytes; candidate SHA-256 is
 `75c301f61fe9993392711c88ce34fc3f9c337503dd5d91647f7d80693f110ee2`.
 The v25 npm case moved from 60.929 to 4.257 ms/iteration with the same
