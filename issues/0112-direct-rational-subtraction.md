@@ -57,3 +57,12 @@ multiply and shift was already measured and rejected in Issue 107; repeating
 that experiment is out of scope. Removing this cost requires a different exact
 recurrence representation that can retain alignment across addition, with peak
 size and all exp controls measured explicitly.
+
+Repository gates passed with 383 core tests, 37 native Wasm tests, and 23
+wasm32 tests, plus formatting, native/Wasm clippy, no-default-feature, doctest,
+generated contract, protocol snapshot, no-float, dependency policy,
+package/example frozen install, TypeScript/package checks, example build,
+external oracle, package-size, browser E2E, and rustdoc gates. Exact pnpm audit
+requests were unavailable because the registry endpoint returned HTTP 410; the
+paired `--ignore-registry-errors` checks completed, and manifests and lockfiles
+were unchanged.
