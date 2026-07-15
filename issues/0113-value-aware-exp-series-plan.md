@@ -11,8 +11,10 @@ one. For exact `x=a/b`, the existing tail proof can use the tighter exact bound
 
 ## Requirements
 
-- Choose the smallest direct-series term count by exact integer comparison of
-  the value-aware tail bound; never use floating point or weaken the enclosure.
+- For arguments small enough to justify value-dependent planning, choose the
+  smallest direct-series term count by exact integer comparison of the tighter
+  tail bound; retain the precision-only plan near one, never use floating point,
+  and never weaken the enclosure.
 - Apply it to canonical exact direct points and compatible non-degenerate direct
   endpoints, choosing a plan safe for both directed endpoints.
 - Preserve binary scaling and general Rational fallback until their reduced

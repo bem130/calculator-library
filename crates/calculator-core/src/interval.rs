@@ -12,6 +12,7 @@ use crate::types::{
 const MAX_EXP_RANGE_REDUCTION_STEPS: u32 = 4096;
 const MAX_DIRECT_EXP_REDUCTION: u64 = 64;
 const MAX_BINARY_EXPONENT_MAGNITUDE: u64 = 1_000_000;
+const MIN_VALUE_AWARE_EXP_DENOMINATOR_BIT_GAP: u64 = 8;
 const MAX_LOG_RANGE_REDUCTION_STEPS: u32 = 4096;
 const LOG_BINARY_SPLIT_LEAF_TERMS: u32 = 32;
 const LOG_BINARY_SPLIT_THRESHOLD: u32 = LOG_BINARY_SPLIT_LEAF_TERMS + 1;
@@ -235,7 +236,7 @@ pub(crate) fn exp(
             });
         }
         if exp_can_round_series_directly(&point) {
-            let series_plan = exp_series_plan(precision_bits)?;
+            let series_plan = exp_series_plan_for_direct_value(&point, precision_bits)?;
             return exp_series_dyadic_bounds_with_plan(&point, &series_plan, precision_bits);
         }
         let (lower, upper) = exp_rational_bounds(&point, precision_bits)?;
@@ -249,12 +250,12 @@ pub(crate) fn exp(
             upper: exp_binary_scaled_bound(&upper, precision_bits, BoundDirection::Upper)?,
         });
     }
-    let series_plan = exp_series_plan(precision_bits)?;
-    let term_count = series_plan.term_count;
     let (lower, upper) = if lower.denominator == upper.denominator
         && exp_can_round_series_directly(&lower)
         && exp_can_round_series_directly(&upper)
     {
+        let series_plan = exp_series_plan_for_direct_value(&upper, precision_bits)?;
+        let term_count = series_plan.term_count;
         let common_denominator = exp_series_denominator_with_factorial(
             &lower.denominator.inner.inner,
             term_count,
@@ -277,6 +278,7 @@ pub(crate) fn exp(
             )?,
         )
     } else {
+        let series_plan = exp_series_plan(precision_bits)?;
         (
             exp_dyadic_bound_with_plan(
                 &lower,
@@ -4449,6 +4451,50 @@ fn exp_series_plan(precision_bits: u32) -> Result<ExpSeriesPlan, IntervalError> 
     })
 }
 
+fn exp_series_plan_for_direct_value(
+    value: &Rational,
+    precision_bits: u32,
+) -> Result<ExpSeriesPlan, IntervalError> {
+    debug_assert!(exp_can_round_series_directly(value));
+    let target_shift: usize = precision_bits
+        .checked_add(1)
+        .ok_or(IntervalError::ExponentTooLarge)?
+        .try_into()
+        .map_err(|_| IntervalError::ExponentTooLarge)?;
+    let numerator = value.numerator.inner.magnitude();
+    let denominator = value.denominator.inner.inner.magnitude();
+    if denominator.bits().saturating_sub(numerator.bits()) < MIN_VALUE_AWARE_EXP_DENOMINATOR_BIT_GAP
+    {
+        return exp_series_plan(precision_bits);
+    }
+    let mut numerator_power = numerator.clone();
+    let mut denominator_power = denominator.clone();
+    let mut tail_factorial = BigUint::one();
+    let mut tail_index = 1_u32;
+    loop {
+        if (&numerator_power << target_shift) <= &denominator_power * &tail_factorial {
+            let term_count = tail_index
+                .checked_sub(1)
+                .ok_or(IntervalError::ExponentTooLarge)?;
+            let factorial = if tail_index == 1 {
+                BigInt::one()
+            } else {
+                BigInt::from(&tail_factorial / tail_index)
+            };
+            return Ok(ExpSeriesPlan {
+                term_count,
+                factorial,
+            });
+        }
+        tail_index = tail_index
+            .checked_add(1)
+            .ok_or(IntervalError::ExponentTooLarge)?;
+        numerator_power *= numerator;
+        denominator_power *= denominator;
+        tail_factorial *= tail_index;
+    }
+}
+
 #[cfg(test)]
 fn exp_series_factorial(term_count: u32) -> BigInt {
     let mut factorial = BigInt::one();
@@ -5430,7 +5476,7 @@ mod tests {
                         .unwrap(),
                 }
             } else if exp_can_round_series_directly(&point) {
-                let plan = exp_series_plan(precision_bits).unwrap();
+                let plan = exp_series_plan_for_direct_value(&point, precision_bits).unwrap();
                 exp_series_dyadic_bounds_with_plan(&point, &plan, precision_bits).unwrap()
             } else {
                 let (lower, upper) = exp_rational_bounds(&point, precision_bits).unwrap();
@@ -5461,6 +5507,109 @@ mod tests {
                 .unwrap(),
             }
         );
+    }
+
+    #[test]
+    fn value_aware_exp_plan_selects_the_minimal_proven_tail() {
+        for precision_bits in [1_u32, 64, 128] {
+            for value in [
+                rational(1, 2),
+                rational(3, 4),
+                rational(127, 128),
+                Rational::new(
+                    Integer::one(),
+                    Integer::from_bigint(BigInt::one() << 100_usize),
+                )
+                .unwrap(),
+            ] {
+                let plan = exp_series_plan_for_direct_value(&value, precision_bits).unwrap();
+                let tail_index = plan.term_count + 1;
+                let numerator_power = value.numerator.inner.magnitude().pow(tail_index);
+                let denominator_power = value.denominator.inner.inner.magnitude().pow(tail_index);
+                let tail_factorial = exp_series_factorial(tail_index);
+                assert!(
+                    (numerator_power << (precision_bits + 1))
+                        <= denominator_power * tail_factorial.magnitude()
+                );
+                if value
+                    .denominator
+                    .inner
+                    .inner
+                    .magnitude()
+                    .bits()
+                    .saturating_sub(value.numerator.inner.magnitude().bits())
+                    >= MIN_VALUE_AWARE_EXP_DENOMINATOR_BIT_GAP
+                    && plan.term_count > 0
+                {
+                    let previous_index = plan.term_count;
+                    let previous_numerator = value.numerator.inner.magnitude().pow(previous_index);
+                    let previous_denominator = value
+                        .denominator
+                        .inner
+                        .inner
+                        .magnitude()
+                        .pow(previous_index);
+                    let previous_factorial = exp_series_factorial(previous_index);
+                    assert!(
+                        (previous_numerator << (precision_bits + 1))
+                            > previous_denominator * previous_factorial.magnitude()
+                    );
+                }
+                assert!(plan.term_count <= exp_series_plan(precision_bits).unwrap().term_count);
+                let legacy = exp_series_plan(precision_bits).unwrap();
+                assert_eq!(
+                    exp_series_dyadic_bounds_with_plan(&value, &plan, precision_bits).unwrap(),
+                    exp_series_dyadic_bounds_with_plan(&value, &legacy, precision_bits).unwrap(),
+                );
+            }
+        }
+
+        let tiny = Rational::new(
+            Integer::one(),
+            Integer::from_bigint(BigInt::one() << 100_usize),
+        )
+        .unwrap();
+        assert!(
+            exp_series_plan_for_direct_value(&tiny, 128)
+                .unwrap()
+                .term_count
+                < exp_series_plan(128).unwrap().term_count
+        );
+    }
+
+    #[test]
+    fn value_aware_exp_plan_preserves_compatible_nondegenerate_endpoints() {
+        let precision_bits = 128;
+        let input = CertifiedInterval {
+            lower: ExactDyadic {
+                coefficient: Integer::one(),
+                exponent_two: Integer::from(-100),
+            },
+            upper: ExactDyadic {
+                coefficient: Integer::from(3),
+                exponent_two: Integer::from(-100),
+            },
+        };
+        let lower = dyadic_to_rational(&input.lower).unwrap();
+        let upper = dyadic_to_rational(&input.upper).unwrap();
+        let legacy = exp_series_plan(precision_bits).unwrap();
+        let expected = CertifiedInterval {
+            lower: exp_series_dyadic_bound_with_plan(
+                &lower,
+                &legacy,
+                BoundDirection::Lower,
+                precision_bits,
+            )
+            .unwrap(),
+            upper: exp_series_dyadic_bound_with_plan(
+                &upper,
+                &legacy,
+                BoundDirection::Upper,
+                precision_bits,
+            )
+            .unwrap(),
+        };
+        assert_eq!(exp(&input, precision_bits).unwrap(), expected);
     }
 
     #[test]

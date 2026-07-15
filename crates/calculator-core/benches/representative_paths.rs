@@ -61,6 +61,17 @@ const APPROXIMATE_COMPONENTS: &[(&str, &str, ExpectedExact)] = &[
     ("euler", "e", ExpectedExact::GeneralSymbolic),
     ("exp_one", "exp(1)", ExpectedExact::GeneralSymbolic),
     ("exp_two", "exp(2)", ExpectedExact::GeneralSymbolic),
+    ("exp_half", "exp(1/2)", ExpectedExact::GeneralSymbolic),
+    (
+        "exp_near_one",
+        "exp(127/128)",
+        ExpectedExact::GeneralSymbolic,
+    ),
+    (
+        "exp_nondegenerate_unit",
+        "exp((1+sin(1))/4)",
+        ExpectedExact::GeneralSymbolic,
+    ),
     (
         "exp_tiny_dyadic",
         "exp(1/1267650600228229401496703205376)",
