@@ -3099,12 +3099,14 @@ fn atan_binary_split_leaf_block(
             .checked_mul(2)
             .and_then(|value| value.checked_add(1))
             .ok_or(IntervalError::ExponentTooLarge)?;
-        let step_numerator = -(numerator_squared * odd_before);
-        let step_denominator = denominator_squared * odd_after;
-        sum_numerator *= &step_denominator;
-        sum_numerator += &product_numerator * &step_numerator;
-        product_numerator *= step_numerator;
-        product_denominator *= step_denominator;
+        product_numerator *= numerator_squared;
+        product_numerator *= odd_before;
+        product_numerator = -product_numerator;
+        sum_numerator *= denominator_squared;
+        sum_numerator *= odd_after;
+        sum_numerator += &product_numerator;
+        product_denominator *= denominator_squared;
+        product_denominator *= odd_after;
     }
     Ok(AtanBinarySplit {
         product_numerator: Some(product_numerator),
@@ -6489,6 +6491,12 @@ mod tests {
                 1,
                 5,
                 20,
+                31,
+                32,
+                33,
+                63,
+                64,
+                65,
                 ATAN_BINARY_SPLIT_THRESHOLD - 1,
                 ATAN_BINARY_SPLIT_THRESHOLD,
                 ATAN_BINARY_SPLIT_THRESHOLD + 1,
@@ -6538,6 +6546,33 @@ mod tests {
                 atan_series_unit_numerator_bound(&unit, u32::MAX, direction),
                 Err(IntervalError::ExponentTooLarge),
             );
+        }
+    }
+
+    #[test]
+    fn in_place_atan_leaf_matches_expression_recurrence_across_boundaries() {
+        let numerator_squared = BigInt::from(49_u8);
+        let denominator_squared = BigInt::from(100_u8);
+        for (start, end) in [(1_u32, 2_u32), (2, 3), (1, 32), (1, 33), (2, 34)] {
+            let mut product_numerator = BigInt::one();
+            let mut product_denominator = BigInt::one();
+            let mut sum_numerator = BigInt::zero();
+            for index in start..end {
+                let odd_before = index * 2 - 1;
+                let odd_after = index * 2 + 1;
+                let step_numerator = -(&numerator_squared * odd_before);
+                let step_denominator = &denominator_squared * odd_after;
+                sum_numerator =
+                    sum_numerator * &step_denominator + &product_numerator * &step_numerator;
+                product_numerator *= step_numerator;
+                product_denominator *= step_denominator;
+            }
+            let actual =
+                atan_binary_split_leaf_block(&numerator_squared, &denominator_squared, start, end)
+                    .unwrap();
+            assert_eq!(actual.product_numerator, Some(product_numerator));
+            assert_eq!(actual.product_denominator, product_denominator);
+            assert_eq!(actual.sum_numerator, sum_numerator);
         }
     }
 
