@@ -862,9 +862,43 @@ cargo run --profile bench -p calculator-core --features std \
   --example logical_work_baseline
 corepack pnpm --dir packages/calculator run build:wasm
 CALCULATOR_BENCH_CASE=wide_add_256 CALCULATOR_BENCH_ITERATIONS=10 \
-  CALCULATOR_BENCH_WARMUP=2 \
+CALCULATOR_BENCH_WARMUP=2 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
+
+## Streaming validated parser tokens (Issue 102)
+
+This same-host comparison used base `1f3c267` and candidate implementation
+`76e221f`, with Rust 1.97.0, Node 22.23.1, wasm-pack 0.15.0, wasm-opt 130, and
+pnpm 10.14.0. The lexer still validates the complete input first, but the parser
+now materializes only its one-token lookahead instead of retaining a token
+vector. One-calculation DHAT totals were:
+
+| case | base bytes / blocks | candidate bytes / blocks | base peak | candidate peak |
+| --- | ---: | ---: | ---: | ---: |
+| `wide_add_256` | 52,289 / 2,241 | 35,937 / 2,240 | 37,412 / 767 | 24,014 / 812 |
+| `wide_multiply_128` | 42,918 / 1,361 | 34,758 / 1,360 | 18,596 / 383 | 13,228 / 428 |
+| `exact_rational` | 11,915 / 494 | 11,691 / 493 | 2,623 / 51 | 2,623 / 51 |
+| `algebraic` | 42,346 / 1,839 | 41,482 / 1,838 | 4,884 / 104 | 4,884 / 104 |
+| `approximate` | 115,467 / 1,137 | 114,955 / 1,136 | 7,558 / 56 | 7,558 / 56 |
+
+Logical work stayed at 261 units for wide add and 1,339 for wide multiply.
+Concurrent 20-sample wide-product ranges moved from 92.23--99.04 us to
+79.41--87.02 us. Candidate wide-add measured 136.82--147.08 us and exact
+rational 32.85--37.50 us; their earlier measurements used different host load,
+so no comparative timing claim is made for those controls.
+
+The ten-iteration/two-warmup Wasm/npm wide-add path retained its 1,728-byte
+payload and measured 0.863 ms/iteration base versus 1.267 ms candidate. This
+short boundary run is not a timing claim. The optimized artifact moved from
+829,554 bytes
+(`4b507aaf91b9237f46981672fe0b846aaf832e22f799630ee00f858caad58793`)
+to 829,645 bytes
+(`10bea59a6984261b3fe247e3cb3a493d3c4ddb0ca39d6ff437c7a90fd2816b9f`)
+and remains below budget.
+
+Reproduce with the Issue 100 allocation, logical-work, Criterion, and Wasm/npm
+commands, adding allocation and Criterion case `wide_multiply_128`.
 
 ## Consumed parser token payloads
 

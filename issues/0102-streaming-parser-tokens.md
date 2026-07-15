@@ -25,3 +25,36 @@ lookahead and moves number payloads directly into the source AST.
   peak allocation, timing, logical work, and Wasm/npm boundary evidence.
 - Complete repository gates and diff, whole-system, and merge-granularity
   reviews before one integration into `main`.
+
+## Resolution
+
+Parsing now retains the source cursor, the last materialized token end, and one
+owned lookahead token. The allocation-free first scan still validates the entire
+lexical language before parser construction; the second scan materializes each
+number or operator only when recursive descent requests it. Consumed number
+payloads move directly into the source AST, while trailing whitespace does not
+change the unexpected-end offset.
+
+Against base `1f3c267`, one-call `wide_add_256` allocation moved from 52,289
+bytes / 2,241 blocks to 35,937 / 2,240, with peak allocation from 37,412 bytes /
+767 blocks to 24,014 / 812. `wide_multiply_128` moved from 42,918 / 1,361 to
+34,758 / 1,360, with peak from 18,596 / 383 to 13,228 / 428. The higher peak
+block counts reflect shorter-lived AST/token overlap while peak bytes decreased.
+Exact rational moved 11,915 / 494 to 11,691 / 493, algebraic 42,346 / 1,839 to
+41,482 / 1,838, and approximate 115,467 / 1,137 to 114,955 / 1,136; their peak
+values were unchanged.
+
+Logical work stayed at 261 units for wide add and 1,339 for wide multiply.
+Concurrent 20-sample wide-product ranges moved from 92.23--99.04 us to
+79.41--87.02 us. Candidate wide-add measured 136.82--147.08 us and exact
+rational 32.85--37.50 us; their earlier samples were taken under different host
+load, so no comparative timing claim is made for them.
+
+The ten-iteration/two-warmup Wasm/npm wide-add path retained its 1,728-byte
+payload and measured 0.863 ms/iteration at the base versus 1.267 ms candidate;
+the short boundary run is not used for a timing claim. The optimized artifact
+moved from 829,554 bytes
+(`4b507aaf91b9237f46981672fe0b846aaf832e22f799630ee00f858caad58793`)
+to 829,645 bytes
+(`10bea59a6984261b3fe247e3cb3a493d3c4ddb0ca39d6ff437c7a90fd2816b9f`)
+and remains below budget.
