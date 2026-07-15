@@ -35,3 +35,6 @@ Optimized Wasm moved from 839,928 to 839,620 bytes; candidate SHA-256 is
 The v26 npm case moved from 18.796 to 2.755 ms/iteration with the same
 1,772-byte payload. CLI retains `asin(3/4)` and browser E2E checks its positive
 enclosure below two radians.
+The focused public dispatcher oracle compares `±5/8` mid points, `±3/4` high
+points, the `±1` specials, and the `±1/2` unit boundary against the former
+canonical paired bounds at 1, 64, and 128 bits.
