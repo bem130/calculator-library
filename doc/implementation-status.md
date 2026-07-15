@@ -146,6 +146,7 @@ nonunit logのhybrid binary-split leafは、各項のnumerator/denominator squar
 expの入力intervalがcanonical exact dyadic pointなら、上下endpointを別々にRational化せず一度だけ変換して既存のpaired seriesまたはbinary-scaling planへ渡す。非退化endpoint、方向付き保証、logical-work、公開protocolを維持する。
 canonical exact pointのdirect exp seriesは、分母が分子より十分大きいsmall argumentに限り、exactな `2*x^(N+1)/(N+1)! <= 2^-precision` 比較で最小Nを選ぶ。near-one、非退化、binary scaling、general Rationalはprecision-only planを維持し、計画用巨大powerによる退行を避ける。
 canonical negative exact pointも、正のmagnitudeが同じsmall-argument境界を満たす場合はexact tail planを共有する。positive paired enclosureを一度だけ構築して既存の`1/upper..1/lower`へ反転し、strict positivity、reciprocal方向、precision、logical-work契約を維持する。near-one、非退化、binary scaling、general Rationalは従来経路を保つ。
+非退化acosのselected endpointが`|x|>=1/sqrt(2)`なら、外側`pi/2-asin(x)`と内側asin変換のcomplementを直接消去する。正値は`atan(sqrt(1-x^2)/x)`を同方向に評価してpi自体を省略し、負値は反対方向のatanを同方向のshared piから引く。exact-point、中央変換域、unit series、反単調endpoint順、logical-work、公開protocolを維持する。
 logの入力intervalがcanonical exact dyadic pointなら、非正値domain判定前に上下endpointを別々にRational化せず一度だけ変換してpaired raw logへ渡す。非canonical equality fallback、非退化endpoint、error precedence、logical-work、公開protocolを維持する。
 atanの入力intervalがcanonical exact dyadic pointなら、上下endpointを別々にRational化せず一度だけ変換してunitまたはreciprocalのpaired evaluatorへ渡す。非canonical equality fallback、非退化endpoint、shared π、logical-work、公開protocolを維持する。
 

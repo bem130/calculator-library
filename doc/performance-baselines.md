@@ -3467,6 +3467,18 @@ A three-iteration/one-warmup Wasm/npm snapshot used artifact
 (784,484 bytes); approximate evaluation measured 7.14 ms/iteration and retained
 the unchanged 1,812-byte payload.
 
+## Direct outer-region acos endpoints
+
+At base `ef4b9fa`, non-degenerate positive outer-region acos constructed shared
+pi and evaluated nested `pi/2-(pi/2-atan(r))` directed complements. Direct
+`atan(sqrt(1-x^2)/x)` endpoints reduced
+`approximate_acos_non_degenerate_transform` from 1,223,322 bytes / 2,842 blocks
+(60,805 / 85 peak) to 958,986 / 2,470 (58,069 / 81). Exact-point and mid-region
+controls are unchanged. Same-host 20-sample Criterion ranges overlap: base
+11.997--13.347 ms and candidate 11.657--12.354 ms, so no timing claim is made.
+Logical-work SHA-256 remains
+`7342dcca027f7a801364ddc8624fba95d88617161fbfc32dec27e63ea11c4773`.
+
 ## Rejected balanced dyadic exponential finite sum
 
 At base `f13b268`, `approximate_general_power` used 101,393 bytes / 692 blocks

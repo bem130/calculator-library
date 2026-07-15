@@ -28,3 +28,21 @@ path allocates substantially more than its asin input path.
   work, Wasm/npm, CLI/example/browser, and controls.
 - Complete focused and repository gates, diff/consistency/merge reviews, and one
   integration into `main`.
+
+## Resolution
+
+Non-degenerate acos classifies each selected endpoint once. Endpoints in the
+outer transform region use the direct directed atan form; when both endpoints
+are positive, the caller does not construct pi at all. Negative outer endpoints
+retain one shared pi and reverse the sqrt/atan direction before subtraction.
+Exact-point paired evaluation and central/unit regions retain their prior path,
+avoiding extra classification work outside the measured scope.
+
+Against base `ef4b9fa`, deterministic one-call allocation for
+`acos((2+sin(1))/3)` moved from 1,223,322 bytes / 2,842 blocks (60,805 / 85
+peak) to 958,986 / 2,470 (58,069 / 81). Exact `acos(3/4)`, `acos(5/8)`,
+transformed asin, and atan controls are unchanged. Same-host 20-sample Criterion
+ranges were 11.997--13.347 ms at base and 11.657--12.354 ms for the candidate;
+the ranges overlap, so no timing claim is made. Expanded logical-work output is
+byte-identical with SHA-256
+`7342dcca027f7a801364ddc8624fba95d88617161fbfc32dec27e63ea11c4773`.
