@@ -54,12 +54,8 @@ pub(crate) fn parse_source(
     source: &str,
     settings: &ParseSettings,
 ) -> Result<SourceExpr, ParseError> {
-    let tokens = lex(source)?;
-    let mut parser = Parser {
-        tokens,
-        position: 0,
-        settings,
-    };
+    count_tokens(source)?;
+    let mut parser = Parser::new(source, settings);
     let expression = parser.parse_expression()?;
     if let Some(token) = parser.peek() {
         return Err(ParseError {
@@ -96,6 +92,7 @@ enum TokenKind {
     Comma,
 }
 
+#[cfg(test)]
 fn lex(source: &str) -> Result<Vec<Token>, ParseError> {
     let token_count = count_tokens(source)?;
     let mut tokens = Vec::with_capacity(token_count);
@@ -318,12 +315,24 @@ fn consume_ascii_digits(source: &str, start: usize) -> usize {
 }
 
 struct Parser<'a> {
-    tokens: Vec<Token>,
-    position: usize,
+    source: &'a str,
+    cursor: usize,
+    last_token_end: u32,
+    lookahead: Option<Token>,
     settings: &'a ParseSettings,
 }
 
-impl Parser<'_> {
+impl<'a> Parser<'a> {
+    fn new(source: &'a str, settings: &'a ParseSettings) -> Self {
+        Self {
+            source,
+            cursor: 0,
+            last_token_end: 0,
+            lookahead: None,
+            settings,
+        }
+    }
+
     fn parse_expression(&mut self) -> Result<SourceExpr, ParseError> {
         self.parse_sum()
     }
@@ -363,6 +372,8 @@ impl Parser<'_> {
 
     fn parse_product(&mut self) -> Result<SourceExpr, ParseError> {
         let mut expr = self.parse_prefix()?;
+        let implicit_multiplication_disabled =
+            self.settings.implicit_multiplication == ImplicitMultiplicationPolicy::Disabled;
         loop {
             let Some(next) = self.peek() else {
                 return Ok(expr);
@@ -372,7 +383,7 @@ impl Parser<'_> {
             } else if next.kind == TokenKind::Slash {
                 (BinaryOperator::Divide, false)
             } else if starts_primary(&next.kind) {
-                if self.settings.implicit_multiplication == ImplicitMultiplicationPolicy::Disabled {
+                if implicit_multiplication_disabled {
                     return Err(ParseError {
                         kind: ParseErrorKind::ImplicitMultiplicationDisabled,
                         span: next.span,
@@ -627,38 +638,41 @@ impl Parser<'_> {
         })
     }
 
-    fn peek(&self) -> Option<&Token> {
-        self.tokens.get(self.position)
+    fn peek(&mut self) -> Option<&Token> {
+        if self.lookahead.is_none() {
+            while self.cursor < self.source.len() {
+                let start = self.cursor;
+                let (lexeme, end) = scan_lexeme(self.source, start)
+                    .expect("the lexical preflight must validate every lexeme");
+                self.cursor = end;
+                if let Some(kind) = lexeme.into_token_kind(self.source, start, end) {
+                    self.last_token_end = end as u32;
+                    self.lookahead = Some(Token {
+                        kind,
+                        span: span(start, end),
+                    });
+                    break;
+                }
+            }
+        }
+        self.lookahead.as_ref()
     }
 
-    fn peek_kind(&self) -> Option<&TokenKind> {
+    fn peek_kind(&mut self) -> Option<&TokenKind> {
         self.peek().map(|token| &token.kind)
     }
 
     fn advance(&mut self) {
-        self.position += 1;
+        let _ = self.take();
     }
 
     fn take(&mut self) -> Option<Token> {
-        let token = self.tokens.get_mut(self.position)?;
-        let span = token.span;
-        let token = core::mem::replace(
-            token,
-            Token {
-                kind: TokenKind::Plus,
-                span,
-            },
-        );
-        self.position += 1;
-        Some(token)
+        self.peek()?;
+        self.lookahead.take()
     }
 
     fn unexpected_end(&self) -> ParseError {
-        let offset = self
-            .tokens
-            .last()
-            .map(|token| token.span.end)
-            .unwrap_or_default();
+        let offset = self.last_token_end;
         ParseError {
             kind: ParseErrorKind::UnexpectedEnd,
             span: ByteSpan {
@@ -948,6 +962,31 @@ mod tests {
                 span: ByteSpan { start: 0, end: 3 },
                 expected: vec![ExpectedToken {
                     kind: ExpectedTokenKind::OpenParenthesis,
+                }],
+            }
+        );
+    }
+
+    #[test]
+    fn streaming_parser_preserves_preflight_priority_and_end_offsets() {
+        assert_eq!(
+            parse_source("1+*2 unknown_name", &ParseSettings::default())
+                .expect_err("the later lexical error must win during preflight"),
+            ParseError {
+                kind: ParseErrorKind::UnknownIdentifier,
+                span: ByteSpan { start: 5, end: 17 },
+                expected: Vec::new(),
+            }
+        );
+
+        assert_eq!(
+            parse_source("(1   ", &ParseSettings::default())
+                .expect_err("trailing whitespace must not move the token end"),
+            ParseError {
+                kind: ParseErrorKind::UnexpectedEnd,
+                span: ByteSpan { start: 2, end: 2 },
+                expected: vec![ExpectedToken {
+                    kind: ExpectedTokenKind::Number,
                 }],
             }
         );
