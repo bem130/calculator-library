@@ -51,3 +51,13 @@ The optimized Wasm artifact moved from 829,606 bytes
 remaining below budget. The ten-iteration/two-warmup npm path retained its
 1,772-byte payload and measured 1.716 ms/iteration base versus 1.075 ms
 candidate; the short runs are not a Wasm timing claim.
+
+Repository validation passed formatting, workspace/all-feature and wasm-target
+Clippy, no-default check/test, 380 core tests, 37 native Wasm tests, 23 Node
+Wasm tests, doctests, generated/protocol/no-float checks, `cargo deny`, DTO
+regeneration, package check, example build, external arithmetic oracle,
+package-size budget, browser E2E, and rustdoc. Both pnpm audit commands remain
+blocked by the registry's retired legacy endpoint returning HTTP 410;
+registry-error tolerance allowed the remaining gates to run, and dependency
+manifests and lockfiles are unchanged. Diff and whole-system reviews reported
+no findings.
