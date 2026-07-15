@@ -55,6 +55,14 @@ clippy, no-default-feature, 390 core, 37 native Wasm, 23 wasm32, doc, generated
 DTO, protocol, no-float, dependency-policy, package/example build, browser E2E,
 and package-size gates. Both exact pnpm audits reached the registry's retired
 endpoint and returned HTTP 410 rather than an advisory result.
+The prototype artifact SHA-256 was
+`6cdae4fa3d7371e565c68b83eb8566812bcaa2f884776fe9deb87f0f5d775e75`;
+the restored 833,423-byte artifact returned to base SHA-256
+`469f6df75aa63ffac27e3b7099456a6238ca89c0d1950637b292564eba44781b`.
+At both base/restored and prototype commits, CLI controls returned the identical
+canonical sources `acos(1/3*sin(1)+2/3)` and `acos(1/7*sin(1)-6/7)`.
+The prototype package/example build and browser E2E also passed, as did the
+restored-tip browser gate, so no display or public-path state changed.
 
 Do not repeat this cache-lifetime approach without evidence that the squared
 operands are materially larger or a representation that reduces code size and

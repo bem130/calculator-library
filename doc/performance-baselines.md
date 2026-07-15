@@ -3530,6 +3530,13 @@ and the condition for reconsideration.
 Three-iteration/one-warmup npm public-path smokes measured 98.84 ms/iteration
 at base and 99.48 ms for the prototype with the same 1,794-byte payload; the
 short runs provide no timing claim.
+Prototype SHA-256 was
+`6cdae4fa3d7371e565c68b83eb8566812bcaa2f884776fe9deb87f0f5d775e75`;
+the restored artifact returned to base SHA-256
+`469f6df75aa63ffac27e3b7099456a6238ca89c0d1950637b292564eba44781b`.
+Base/restored and prototype CLI controls retained identical canonical positive
+and negative outer-acos sources, and both prototype and restored browser E2E
+passed with unchanged public output state.
 
 ## Rejected balanced dyadic exponential finite sum
 
