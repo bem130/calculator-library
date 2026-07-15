@@ -38,3 +38,12 @@ the fallback for non-rational certified intervals. Those fallback intervals
 are non-degenerate in the representative public cases, so canonical point
 classification adds code without removing public work. The prototype was
 therefore removed; no runtime or protocol change is retained.
+
+Repository gates passed with 383 core tests, 37 native Wasm tests, and 23
+wasm32 tests, plus formatting, native/Wasm clippy, no-default-feature, doctest,
+generated contract, protocol snapshot, no-float, dependency policy,
+package/example frozen install, TypeScript/package checks, example build,
+external oracle, package-size, browser E2E, and rustdoc gates. Exact pnpm audit
+requests were unavailable because the registry endpoint returned HTTP 410; the
+paired `--ignore-registry-errors` checks completed, and manifests and lockfiles
+were unchanged.
