@@ -42,6 +42,7 @@ const cases = [
     ["acos_three_fourths", "acos(3/4)", "acos(3/4)"],
     ["acos_five_eighths", "acos(5/8)", "acos(5/8)"],
     ["acos_non_degenerate_transform", "acos((2+sin(1))/3)", "acos(1/3*sin(1)+2/3)"],
+    ["acos_non_degenerate_negative_outer", "acos((-6+sin(1))/7)", "acos(1/7*sin(1)-6/7)"],
     ["sin_one", "sin(1)", "sin(1)"],
     ["cos_one", "cos(1)", "cos(1)"],
     ["tan_one", "tan(1)", "tan(1)"],

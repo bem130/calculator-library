@@ -489,6 +489,22 @@ async function assertNondegenerateOuterAcos(page) {
         rationalCompareWithRational(interval.upper, 2n, 1n) < 0,
         "outer acos enclosure must remain below two radians",
     );
+
+    await setExpression(page, "acos((-6+sin(1))/7)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= acos(1/7*sin(1)-6/7)");
+    await waitForText(page, "#scientific-state", "5 digits");
+    const negativeInterval = parseDecimalScientificInterval(
+        await textContent(page, "#enclosure-output"),
+    );
+    assert(
+        rationalCompareWithRational(negativeInterval.lower, 2n, 1n) > 0,
+        "negative outer acos enclosure must remain above two radians",
+    );
+    assert(
+        rationalCompareWithRational(negativeInterval.upper, 4n, 1n) < 0,
+        "negative outer acos enclosure must remain below four radians",
+    );
 }
 
 async function assertNegativeTinyExponential(page) {
