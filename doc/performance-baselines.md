@@ -772,6 +772,49 @@ CALCULATOR_BENCH_CASE=approximate CALCULATOR_BENCH_ITERATIONS=10 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Convergent integer nth-root baseline (Issue 99)
+
+The remaining general nth-root helper doubled and bisected a `BigInt` bound,
+raising every candidate to the index. The candidate uses a bit-length upper
+estimate and exact integer Newton convergence. Same-host one-calculation DHAT
+totals were:
+
+| case | base bytes / blocks | candidate bytes / blocks | base peak | candidate peak |
+| --- | ---: | ---: | ---: | ---: |
+| `algebraic` | 82,154 / 3,133 | 43,402 / 1,842 | 4,884 / 104 | 4,884 / 104 |
+| `approximate_sqrt_two` control | 9,085 / 337 | 9,085 / 337 | 1,496 / 34 | 1,496 / 34 |
+| `approximate_general_power` control | 101,809 / 698 | 101,809 / 698 | 6,223 / 43 | 6,223 / 43 |
+
+Concurrent 50-sample algebraic timing improved from 147.56--187.97 us to
+107.68--131.57 us. The full logical-work output was byte-identical with
+SHA-256 `a925d3238a37ac073ae380a8c0200c9c654944a71f9a3e573660740d55d6fbd7`.
+
+The ten-iteration/two-warmup Wasm/npm algebraic path retained a 1,792-byte
+payload and measured 1.073 ms/iteration base versus 0.596 ms candidate; the
+short boundary run is not used for a timing claim. Base artifact
+`c89a824645735bcbd10e266dc8bbb191f8431a9b44be847b5b3acee2fbda93ac`
+was 829,184 bytes; candidate
+`5cea3933bbd249eca968400337cb48b9b2dcbd79785d12d6a6c896ce409a44bd`
+is 829,230 bytes and remains below budget.
+
+Reproduce with separate base/candidate worktrees and target directories:
+
+```sh
+for case in algebraic approximate_sqrt_two approximate_general_power; do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- calculate/algebraic --sample-size 50
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_CASE=algebraic CALCULATOR_BENCH_ITERATIONS=10 \
+  CALCULATOR_BENCH_WARMUP=2 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
+
 ## Consumed parser token payloads
 
 At base `e316e36`, `parse_primary` cloned each current token before advancing.
