@@ -164,6 +164,7 @@ exp finite-sum recurrence本体は既にowned `MulAssign` / `AddAssign`で更新
 log range reductionはcanonical numerator/denominator parityに従って2倍・半減を直接shiftし、既約性を維持したまま汎用GCD正規化を省く。128-step large-positive logで汎用Rational scaling比14,368 bytes / 768 blocksを削減する。
 canonical Rational加算はzero、integer/integer、mixed integer/fractionを直接構築し、分母1が関与する既約性既知の結果でcross-productとGCD正規化を省く。256-term integer sumでgeneral path比10,232 bytes / 1,279 blocksを削減する。
 非退化log endpointはprecision-only term planをlower・upper・必要なlog2 compositionで共有する。exact-zero shortcutをplanning前に維持し、独立planning比で対象pathの1,280 bytes / 90 blocksを削減する。
+exp finite-sum recurrenceのterm/tail indexと定数2はprimitive integer operandのまま多倍長stateへ乗算し、loopごとのsmall `BigInt`所有化を避ける。general powerと非退化unit expで2,240 bytes / 70 blocksを削減する。
 正の非退化high-transform asinは、`x²>=1/2`のendpointについて反対方向のunit atan raw共通分母を`pi/2-atan(sqrt(1-x²)/x)`としてshared πと正確に合成し、一度だけdirected dyadicへ丸める。粗いsqrtでratioがunit範囲を超える場合と、negative、mid-transform、unit、special/exact pointは既存経路を維持する。
 負の非退化high-transform asinは奇関数性により正のmagnitudeを反対方向で同じraw合成へ送り、最終directed dyadicだけを符号反転する。`-1`、粗いsqrt ratio fallback、mid-transform、unit、special/exact pointは既存canonical経路を維持する。
 正負の非退化mid-transform asinは`atan(x/sqrt(1-x²))`のunit atan recurrenceをraw numerator/denominatorのまま最終directed dyadicへ丸める。負値は正magnitudeの反対方向を符号反転し、粗いsqrt ratio fallback、unit/high/special/exact pointは既存経路を維持する。

@@ -685,6 +685,19 @@ were byte/block/peak-identical: large-positive log 95,900 / 934, `ln(2)` 9,990
 no significant difference, so no timing improvement is claimed. Issue 66
 records endpoint/error-precedence oracle coverage and removal of the prototype.
 
+## Primitive exponential recurrence operands
+
+At base `8336d2a`, temporarily materializing each term/tail index and the tail
+constant two as owned `BigInt` values used 103,633 bytes / 762 blocks for general
+power; primitive operands use 101,393 / 692 with the same 6,223 / 43 peak.
+Non-degenerate unit exp moved from 76,353 / 1,040 to 74,113 / 970, `exp(1)`
+from 9,309 / 329 to 8,157 / 293, and `exp(-10000)` from 504,788 / 1,534 to
+502,356 / 1,458; every peak was unchanged. Ten-sample general-power ranges were
+77.835--84.420 us for owned BigInt operands and 77.714--98.069 us for the
+restored primitive path. The restored run detected no significant difference,
+so no timing improvement is claimed. Issue 12 records the exact recurrence
+oracle and removal of the prototype.
+
 ## Canonical logarithm range scaling
 
 At base `a12ffbc`, temporarily restoring generic Rational multiplication and
