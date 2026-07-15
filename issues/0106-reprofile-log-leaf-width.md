@@ -18,3 +18,22 @@ sequential leaves and tree merges.
   logical-work accounting, no-float policy, and public protocol.
 - Record rejected variants as well as the selected result and complete the
   appropriate reviews and gates before one integration into `main`.
+
+## Profiling result
+
+Current-main width 32 remains the selected balance at 158,393 bytes / 942
+blocks and a previously measured 171.92--178.32 us range. Width 64 increased
+allocation to 263,625 / 1,020 with no peak reduction. Width 16 reduced bytes to
+144,489 but increased blocks to 1,018 and regressed Criterion to
+184.67--235.46 us (`p < 0.05`). Width 24 produced the same allocation as width
+32 and the same tree shape for the representative term plan, so it provides no
+target benefit while changing lower-plan dispatch. Reordering primitive odd
+factors before the BigInt square factors also regressed allocation to 158,649
+bytes / 944 blocks.
+
+No implementation change is retained. DHAT confirms that the remaining large
+allocations are the necessary growing multiplications inside leaf blocks;
+changing tree granularity or multiplication order either moves cost between
+bytes, blocks, and time or is neutral. A future improvement needs a different
+product/sum representation or multiplication primitive rather than threshold
+tuning.
