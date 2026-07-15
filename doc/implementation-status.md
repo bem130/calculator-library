@@ -156,6 +156,7 @@ nonunit atanのhybrid binary-split leafは、各項のnumerator/denominator squa
 負の非退化central acosは、両endpointが`|x|<=1/2`ならunit asinのraw共通分母を`pi/2+asin(|x|)`としてshared πと正確に合成し、一度だけdirected dyadicへ丸める。positive、符号/分類mixed、outer、zero、special/exact pointは既存経路を維持する。
 正の非退化central acosも、両endpointが`0<x<=1/2`なら反対方向のunit asin raw共通分母を`pi/2-asin(x)`としてshared πと正確に合成し、一度だけdirected dyadicへ丸める。zero、符号/分類mixed、outer、special/exact pointは既存経路を維持する。
 exact nonzero central acos pointも正負それぞれのraw directed endpointを使い、paired π enclosureを一度だけ共有する。zero、special、outer、mid-transform fallback、反単調ordering、logical-work、no-float、公開protocolを維持し、paired canonical Rational boundsの正規化を除く。
+exact non-special mid-transform acos pointもmid-asinと共有するraw atan fractionをpaired π enclosureへ直接加減算し、最終dyadicだけを丸める。粗いsqrtでunit ratioを証明できない場合のcanonical fallback、central/outer境界、反単調ordering、logical-work、no-float、公開protocolを維持する。
 正の非退化high-transform asinは、`x²>=1/2`のendpointについて反対方向のunit atan raw共通分母を`pi/2-atan(sqrt(1-x²)/x)`としてshared πと正確に合成し、一度だけdirected dyadicへ丸める。粗いsqrtでratioがunit範囲を超える場合と、negative、mid-transform、unit、special/exact pointは既存経路を維持する。
 負の非退化high-transform asinは奇関数性により正のmagnitudeを反対方向で同じraw合成へ送り、最終directed dyadicだけを符号反転する。`-1`、粗いsqrt ratio fallback、mid-transform、unit、special/exact pointは既存canonical経路を維持する。
 正負の非退化mid-transform asinは`atan(x/sqrt(1-x²))`のunit atan recurrenceをraw numerator/denominatorのまま最終directed dyadicへ丸める。負値は正magnitudeの反対方向を符号反転し、粗いsqrt ratio fallback、unit/high/special/exact pointは既存経路を維持する。

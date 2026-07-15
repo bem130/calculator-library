@@ -828,6 +828,26 @@ Reproduce with allocation case `approximate_acos_three_eighths`, Criterion
 component `acos_three_eighths`, the logical-work runner, and npm benchmark case
 `acos_three_eighths`.
 
+## Exact mid-transform acos raw endpoints
+
+At base `83022f9`, `acos(5/8)` normalized the mid-transform atan result and then
+performed a second canonical Rational composition with pi. The retained path
+shares the mid-asin raw fraction producer and rounds only after the exact
+`pi/2-asin(x)` composition. Deterministic allocation moved from 397,422 bytes /
+1,322 blocks (29,183 / 49 peak) to 278,878 / 1,190 (15,023 / 40 peak).
+
+Same-host ten-sample Criterion ranges moved from 5.4962--6.0768 ms to
+446.53--472.00 us. Logical-work output was byte-identical at SHA-256
+`86667e251f7da693d5551e16c99c870f4d44f44f3168184baec4f0ebddfc8404`.
+The 20-iteration/five-warmup npm public path moved from 50.811 to 3.083
+ms/iteration with the same 1,772-byte payload. Optimized Wasm moved from
+840,987 to 842,134 bytes; candidate SHA-256 is
+`fd7638ce53428e53dfd8d3c625314ad80b6c489b8c9c45dcb205a79a6ec345f9`.
+
+Reproduce with allocation case `approximate_acos_five_eighths`, Criterion
+component `acos_five_eighths`, the logical-work runner and npm benchmark case
+`acos_five_eighths`.
+
 ## Convergent integer square-root baseline (Issue 98)
 
 The prior floor square root doubled a bound and then bisected the entire input

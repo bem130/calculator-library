@@ -475,6 +475,18 @@ async function assertLargeNegativeExponential(page) {
 }
 
 async function assertNondegenerateOuterAcos(page) {
+    await setExpression(page, "acos(5/8)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= acos(5/8)");
+    const exactMidAcosInterval = parseDecimalScientificInterval(
+        await textContent(page, "#enclosure-output"),
+    );
+    assert(
+        rationalCompareWithRational(exactMidAcosInterval.lower, 0n, 1n) > 0 &&
+            rationalCompareWithRational(exactMidAcosInterval.upper, 2n, 1n) < 0,
+        "exact mid acos enclosure must remain between zero and two radians",
+    );
+
     await setExpression(page, "acos(3/8)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= acos(3/8)");
