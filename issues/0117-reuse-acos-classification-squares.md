@@ -48,6 +48,14 @@ allocation reduction does not justify the ownership enum, wider signatures,
 and artifact growth, so commits `61e347e`/`f559cef` retain the audited
 experiment while restoring runtime and benchmark code exactly.
 
+Three-iteration/one-warmup npm public-path smokes were 98.84 ms/iteration at
+base and 99.48 ms for the prototype with the same 1,794-byte payload; these
+short runs support no timing claim. The restored tip passed formatting,
+clippy, no-default-feature, 390 core, 37 native Wasm, 23 wasm32, doc, generated
+DTO, protocol, no-float, dependency-policy, package/example build, browser E2E,
+and package-size gates. Both exact pnpm audits reached the registry's retired
+endpoint and returned HTTP 410 rather than an advisory result.
+
 Do not repeat this cache-lifetime approach without evidence that the squared
 operands are materially larger or a representation that reduces code size and
 does not extend their live range. The remaining dominant work is sqrt/atan and

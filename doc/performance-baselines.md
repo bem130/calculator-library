@@ -3527,6 +3527,9 @@ and one--two block transient saving does not justify the ownership enum, wider
 endpoint signatures, and 142-byte artifact growth. The runtime experiment was
 fully reverted. Issue 117 records the exact design, focused tests, controls,
 and the condition for reconsideration.
+Three-iteration/one-warmup npm public-path smokes measured 98.84 ms/iteration
+at base and 99.48 ms for the prototype with the same 1,794-byte payload; the
+short runs provide no timing claim.
 
 ## Rejected balanced dyadic exponential finite sum
 
