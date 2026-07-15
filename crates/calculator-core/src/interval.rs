@@ -798,11 +798,25 @@ fn asin_dyadic_bound_with_pi(
     if compare_absolute_rational_to_half(value) != Ordering::Greater {
         return asin_unit_dyadic_bound(value, precision_bits, direction);
     }
-    if !value.is_negative()
-        && !is_positive_one_rational(value)
-        && !rational_square_is_below_half(value)
-    {
-        return positive_high_asin_dyadic_bound(value, precision_bits, direction, shared_pi);
+    if !rational_square_is_below_half(value) {
+        if value.is_negative() {
+            let magnitude = value.negate();
+            if !is_positive_one_rational(&magnitude) {
+                let opposite_direction = match direction {
+                    BoundDirection::Lower => BoundDirection::Upper,
+                    BoundDirection::Upper => BoundDirection::Lower,
+                };
+                let positive = positive_high_asin_dyadic_bound(
+                    &magnitude,
+                    precision_bits,
+                    opposite_direction,
+                    shared_pi,
+                )?;
+                return Ok(negate_dyadic(&positive));
+            }
+        } else if !is_positive_one_rational(value) {
+            return positive_high_asin_dyadic_bound(value, precision_bits, direction, shared_pi);
+        }
     }
     let bound = asin_rational_bound_with_pi(value, precision_bits, direction, shared_pi)?;
     Ok(rational_to_dyadic_bound(&bound, precision_bits, direction))
@@ -3445,7 +3459,6 @@ fn asin_positive_rational_bounds_with_pi(
 }
 
 fn rational_square_is_below_half(value: &Rational) -> bool {
-    debug_assert!(!value.is_negative());
     let numerator_squared = &value.numerator.inner * &value.numerator.inner;
     let denominator_squared = &value.denominator.inner.inner * &value.denominator.inner.inner;
     numerator_squared * 2_u8 < denominator_squared
@@ -7569,13 +7582,40 @@ mod tests {
     }
 
     #[test]
+    fn negative_high_asin_raw_endpoint_matches_canonical_rational_rounding() {
+        for precision_bits in [0_u32, 1, 64, 128] {
+            let pi = pi_bounds(precision_bits).unwrap();
+            for value in [
+                rational(-708, 1_000),
+                rational(-3, 4),
+                rational(-999, 1_000),
+            ] {
+                for direction in [BoundDirection::Lower, BoundDirection::Upper] {
+                    let canonical =
+                        asin_rational_bound_with_pi(&value, precision_bits, direction, Some(&pi))
+                            .unwrap();
+                    assert_eq!(
+                        asin_dyadic_bound_with_pi(&value, precision_bits, direction, Some(&pi),)
+                            .unwrap(),
+                        rational_to_dyadic_bound(&canonical, precision_bits, direction),
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn positive_high_asin_public_dispatch_and_fallbacks_match_canonical_endpoints() {
         for (lower_value, upper_value) in [
             (rational(3, 4), rational(4, 5)),
+            (rational(-4, 5), rational(-3, 4)),
             (rational(5, 8), rational(3, 4)),
+            (rational(-3, 4), rational(-5, 8)),
             (rational(1, 2), rational(3, 4)),
+            (rational(-3, 4), rational(-1, 2)),
             (rational(-3, 4), rational(3, 4)),
             (rational(3, 4), Rational::one()),
+            (rational(-1, 1), rational(-3, 4)),
         ] {
             let input = from_rational_bounds(&lower_value, &upper_value, 128).unwrap();
             let lower_endpoint = dyadic_to_rational(&input.lower).unwrap();
