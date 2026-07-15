@@ -3538,6 +3538,30 @@ Base/restored and prototype CLI controls retained identical canonical positive
 and negative outer-acos sources, and both prototype and restored browser E2E
 passed with unchanged public output state.
 
+## In-place atan hybrid leaf factors
+
+At base `7a64e30`, each nonunit atan hybrid leaf materialized combined
+`p=-a²(2k-1)` and `q=b²(2k+1)` values and then a separate `P*p`. The retained
+leaf multiplies the owned products and scaled sum directly, reusing the updated
+product as the exact correction. This preserves `T'=Tq+Pp`, `P'=Pp`, and
+`Q'=Qq` without changing leaf width, stopping, or logical work.
+
+One-call allocation dropped from 357,013 bytes / 1,558 blocks to 285,789 /
+1,163 for non-degenerate atan, from 879,440 / 2,346 to 733,736 / 1,874 for
+transformed asin, and from 958,986 / 2,470 to 813,282 / 1,998 for transformed
+acos. Their peaks were unchanged. `atan(2)`, `atan(1/2)`, and the negative
+central acos control were byte-for-byte unchanged. The full table, interleaved
+Criterion reruns, Wasm hashes, and npm smoke are recorded in Issue 118.
+
+The logical-work output remained byte-identical at SHA-256
+`7342dcca027f7a801364ddc8624fba95d88617161fbfc32dec27e63ea11c4773`.
+The optimized Wasm artifact decreased 58 bytes, from 833,423 to 833,365.
+Reproduce with allocation cases `approximate_atan_non_degenerate`,
+`approximate_atan_nonunit_reciprocal`,
+`approximate_asin_non_degenerate_transform`, and
+`approximate_acos_non_degenerate_transform`; the corresponding Criterion
+components; the logical-work runner; and npm case `atan_non_degenerate`.
+
 ## Rejected balanced dyadic exponential finite sum
 
 At base `f13b268`, `approximate_general_power` used 101,393 bytes / 692 blocks

@@ -150,6 +150,7 @@ canonical negative exact pointも、正のmagnitudeが同じsmall-argument境界
 同outer endpoint分類で構築した`n²,d²`をcomplementへowned planで引き渡す案は、主対象で160 bytes / 2 blocksだけを削減する一方Wasmを142 bytes増やし、native timingも安定した改善を示さなかったため棄却した。runtimeは復元済みであり、より大きなoperandまたはlive rangeとcode sizeを同時に改善する表現が見つかるまで再試行しない。
 logの入力intervalがcanonical exact dyadic pointなら、非正値domain判定前に上下endpointを別々にRational化せず一度だけ変換してpaired raw logへ渡す。非canonical equality fallback、非退化endpoint、error precedence、logical-work、公開protocolを維持する。
 atanの入力intervalがcanonical exact dyadic pointなら、上下endpointを別々にRational化せず一度だけ変換してunitまたはreciprocalのpaired evaluatorへ渡す。非canonical equality fallback、非退化endpoint、shared π、logical-work、公開protocolを維持する。
+nonunit atanのhybrid binary-split leafは、各項のnumerator/denominator square factorとbounded odd factorを累積積・scaled sumへ直接掛ける。更新済みnumerator productを`Pp` correctionとして再利用し、combined `p`/`q`と追加積を構築しない。`T'=Tq+Pp`、`P'=Pp`、`Q'=Qq`、alternating parity、leaf threshold、tail、directed bound、logical-work、公開protocolを維持する。
 
 ## Deliberately Not Contract
 
