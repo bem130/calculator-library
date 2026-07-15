@@ -38,3 +38,27 @@ about 705 us and 10.49 ms respectively.
   browser E2E, and repository gates are recorded before/after.
 - Diff, whole-system consistency, and merge-granularity reviews have no blocker
   before a single integration into `main`.
+
+## Resolution
+
+`Rational::add` now returns the other canonical operand for zero, constructs an
+integer directly for integer/integer, and for one integer operand computes only
+`a + n*b` while retaining the fractional operand's canonical denominator. Only
+fraction/fraction addition uses the general cross-products and normalizing
+constructor. The direct result is canonical because `gcd(a+n*b,b)=gcd(a,b)=1`.
+Large signed integers, cancellation, both mixed orders, zero identity,
+fraction/fraction, and subtraction are compared with the general constructor.
+
+At base `3680b54`, temporarily restoring the general path for every addition
+moved `wide_add_256` from 35,937 bytes / 2,240 blocks (24,014 / 812 peak) to
+46,169 / 3,519 with the same peak. Mixed `7 + -5/6` moved from 8,402 / 364 to
+8,538 / 381, mixed subtraction from 8,453 / 372 to 8,589 / 389, and the public
+fraction control from 11,691 / 493 to 11,851 / 509; their peaks were unchanged.
+The fraction control includes surrounding public-pipeline additions, while the
+direct unit oracle fixes fraction/fraction behavior itself.
+
+Ten-sample `wide_add_256` Criterion ranges moved from 173.66--186.47 us on the
+legacy path to 97.915--122.77 us after restoring the fast path, and Criterion
+detected an improvement. The legacy runtime variant was completely removed.
+Exact output, 932-unit wide-sum work behavior, resource limits, no-float policy,
+and protocol remain unchanged.

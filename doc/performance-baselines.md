@@ -688,6 +688,19 @@ to 88.413--101.54 us and Criterion detected an improvement. Issue 67 records
 the parity/oracle contract and the rejected generic prototype; no runtime
 prototype remains.
 
+## Canonical rational integer addition
+
+At base `3680b54`, temporarily routing every `Rational::add` through general
+cross-products and GCD normalization used 46,169 bytes / 3,519 blocks for
+`wide_add_256`; the canonical integer paths use 35,937 / 2,240, saving 10,232
+bytes and 1,279 blocks with the same 24,014 / 812 peak. Mixed addition moved
+from 8,538 / 381 to 8,402 / 364, mixed subtraction from 8,589 / 389 to 8,453 /
+372, and the public fraction control from 11,851 / 509 to 11,691 / 493, with
+unchanged peaks. Ten-sample wide-add Criterion ranges moved from
+173.66--186.47 us to 97.915--122.77 us and Criterion detected an improvement.
+Issue 84 records the canonicality proof, direct general-constructor oracles,
+and restored runtime.
+
 ## Rejected explicit exponential upper-tail buffer reuse
 
 At base `7faf5bb`, the finite-sum recurrence already updates its owned growing
