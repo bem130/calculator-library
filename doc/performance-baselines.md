@@ -3583,6 +3583,24 @@ transformed asin, and public atan controls were unchanged. Interleaved native
 ranges improved from roughly 12--14 ms to 0.93--1.14 ms. Logical work was
 byte-identical; Issue 120 records full allocation controls and artifact data.
 
+## Raw pi-minus-atan endpoints for negative outer acos
+
+At base `2cc3b53`, negative non-degenerate outer acos canonicalized its atan
+series and `pi-atan` cross-product before immediately converting it to a
+directed dyadic. Raw composition at the final boundary reduced
+`acos((-6+sin(1))/7)` from 962,132 bytes / 2,305 blocks (62,086 / 86 peak) to
+613,188 / 1,811 (37,174 / 78 peak). Positive outer, negative central,
+transformed asin, and atan controls were byte-identical.
+
+A 20-sample native run measured base at 29.18--32.52 ms and candidate at
+1.50--1.80 ms. Logical work stayed byte-identical at SHA-256
+`7342dcca027f7a801364ddc8624fba95d88617161fbfc32dec27e63ea11c4773`.
+Optimized Wasm moved from 834,404 to 835,889 bytes; candidate SHA-256 is
+`8f0c0c618cd609b2b319114263dfa7558fb7cc77ecd31aa7792a7be2080bbd89`.
+A 100-iteration/10-warmup npm run moved from 183.828 to 8.117 ms/iteration
+with the same 1,788-byte payload. Issue 121 records the coarse-ratio fallback,
+boundary oracle, CLI, and browser evidence.
+
 ## Rejected balanced dyadic exponential finite sum
 
 At base `f13b268`, `approximate_general_power` used 101,393 bytes / 692 blocks
