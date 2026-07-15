@@ -685,6 +685,19 @@ dyadic exp 9,835 / 357 (2,090 / 29). No runtime change is retained. Issue 13
 records why syntax-level clone/assign rewrites cannot expose additional capacity
 reuse with the current `BigInt` representation and the condition for retrying.
 
+## Sign-directed interval multiplication
+
+At base `fe4ec77`, temporarily restoring the legacy four endpoint products for
+all interval signs measured 102,297 bytes / 740 blocks (6,199 / 43 peak) for
+general power, 38,491 / 1,709 (3,967 / 74) for `sqrt(2)*ln(2)`, and 126,460 /
+1,876 (6,292 / 36) through the final exp. The restored sign-directed two-product
+path uses 101,393 / 692 (6,223 / 43), 37,587 / 1,661 (3,967 / 74), and 125,556
+/ 1,828 (6,316 / 36), respectively: 904 bytes and 48 blocks fewer in every
+case, with unchanged peak block counts. Ten-sample general-power ranges were
+75.940--88.418 us for the legacy run and 89.969--104.57 us for the restored
+path, so the noisy unpaired timing does not support a timing claim. Issue 10
+records the exact sign cases, exhaustive legacy-oracle coverage, and evidence.
+
 ## Raw paired endpoints for exact outer acos
 
 At base `ad4de2e`, `acos(3/4)` used 408,819 bytes / 1,273 blocks (28,567 / 48
