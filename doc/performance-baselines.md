@@ -673,6 +673,21 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Single conversion for exact exponential points
+
+At base `321a665`, `exp` converted equal certified dyadic endpoints to the same
+canonical Rational twice before selecting its point evaluator. Converting once
+reduced deterministic bytes/blocks for `exp(1)` from 8,173/295 to 8,157/293,
+tiny dyadic exp from 21,259/395 to 21,211/391, and `exp(±10000)` by 16 bytes and
+two blocks each. Peak fell for the ordinary and tiny cases and did not regress
+for large exp; non-degenerate general power was byte/block/peak-identical.
+Logical-work output retained SHA-256
+`a925d3238a37ac073ae380a8c0200c9c654944a71f9a3e573660740d55d6fbd7`.
+The optimized Wasm artifact is 830,350 bytes at
+`45c4bdd0fcfdcf089c1654ea21a50b0d622ce986b752c8e48e73bd73dbd66a76`,
+within budget; short boundary runs retained their existing payload sizes and
+support no timing claim.
+
 ## Owned shared logarithm-two endpoint bounds
 
 At base `c5722de`, a non-degenerate log with two nonzero binary exponents
