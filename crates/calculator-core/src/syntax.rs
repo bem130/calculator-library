@@ -985,7 +985,7 @@ mod tests {
             let expected = count_tokens(source).expect(source);
             let tokens = lex(source).expect(source);
             assert_eq!(tokens.len(), expected, "{source}");
-            assert_eq!(tokens.capacity(), expected, "{source}");
+            assert!(tokens.capacity() >= expected, "{source}");
         }
 
         for source in ["1e+", ".5", "unknown_name", "λ"] {

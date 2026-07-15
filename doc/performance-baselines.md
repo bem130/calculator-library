@@ -817,6 +817,11 @@ CALCULATOR_BENCH_CASE=algebraic CALCULATOR_BENCH_ITERATIONS=10 \
 
 ## Exact lexer token-capacity baseline (Issue 100)
 
+This same-host comparison used base `7711aa1` and candidate implementation
+`1879d06`, with Rust 1.97.0, Node 22.23.1, wasm-pack 0.15.0, wasm-opt 130, and
+pnpm 10.14.0. The later documentation and regression-test commits do not alter
+the measured implementation.
+
 The previous lexer grew a zero-capacity token vector geometrically. The
 candidate performs an allocation-free lexical validation/count pass and then
 allocates exactly the number of tokens it will materialize. Same-host
