@@ -22,14 +22,15 @@ sequential leaves and tree merges.
 ## Profiling result
 
 Current-main width 32 remains the selected balance at 158,393 bytes / 942
-blocks and a previously measured 171.92--178.32 us range. Width 64 increased
-allocation to 263,625 / 1,020 with no peak reduction. Width 16 reduced bytes to
-144,489 but increased blocks to 1,018 and regressed Criterion to
+blocks, 12,590 bytes / 40 blocks peak, and a previously measured
+171.92--178.32 us range. Width 64 increased allocation to 263,625 / 1,020,
+with the same 12,590 / 40 peak. Width 16 reduced bytes to 144,489 but increased
+blocks to 1,018, retained the same 12,590 / 40 peak, and regressed Criterion to
 184.67--235.46 us (`p < 0.05`). Width 24 produced the same allocation as width
-32 and the same tree shape for the representative term plan, so it provides no
+32, including its peak, and the same tree shape for the representative term plan, so it provides no
 target benefit while changing lower-plan dispatch. Reordering primitive odd
 factors before the BigInt square factors also regressed allocation to 158,649
-bytes / 944 blocks.
+bytes / 944 blocks while retaining the 12,590 / 40 peak.
 
 No implementation change is retained. DHAT confirms that the remaining large
 allocations are the necessary growing multiplications inside leaf blocks;
