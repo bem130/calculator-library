@@ -3601,6 +3601,20 @@ A 100-iteration/10-warmup npm run moved from 183.828 to 8.117 ms/iteration
 with the same 1,788-byte payload. Issue 121 records the coarse-ratio fallback,
 boundary oracle, CLI, and browser evidence.
 
+## Raw half-pi-plus-asin endpoints for negative central acos
+
+At base `e87ece6`, negative central acos canonicalized its unit-asin series and
+then `pi/2-asin(x)` before dyadic rounding. Raw final-boundary composition
+reduced `acos((-1+sin(1))/3)` from 1,019,757 bytes / 1,793 blocks
+(48,790 / 74 peak) to 825,605 / 1,713 (33,598 / 71 peak). Outer controls were
+byte-identical. Native 20-sample ranges moved from 8.43--9.29 ms to
+1.44--1.87 ms. Logical-work SHA-256 remained
+`7342dcca027f7a801364ddc8624fba95d88617161fbfc32dec27e63ea11c4773`.
+Wasm moved from 835,889 to 836,732 bytes; candidate SHA-256 is
+`75c301f61fe9993392711c88ce34fc3f9c337503dd5d91647f7d80693f110ee2`.
+The v25 npm case moved from 60.929 to 4.257 ms/iteration with the same
+1,788-byte payload. Issue 122 records oracle, CLI, browser, and gate evidence.
+
 ## Rejected balanced dyadic exponential finite sum
 
 At base `f13b268`, `approximate_general_power` used 101,393 bytes / 692 blocks
