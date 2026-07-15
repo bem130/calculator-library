@@ -32,3 +32,10 @@ blocks to 560,500 / 1,757, with unchanged peak 28,517 / 81. Native ranges moved
 from 7.790--10.102 ms to 0.998--1.105 ms. Full logical-work output, including
 the new case, remained byte-identical at SHA-256
 `cf0253618aa3db0f6f42135ac47cbe71dd4623c2f60d4404f10cae6283775be2`.
+Optimized Wasm moved from 838,881 bytes
+(`97492f6eed8ec540e1f529f589bfd938f1713e451b7eccfe2080a3cca2791f3d`)
+to 839,928 bytes
+(`587ca0ee3e58e2501d7925fc99969a9e8b88814459718ac9026c7dae8736d00c`),
+within budget. The v26 npm case moved from 56.556 to 5.473 ms/iteration with
+the same 1,794-byte payload. CLI retains `asin(1/3*sin(1)+1/3)` and browser E2E
+verifies its positive enclosure below two radians; all repository gates pass.

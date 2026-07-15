@@ -3669,6 +3669,12 @@ At base `9d4e4fb`, `asin((1+sin(1))/3)` used 626,612 bytes / 1,797 blocks
 the same peak. Same-host ten-sample Criterion ranges moved from 7.790--10.102
 ms to 0.998--1.105 ms. The full logical-work baseline is byte-identical at
 SHA-256 `cf0253618aa3db0f6f42135ac47cbe71dd4623c2f60d4404f10cae6283775be2`.
+Optimized Wasm moved from 838,881 to 839,928 bytes and remains within budget;
+candidate SHA-256 is
+`587ca0ee3e58e2501d7925fc99969a9e8b88814459718ac9026c7dae8736d00c`.
+The v26 npm case moved from 56.556 to 5.473 ms/iteration with an unchanged
+1,794-byte payload. Issue 126 records CLI, browser E2E, fallback, and gate
+evidence.
 
 ## Rejected balanced dyadic exponential finite sum
 
