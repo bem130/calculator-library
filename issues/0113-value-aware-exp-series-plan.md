@@ -50,3 +50,12 @@ tiny case; `2^-1000` overlapped. Base/candidate Wasm artifacts were 830,694 and
 `40d24bf9d0919a09cb73337e75b67989259de548221ef5f6e8c6360941e0a6f0`.
 Ten-iteration/two-warmup npm smokes measured 0.352 and 0.363 ms/iteration with
 the same 1,824-byte payload, so no Wasm timing claim is made.
+
+Repository gates passed with 385 core tests, 37 native Wasm tests, and 23
+wasm32 tests, plus formatting, native/Wasm clippy, no-default-feature, doctest,
+generated contract, protocol snapshot, no-float, dependency policy,
+package/example frozen install, TypeScript/package checks, example build,
+external oracle, package-size, browser E2E, and rustdoc gates. Exact pnpm audit
+requests were unavailable because the registry endpoint returned HTTP 410; the
+paired `--ignore-registry-errors` checks completed, and manifests and lockfiles
+were unchanged.
