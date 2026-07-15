@@ -3644,6 +3644,24 @@ Wasm moved from 837,564 to 838,728 bytes; candidate SHA-256 is
 The v26 npm case moved from 113.742 to 5.192 ms/iteration with the same
 1,788-byte payload. Issue 124 records public dispatch, fallback, and gates.
 
+## Raw odd-symmetric endpoints for negative high asin
+
+At base `70f51f0`, negative high-transform asin canonicalized the complete
+negative Rational transform. Reusing the positive-magnitude raw composition in
+the opposite direction reduced `asin((-2-sin(1))/3)` from 759,042 bytes / 2,252
+blocks (41,462 / 89 peak) to 615,922 / 2,171 (37,414 / 87 peak). Same-host
+ten-sample Criterion ranges moved from 21.75--23.28 ms to 1.292--1.391 ms.
+The added case consumes 200,622 logical-work units and the full baseline is
+byte-identical at SHA-256
+`5a4b4523522a0ec4d04b62587705fdde69cb53b329c608fcce33ef07b123c863`.
+Optimized Wasm moved from 838,728 bytes
+(`68af2bc35f8da0980707e709492e413e1097f34fb59cf65892732959dc05cb4b`)
+to 838,881 bytes
+(`97492f6eed8ec540e1f529f589bfd938f1713e451b7eccfe2080a3cca2791f3d`),
+within budget. The v26 npm case moved from 128.257 to 6.093 ms/iteration with
+the same 1,796-byte payload. Issue 125 records dispatch, fallback, CLI, browser,
+and gate evidence.
+
 ## Rejected balanced dyadic exponential finite sum
 
 At base `f13b268`, `approximate_general_power` used 101,393 bytes / 692 blocks

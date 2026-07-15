@@ -490,6 +490,21 @@ async function assertNondegenerateOuterAcos(page) {
         "transformed asin enclosure must remain below two radians",
     );
 
+    await setExpression(page, "asin((-2-sin(1))/3)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= -asin(2/3+1/3*sin(1))");
+    const negativeAsinInterval = parseDecimalScientificInterval(
+        await textContent(page, "#enclosure-output"),
+    );
+    assert(
+        rationalCompareWithRational(negativeAsinInterval.lower, -2n, 1n) > 0,
+        "negative transformed asin enclosure must remain above minus two radians",
+    );
+    assert(
+        rationalCompareWithRational(negativeAsinInterval.upper, 0n, 1n) < 0,
+        "negative transformed asin enclosure must remain negative",
+    );
+
     await setExpression(page, "acos((2+sin(1))/3)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= acos(1/3*sin(1)+2/3)");
