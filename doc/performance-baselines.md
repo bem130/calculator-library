@@ -701,6 +701,19 @@ The optimized Wasm artifact is 830,527 bytes at
 within budget; the short boundary run retained its public payload and supports
 no timing claim.
 
+## Single conversion for exact arctangent points
+
+At base `23d6190`, canonical exact atan points converted equal dyadic endpoints
+twice. Structural point classification before conversion moved unit atan from
+10,524 bytes / 433 blocks to 10,484 / 428 and reciprocal atan from 27,441 / 610
+to 27,409 / 606; both peaks fell, while non-degenerate atan was identical.
+Logical-work output retained SHA-256
+`a925d3238a37ac073ae380a8c0200c9c654944a71f9a3e573660740d55d6fbd7`.
+The optimized Wasm artifact is 830,694 bytes at
+`07fe324b47a1e1c7dbdf8ce8307a7947df8931e99beb1acaccdb4c5d5a2afd7b`,
+within budget; its short boundary run retained the public payload and supports
+no timing claim.
+
 ## Owned shared logarithm-two endpoint bounds
 
 At base `c5722de`, a non-degenerate log with two nonzero binary exponents
