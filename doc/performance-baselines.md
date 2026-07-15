@@ -698,6 +698,18 @@ restored primitive path. The restored run detected no significant difference,
 so no timing improvement is claimed. Issue 12 records the exact recurrence
 oracle and removal of the prototype.
 
+## Scalar exponential range reduction
+
+At base `a4f5c78`, temporarily routing both exp range-reduction callers through
+an owned integer Rational and generic division used 8,801 bytes / 313 blocks
+(1,567 / 26 peak) for `exp(2)`. Primitive scalar division uses 8,761 / 311 with
+the same peak. General power, `exp(sqrt(2)*ln(2))`, and `exp(-10000)` were
+byte/block/peak-identical controls at 101,393 / 692, 125,556 / 1,828, and
+502,356 / 1,458. Ten-sample `exp(2)` ranges were 20.092--22.182 us generic and
+24.443--37.298 us scalar; the scalar path was slower in this unpaired run, so
+no timing improvement is claimed without paired/interleaved evidence. Issue 35
+records the exact scalar-division oracle and removal of the prototype.
+
 ## Canonical logarithm range scaling
 
 At base `a12ffbc`, temporarily restoring generic Rational multiplication and
