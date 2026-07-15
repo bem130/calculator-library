@@ -144,6 +144,7 @@ source parserは全入力のallocation-free lexical preflight後、source cursor
 nonunit logのhybrid binary-split leafは、各項のnumerator/denominator square factorとbounded odd factorを累積積・scaled sumへ直接掛ける。直後に消費していたcombined step factorと追加`P*p`を構築せず、`T'=Tq+Pp`、`P'=Pp`、`Q'=Qq`、tail、directed bound、logical-work、公開protocolを維持する。
 非退化log endpointが共有するraw `ln(2)` pairは、正負binary exponentが異なる方向を選ぶ場合に各側をendpointへmoveし、同じ方向を選ぶ場合だけ一方を一度cloneする。zero exponentはそのendpoint用boundを構築せず、range reduction、方向付き保証、logical-work、公開protocolを維持する。
 expの入力intervalがcanonical exact dyadic pointなら、上下endpointを別々にRational化せず一度だけ変換して既存のpaired seriesまたはbinary-scaling planへ渡す。非退化endpoint、方向付き保証、logical-work、公開protocolを維持する。
+logの入力intervalがcanonical exact dyadic pointなら、非正値domain判定前に上下endpointを別々にRational化せず一度だけ変換してpaired raw logへ渡す。非canonical equality fallback、非退化endpoint、error precedence、logical-work、公開protocolを維持する。
 
 ## Deliberately Not Contract
 

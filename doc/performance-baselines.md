@@ -688,6 +688,19 @@ The optimized Wasm artifact is 830,350 bytes at
 within budget; short boundary runs retained their existing payload sizes and
 support no timing claim.
 
+## Single conversion for exact logarithm points
+
+At base `08999e3`, canonical exact log points converted equal dyadic endpoints
+to Rational twice. Structural point classification before conversion moved
+`ln(2)` from 10,022 bytes / 406 blocks to 9,990 / 402 and large positive log
+from 95,980 / 938 to 95,900 / 934; both peaks fell, while non-degenerate log was
+byte/block/peak-identical. Logical-work output retained SHA-256
+`a925d3238a37ac073ae380a8c0200c9c654944a71f9a3e573660740d55d6fbd7`.
+The optimized Wasm artifact is 830,527 bytes at
+`73ac6c23478b12ec306f7fed400349f1175e739f7f9265bf4b23f37d42448b1a`,
+within budget; the short boundary run retained its public payload and supports
+no timing claim.
+
 ## Owned shared logarithm-two endpoint bounds
 
 At base `c5722de`, a non-degenerate log with two nonzero binary exponents
