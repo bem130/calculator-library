@@ -47,3 +47,12 @@ moved from 829,230 bytes
 to 829,554 bytes
 (`4b507aaf91b9237f46981672fe0b846aaf832e22f799630ee00f858caad58793`)
 and remains below budget.
+
+Repository validation passed formatting, workspace/all-feature and wasm-target
+Clippy, no-default check/test, 377 core tests, 37 native Wasm tests, 23 Node
+Wasm tests, doctests, generated/protocol/no-float checks, `cargo deny`, DTO
+regeneration, package check, example build, arithmetic oracle, package-size
+budget, browser E2E, and rustdoc. Both pnpm audit commands are currently
+blocked by the registry's retired legacy audit endpoint returning HTTP 410;
+the same commands completed with `--ignore-registry-errors`, and dependency
+manifests and lockfiles are unchanged by this slice.
