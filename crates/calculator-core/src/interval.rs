@@ -254,7 +254,7 @@ pub(crate) fn exp(
         && exp_can_round_series_directly(&lower)
         && exp_can_round_series_directly(&upper)
     {
-        let series_plan = exp_series_plan_for_direct_value(&upper, precision_bits)?;
+        let series_plan = exp_series_plan(precision_bits)?;
         let term_count = series_plan.term_count;
         let common_denominator = exp_series_denominator_with_factorial(
             &lower.denominator.inner.inner,
@@ -5578,7 +5578,7 @@ mod tests {
     }
 
     #[test]
-    fn value_aware_exp_plan_preserves_compatible_nondegenerate_endpoints() {
+    fn value_aware_exp_plan_preserves_nondegenerate_endpoint_fallback() {
         let precision_bits = 128;
         let input = CertifiedInterval {
             lower: ExactDyadic {

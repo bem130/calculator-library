@@ -15,8 +15,9 @@ one. For exact `x=a/b`, the existing tail proof can use the tighter exact bound
   smallest direct-series term count by exact integer comparison of the tighter
   tail bound; retain the precision-only plan near one, never use floating point,
   and never weaken the enclosure.
-- Apply it to canonical exact direct points and compatible non-degenerate direct
-  endpoints, choosing a plan safe for both directed endpoints.
+- Apply it to canonical exact direct points. Preserve the shared precision-only
+  plan for non-degenerate endpoints, whose public canonical denominators do not
+  provide a measured value-aware win.
 - Preserve binary scaling and general Rational fallback until their reduced
   arguments have an independently proven value-aware plan.
 - Preserve directed rounding, positivity, monotonicity, refinement, stopping,
