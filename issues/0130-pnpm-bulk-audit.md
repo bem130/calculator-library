@@ -15,3 +15,15 @@ the source change under test.
   the existing audit severity policy.
 - Regenerate only package-manager-owned lockfile metadata when required.
 - Verify both workspace audits and the complete repository gates.
+
+## Resolution
+
+The repository now pins pnpm 11.13.0, whose audit client uses npm's supported
+bulk-advisory endpoint. Both package and example audits complete with no known
+vulnerabilities instead of failing with HTTP 410. The example explicitly
+allows the required `esbuild` install script through pnpm 11's supply-chain
+policy; all other dependency build scripts remain denied by default.
+
+Frozen-lockfile installs require no dependency or lockfile changes. Package
+checks, the Wasm-backed example build and browser E2E retain their existing
+commands and behavior.
