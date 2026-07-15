@@ -642,8 +642,9 @@ impl<'a> Parser<'a> {
         if self.lookahead.is_none() {
             while self.cursor < self.source.len() {
                 let start = self.cursor;
-                let (lexeme, end) = scan_lexeme(self.source, start)
-                    .expect("the lexical preflight must validate every lexeme");
+                let Ok((lexeme, end)) = scan_lexeme(self.source, start) else {
+                    unreachable!("validated lexeme changed between parser scans");
+                };
                 self.cursor = end;
                 if let Some(kind) = lexeme.into_token_kind(self.source, start, end) {
                     self.last_token_end = end as u32;
