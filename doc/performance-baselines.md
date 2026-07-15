@@ -3562,6 +3562,16 @@ Reproduce with allocation cases `approximate_atan_non_degenerate`,
 `approximate_acos_non_degenerate_transform`; the corresponding Criterion
 components; the logical-work runner; and npm case `atan_non_degenerate`.
 
+## Rejected paired exponential recurrence
+
+At base `acfb067`, current-main `2^sqrt(2)` used 101,393 bytes / 692 blocks
+(6,223 / 43 peak). A two-term streaming affine step was prototyped to reduce
+growing-sum shifts without the balanced tree state rejected in Issue 115. Its
+exact legacy oracle and clippy passed, but one DHAT calculation failed to
+complete after more than 120 seconds and was terminated. The local exact
+correction multiplication overwhelmed any saved global shift. Runtime and test
+sources were restored exactly; Issue 119 records the formula and rejection.
+
 ## Rejected balanced dyadic exponential finite sum
 
 At base `f13b268`, `approximate_general_power` used 101,393 bytes / 692 blocks
