@@ -815,6 +815,52 @@ CALCULATOR_BENCH_CASE=algebraic CALCULATOR_BENCH_ITERATIONS=10 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Exact lexer token-capacity baseline (Issue 100)
+
+The previous lexer grew a zero-capacity token vector geometrically. The
+candidate performs an allocation-free lexical validation/count pass and then
+allocates exactly the number of tokens it will materialize. Same-host
+one-calculation DHAT totals were:
+
+| case | base bytes / blocks | candidate bytes / blocks | base peak | candidate peak |
+| --- | ---: | ---: | ---: | ---: |
+| `wide_add_256` | 68,577 / 2,248 | 52,289 / 2,241 | 37,444 / 767 | 37,412 / 767 |
+| `exact_rational` | 12,075 / 495 | 11,915 / 494 | 2,623 / 51 | 2,623 / 51 |
+| `algebraic` | 43,402 / 1,842 | 42,346 / 1,839 | 4,884 / 104 | 4,884 / 104 |
+| `approximate` | 115,851 / 1,139 | 115,467 / 1,137 | 7,558 / 56 | 7,558 / 56 |
+
+Concurrent 50-sample ranges overlapped for wide add (151.05--176.53 us base
+and 142.86--176.32 us candidate) and exact rational (31.90--33.07 us base and
+31.86--33.80 us candidate), so no timing claim is made. The full logical-work
+output was byte-identical with SHA-256
+`a925d3238a37ac073ae380a8c0200c9c654944a71f9a3e573660740d55d6fbd7`.
+
+The ten-iteration/two-warmup Wasm/npm wide-add path retained a 1,728-byte
+payload and measured 0.741 ms/iteration base versus 0.863 ms candidate; this
+short boundary run is not used for a timing claim. Base artifact
+`5cea3933bbd249eca968400337cb48b9b2dcbd79785d12d6a6c896ce409a44bd`
+was 829,230 bytes; candidate
+`4b507aaf91b9237f46981672fe0b846aaf832e22f799630ee00f858caad58793`
+is 829,554 bytes and remains below budget.
+
+Reproduce with separate base/candidate worktrees and target directories:
+
+```sh
+for case in wide_add_256 exact_rational algebraic approximate; do
+  CALCULATOR_ALLOCATION_ITERATIONS=1 \
+    cargo run --profile bench -p calculator-core --features std \
+      --example allocation_baseline -- "$case"
+done
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- '(large_expression/wide_add_256|calculate/exact_rational)$' --sample-size 50
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir packages/calculator run build:wasm
+CALCULATOR_BENCH_CASE=wide_add_256 CALCULATOR_BENCH_ITERATIONS=10 \
+  CALCULATOR_BENCH_WARMUP=2 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
+
 ## Consumed parser token payloads
 
 At base `e316e36`, `parse_primary` cloned each current token before advancing.
