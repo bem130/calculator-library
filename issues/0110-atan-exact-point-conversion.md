@@ -36,3 +36,12 @@ The optimized Wasm artifact is 830,694 bytes at
 `07fe324b47a1e1c7dbdf8ce8307a7947df8931e99beb1acaccdb4c5d5a2afd7b`,
 within budget. The ten-iteration/two-warmup unit boundary retained its
 1,772-byte payload and measured 0.364 ms/iteration; this is not a timing claim.
+
+Repository gates passed with 383 core tests, 37 native Wasm tests, and 23
+wasm32 tests, plus formatting, clippy, no-default-feature, doctest, generated
+contract, protocol snapshot, no-float, dependency policy, package/example
+frozen install, TypeScript/package checks, example build, external oracle,
+package-size, browser E2E, and rustdoc gates. Both exact pnpm audit requests
+were unavailable because the registry endpoint returned HTTP 410; the paired
+`--ignore-registry-errors` checks completed, and manifests and lockfiles were
+unchanged.
