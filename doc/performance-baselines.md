@@ -699,7 +699,7 @@ from 8,538 / 381 to 8,402 / 364, mixed subtraction from 8,589 / 389 to 8,453 /
 unchanged peaks. Ten-sample wide-add Criterion ranges moved from
 173.66--186.47 us to 97.915--122.77 us and Criterion detected an improvement.
 Issue 84 records the canonicality proof, direct general-constructor oracles,
-and restored runtime.
+restored runtime, and the current 261-unit logical-work result.
 
 ## Rejected explicit exponential upper-tail buffer reuse
 

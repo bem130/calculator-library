@@ -60,5 +60,7 @@ direct unit oracle fixes fraction/fraction behavior itself.
 Ten-sample `wide_add_256` Criterion ranges moved from 173.66--186.47 us on the
 legacy path to 97.915--122.77 us after restoring the fast path, and Criterion
 detected an improvement. The legacy runtime variant was completely removed.
-Exact output, 932-unit wide-sum work behavior, resource limits, no-float policy,
-and protocol remain unchanged.
+Exact output and the current 261-unit wide-sum work behavior are unchanged; the
+932 units in the Problem section are the historical `03c76bf` baseline rather
+than the current-main value. Resource limits, no-float policy, and protocol also
+remain unchanged.
