@@ -673,6 +673,18 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Rejected explicit exponential upper-tail buffer reuse
+
+At base `7faf5bb`, the finite-sum recurrence already updates its owned growing
+numerators with assign operations. Rewriting the remaining upper-tail expression
+as explicit clones followed by `MulAssign` / `AddAssign` produced identical
+one-call DHAT results: general power 101,393 bytes / 692 blocks (6,223 / 43
+peak), non-degenerate unit exp 74,113 / 970 (6,220 / 59), `exp(-10000)`
+502,356 / 1,458 (16,047 / 32), `exp(1)` 8,157 / 293 (1,407 / 24), and tiny
+dyadic exp 9,835 / 357 (2,090 / 29). No runtime change is retained. Issue 13
+records why syntax-level clone/assign rewrites cannot expose additional capacity
+reuse with the current `BigInt` representation and the condition for retrying.
+
 ## Raw paired endpoints for exact outer acos
 
 At base `ad4de2e`, `acos(3/4)` used 408,819 bytes / 1,273 blocks (28,567 / 48
