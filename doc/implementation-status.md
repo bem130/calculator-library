@@ -161,6 +161,7 @@ exact non-special mid-transform acos pointもmid-asinと共有するraw atan fra
 非退化expの同分母fast pathでlowerへ最終分母をborrowさせる案は、general powerが同fast pathに入らず、対象unit expでもallocationが完全一致したため棄却した。DHATの主要costはcloneではなくendpoint固有の増大分子recurrenceであり、clone allocationを独立に示す入力なしでは再試行しない。
 exp finite-sum recurrence本体は既にowned `MulAssign` / `AddAssign`で更新される。lowerを保持するupper-tail式を明示clone後のassignへ変える案もgeneral power、非退化unit、通常・tiny・large-negative expでallocationが完全一致したため棄却した。capacity再利用primitiveまたは同時live stateを増やさない桁表現なしに表記だけを再試行しない。
 区間乗算はexact dyadic endpointの符号が両operandで確定する場合、単調性に従う2端点積だけを構築する。zero crossingだけは4候補extremaを維持し、表形式と旧定義oracleの総当たり回帰で同値性を固定する。general-power累積経路では旧4候補比で904 bytes / 48 blocksを削減する。
+log range reductionはcanonical numerator/denominator parityに従って2倍・半減を直接shiftし、既約性を維持したまま汎用GCD正規化を省く。128-step large-positive logで汎用Rational scaling比14,368 bytes / 768 blocksを削減する。
 正の非退化high-transform asinは、`x²>=1/2`のendpointについて反対方向のunit atan raw共通分母を`pi/2-atan(sqrt(1-x²)/x)`としてshared πと正確に合成し、一度だけdirected dyadicへ丸める。粗いsqrtでratioがunit範囲を超える場合と、negative、mid-transform、unit、special/exact pointは既存経路を維持する。
 負の非退化high-transform asinは奇関数性により正のmagnitudeを反対方向で同じraw合成へ送り、最終directed dyadicだけを符号反転する。`-1`、粗いsqrt ratio fallback、mid-transform、unit、special/exact pointは既存canonical経路を維持する。
 正負の非退化mid-transform asinは`atan(x/sqrt(1-x²))`のunit atan recurrenceをraw numerator/denominatorのまま最終directed dyadicへ丸める。負値は正magnitudeの反対方向を符号反転し、粗いsqrt ratio fallback、unit/high/special/exact pointは既存経路を維持する。

@@ -673,6 +673,20 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Canonical logarithm range scaling
+
+At base `a12ffbc`, temporarily restoring generic Rational multiplication and
+division inside each binary range-reduction step used 110,268 bytes / 1,702
+blocks (12,106 / 25 peak) for the 128-step large-positive log. Canonical parity
+scaling uses 95,900 / 934 (12,114 / 25): 14,368 bytes and 768 blocks fewer,
+with an 8-byte peak increase and unchanged peak blocks. Non-degenerate log moved
+from 158,665 / 954 to 158,393 / 942, `ln(2)` from 10,062 / 408 to 9,990 / 402,
+and general power from 101,465 / 698 to 101,393 / 692, without peak-block
+regressions. Ten-sample large-log Criterion ranges moved from 108.63--112.34 us
+to 88.413--101.54 us and Criterion detected an improvement. Issue 67 records
+the parity/oracle contract and the rejected generic prototype; no runtime
+prototype remains.
+
 ## Rejected explicit exponential upper-tail buffer reuse
 
 At base `7faf5bb`, the finite-sum recurrence already updates its owned growing
