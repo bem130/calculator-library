@@ -475,6 +475,18 @@ async function assertLargeNegativeExponential(page) {
 }
 
 async function assertNondegenerateOuterAcos(page) {
+    await setExpression(page, "asin(3/4)");
+    await page.click("#calculate");
+    await waitForText(page, "#exact-output", "= asin(3/4)");
+    const exactAsinInterval = parseDecimalScientificInterval(
+        await textContent(page, "#enclosure-output"),
+    );
+    assert(
+        rationalCompareWithRational(exactAsinInterval.lower, 0n, 1n) > 0 &&
+            rationalCompareWithRational(exactAsinInterval.upper, 2n, 1n) < 0,
+        "exact transformed asin enclosure must remain between zero and two radians",
+    );
+
     await setExpression(page, "asin((1+sin(1))/3)");
     await page.click("#calculate");
     await waitForText(page, "#exact-output", "= asin(1/3*sin(1)+1/3)");

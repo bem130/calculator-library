@@ -158,6 +158,7 @@ nonunit atanのhybrid binary-split leafは、各項のnumerator/denominator squa
 正の非退化high-transform asinは、`x²>=1/2`のendpointについて反対方向のunit atan raw共通分母を`pi/2-atan(sqrt(1-x²)/x)`としてshared πと正確に合成し、一度だけdirected dyadicへ丸める。粗いsqrtでratioがunit範囲を超える場合と、negative、mid-transform、unit、special/exact pointは既存経路を維持する。
 負の非退化high-transform asinは奇関数性により正のmagnitudeを反対方向で同じraw合成へ送り、最終directed dyadicだけを符号反転する。`-1`、粗いsqrt ratio fallback、mid-transform、unit、special/exact pointは既存canonical経路を維持する。
 正負の非退化mid-transform asinは`atan(x/sqrt(1-x²))`のunit atan recurrenceをraw numerator/denominatorのまま最終directed dyadicへ丸める。負値は正magnitudeの反対方向を符号反転し、粗いsqrt ratio fallback、unit/high/special/exact pointは既存経路を維持する。
+exact transformed asin pointもlower/upperを同じdirected raw endpointへ送り、high領域ではpaired π enclosureを一度だけ共有する。unit、`±1`、coarse fallback、方向付きordering、logical-work契約を維持する。
 
 ## Deliberately Not Contract
 

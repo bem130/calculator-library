@@ -3676,6 +3676,18 @@ The v26 npm case moved from 56.556 to 5.473 ms/iteration with an unchanged
 1,794-byte payload. Issue 126 records CLI, browser E2E, fallback, and gate
 evidence.
 
+## Raw paired endpoints for exact transformed asin
+
+At base `09c9fe7`, `asin(3/4)` used 348,323 bytes / 1,230 blocks (27,023 / 59
+peak). Raw directed endpoints use 272,523 / 1,181 (16,935 / 47 peak).
+Criterion ranges moved from 3.074--3.145 ms to 0.489--0.561 ms. The 31-unit
+target leaves the full logical-work SHA byte-identical at
+`2eeaaa8c6c9ff77ea963864915de12c839189dc037195a10ec49617f313ea97e`.
+Wasm moved from 839,928 to 839,620 bytes; candidate SHA-256 is
+`d77d0ae88e00a6ddb0440bdbfa9ab33d1be87319413d127d185132349e25b990`.
+The v26 npm case moved from 18.796 to 2.755 ms/iteration with an unchanged
+1,772-byte payload. Issue 127 records CLI, browser, fallback, and gate evidence.
+
 ## Rejected balanced dyadic exponential finite sum
 
 At base `f13b268`, `approximate_general_power` used 101,393 bytes / 692 blocks
