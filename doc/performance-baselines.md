@@ -673,6 +673,18 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Raw paired endpoints for exact outer acos
+
+At base `ad4de2e`, `acos(3/4)` used 408,819 bytes / 1,273 blocks (28,567 / 48
+peak). Raw endpoints use 242,659 / 904 (13,287 / 50 peak); the two additional
+peak blocks accompany substantially lower total blocks and peak bytes.
+Criterion moved from 4.056--4.136 ms to 0.171--0.186 ms. Full logical-work SHA
+remains `2eeaaa8c6c9ff77ea963864915de12c839189dc037195a10ec49617f313ea97e`.
+Wasm is 840,383 bytes with SHA-256
+`a3e1a8374df58b3229d2a37814cd868f0d3583df13a1b2411539b0d1a26d754f`;
+the v26 npm case moved from 27.559 to 1.033 ms/iteration with an unchanged
+1,772-byte payload. Issue 128 records fallback, CLI, browser, and gate evidence.
+
 ## Single conversion for exact exponential points
 
 At base `321a665`, `exp` converted equal certified dyadic endpoints to the same
