@@ -149,6 +149,11 @@ const APPROXIMATE_COMPONENTS: &[(&str, &str, ExpectedExact)] = &[
         ExpectedExact::GeneralSymbolic,
     ),
     (
+        "asin_non_degenerate_mid_transform",
+        "asin((1+sin(1))/3)",
+        ExpectedExact::GeneralSymbolic,
+    ),
+    (
         "asin_non_degenerate_transform",
         "asin((2+sin(1))/3)",
         ExpectedExact::GeneralSymbolic,

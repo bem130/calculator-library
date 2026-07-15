@@ -35,6 +35,7 @@ fn main() {
         ("atan_non_degenerate", "atan(2+sin(1))"),
         ("asin_third", "asin(1/3)"),
         ("asin_non_degenerate_unit", "asin(sin(1)/3)"),
+        ("asin_non_degenerate_mid_transform", "asin((1+sin(1))/3)"),
         ("asin_non_degenerate_transform", "asin((2+sin(1))/3)"),
         (
             "asin_non_degenerate_negative_transform",

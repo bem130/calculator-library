@@ -84,6 +84,7 @@ fn main() {
         "approximate_atan_nonunit_reciprocal" => Some(String::from("atan(10/3)")),
         "approximate_asin_third" => Some(String::from("asin(1/3)")),
         "approximate_asin_non_degenerate_unit" => Some(String::from("asin(sin(1)/3)")),
+        "approximate_asin_non_degenerate_mid_transform" => Some(String::from("asin((1+sin(1))/3)")),
         "approximate_asin_non_degenerate_transform" => Some(String::from("asin((2+sin(1))/3)")),
         "approximate_asin_non_degenerate_negative_transform" => {
             Some(String::from("asin((-2-sin(1))/3)"))
