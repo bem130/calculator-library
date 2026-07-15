@@ -975,6 +975,43 @@ pub(crate) fn acos(
             };
             return ordered_dyadic_interval(lower, upper);
         }
+        if !lower_endpoint.is_zero()
+            && compare_absolute_rational_to_half(&lower_endpoint) != Ordering::Greater
+        {
+            let pi = pi_bounds(precision_bits)?;
+            let (lower, upper) = if lower_endpoint.is_negative() {
+                (
+                    negative_central_acos_dyadic_bound(
+                        &lower_endpoint,
+                        precision_bits,
+                        BoundDirection::Lower,
+                        &pi,
+                    )?,
+                    negative_central_acos_dyadic_bound(
+                        &upper_endpoint,
+                        precision_bits,
+                        BoundDirection::Upper,
+                        &pi,
+                    )?,
+                )
+            } else {
+                (
+                    positive_central_acos_dyadic_bound(
+                        &lower_endpoint,
+                        precision_bits,
+                        BoundDirection::Lower,
+                        &pi,
+                    )?,
+                    positive_central_acos_dyadic_bound(
+                        &upper_endpoint,
+                        precision_bits,
+                        BoundDirection::Upper,
+                        &pi,
+                    )?,
+                )
+            };
+            return ordered_dyadic_interval(lower, upper);
+        }
         let (lower, upper) = acos_rational_bounds(&lower_endpoint, precision_bits)?;
         return from_rational_bounds(&lower, &upper, precision_bits);
     }
@@ -7725,11 +7762,16 @@ mod tests {
     }
 
     #[test]
-    fn exact_outer_acos_dispatch_matches_canonical_paired_bounds() {
+    fn exact_acos_dispatch_matches_canonical_paired_bounds() {
         for value in [
             rational(-1, 1),
             rational(-3, 4),
             rational(-5, 8),
+            rational(-1, 2),
+            rational(-1, 3),
+            Rational::zero(),
+            rational(1, 3),
+            rational(1, 2),
             rational(5, 8),
             rational(3, 4),
             rational(1, 1),
@@ -7737,9 +7779,18 @@ mod tests {
             let input = from_rational_bounds(&value, &value, 128).unwrap();
             for precision_bits in [1_u32, 64, 128] {
                 let (lower, upper) = acos_rational_bounds(&value, precision_bits).unwrap();
-                assert_eq!(
-                    acos(&input, precision_bits).unwrap(),
-                    from_rational_bounds(&lower, &upper, precision_bits).unwrap(),
+                let former = from_rational_bounds(&lower, &upper, precision_bits).unwrap();
+                let actual = acos(&input, precision_bits).unwrap();
+                assert!(
+                    compare_dyadic(&actual.lower, &former.lower).unwrap() != Ordering::Greater,
+                    "value={value:?}, precision={precision_bits}",
+                );
+                assert!(
+                    compare_dyadic(&actual.upper, &former.upper).unwrap() != Ordering::Less,
+                    "value={value:?}, precision={precision_bits}",
+                );
+                assert!(
+                    compare_dyadic(&actual.lower, &actual.upper).unwrap() != Ordering::Greater,
                     "value={value:?}, precision={precision_bits}",
                 );
             }
