@@ -20,3 +20,21 @@ need only one value.
 - Preserve precision, determinism, resource accounting, no-float policy, and
   public protocol; complete reviews and repository gates before one ff-only
   main integration.
+
+## Resolution
+
+Rejected after measurement. A prototype converted canonical interval points
+once and evaluated them once while retaining the pole scan, Rational-equality
+fallback, and non-degenerate route. Focused interval regressions passed, but it
+did not change any measured public path: both `tan(1)` and `tan(2)` retained
+11,271 bytes / 389 blocks and 14,539 / 528 respectively, and the non-degenerate
+control retained 597,885 / 5,016. Peaks were also identical at 1,591 / 33,
+2,511 / 72, and 18,922 / 68. Logical-work output retained SHA-256
+`a925d3238a37ac073ae380a8c0200c9c654944a71f9a3e573660740d55d6fbd7`.
+
+The reason is routing, not an optimizer failure: exact rational arguments use
+`tan_rational` directly from expression evaluation, while `interval::tan` is
+the fallback for non-rational certified intervals. Those fallback intervals
+are non-degenerate in the representative public cases, so canonical point
+classification adds code without removing public work. The prototype was
+therefore removed; no runtime or protocol change is retained.
