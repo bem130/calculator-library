@@ -151,6 +151,7 @@ canonical negative exact pointも、正のmagnitudeが同じsmall-argument境界
 logの入力intervalがcanonical exact dyadic pointなら、非正値domain判定前に上下endpointを別々にRational化せず一度だけ変換してpaired raw logへ渡す。非canonical equality fallback、非退化endpoint、error precedence、logical-work、公開protocolを維持する。
 atanの入力intervalがcanonical exact dyadic pointなら、上下endpointを別々にRational化せず一度だけ変換してunitまたはreciprocalのpaired evaluatorへ渡す。非canonical equality fallback、非退化endpoint、shared π、logical-work、公開protocolを維持する。
 nonunit atanのhybrid binary-split leafは、各項のnumerator/denominator square factorとbounded odd factorを累積積・scaled sumへ直接掛ける。更新済みnumerator productを`Pp` correctionとして再利用し、combined `p`/`q`と追加積を構築しない。`T'=Tq+Pp`、`P'=Pp`、`Q'=Qq`、alternating parity、leaf threshold、tail、directed bound、logical-work、公開protocolを維持する。
+正の非退化outer acosは、反単調に選択した両endpointのatan交代級数をraw numerator/denominatorのままdirected dyadicへ丸める。negative outerの`pi-atan`、central/mixedの`pi/2-asin`、special/exact pointはcanonical Rational経路を維持する。endpoint計算後のexact入力順序検査により、粗い丸めがreversed inputを隠さない。logical-work、no-float、公開protocolを変更しない。
 
 ## Deliberately Not Contract
 

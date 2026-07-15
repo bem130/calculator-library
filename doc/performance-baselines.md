@@ -3572,6 +3572,17 @@ complete after more than 120 seconds and was terminated. The local exact
 correction multiplication overwhelmed any saved global shift. Runtime and test
 sources were restored exactly; Issue 119 records the formula and rejection.
 
+## Raw atan endpoints for positive outer acos
+
+At base `65a3717`, positive non-degenerate outer acos canonicalized each
+binary-split atan endpoint as a Rational before immediately rounding it to a
+dyadic. Retaining the raw fraction to the existing directed boundary reduced
+`acos((2+sin(1))/3)` from 813,282 bytes / 1,998 blocks to 557,146 / 1,541 and
+peak from 58,069 / 81 to 26,869 / 78. Negative outer/central, exact acos,
+transformed asin, and public atan controls were unchanged. Interleaved native
+ranges improved from roughly 12--14 ms to 0.93--1.14 ms. Logical work was
+byte-identical; Issue 120 records full allocation controls and artifact data.
+
 ## Rejected balanced dyadic exponential finite sum
 
 At base `f13b268`, `approximate_general_power` used 101,393 bytes / 692 blocks
