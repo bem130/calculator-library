@@ -39,6 +39,8 @@ powerが102,297 bytes / 740 blocks (6,199 / 43 peak)から101,393 / 692
 (6,223 / 43)へ、`sqrt(2)*ln(2)`が38,491 / 1,709 (3,967 / 74)から
 37,587 / 1,661 (3,967 / 74)へ、その積を最終expまで評価する経路が126,460 /
 1,876 (6,292 / 36)から125,556 / 1,828 (6,316 / 36)へ移る。各経路で
-904 bytes / 48 blocksを削減し、peak block数は不変である。general-powerの10-sample
-Criterionはlegacy 75.940--88.418 us、restored fast path 89.969--104.57 usと
-overlap/noiseが大きいためtiming改善は主張しない。legacy runtime差分は完全に撤去した。
+904 bytes / 48 blocksを削減し、peak block数は不変である。一方、peak bytesは
+general powerと最終exp経路でそれぞれ24 bytes増える。general-powerの10-sample
+Criterionはlegacy 75.940--88.418 us、restored fast path 89.969--104.57 usで、
+このunpaired sampleではrestored側が遅かった。因果性・再現性を示すpaired測定では
+ないためtiming改善は主張しない。legacy runtime差分は完全に撤去した。
