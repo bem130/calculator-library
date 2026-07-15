@@ -3478,9 +3478,9 @@ controls are unchanged. Same-host 20-sample Criterion ranges overlap: base
 11.997--13.347 ms and candidate 11.657--12.354 ms, so no timing claim is made.
 Logical-work SHA-256 remains
 `7342dcca027f7a801364ddc8624fba95d88617161fbfc32dec27e63ea11c4773`.
-The optimized Wasm artifact moved from 831,928 to 833,392 bytes and remains
+The optimized Wasm artifact moved from 831,928 to 833,423 bytes and remains
 within budget; its candidate SHA-256 is
-`41dc6351ef70d4773e0529bbb9b4e5fe748cb948d43f8c3f7d32d62e41f34ff2`.
+`469f6df75aa63ffac27e3b7099456a6238ca89c0d1950637b292564eba44781b`.
 A ten-iteration/two-warmup npm public-path run measured 111.44 ms/iteration
 with a 1,794-byte payload. This short run validates the Wasm/npm boundary and
 is not a timing claim. CLI and browser checks preserve the exact symbolic

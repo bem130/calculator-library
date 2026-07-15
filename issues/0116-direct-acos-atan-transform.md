@@ -47,8 +47,8 @@ the ranges overlap, so no timing claim is made. Expanded logical-work output is
 byte-identical with SHA-256
 `7342dcca027f7a801364ddc8624fba95d88617161fbfc32dec27e63ea11c4773`.
 
-The optimized Wasm artifact is 833,392 bytes with SHA-256
-`41dc6351ef70d4773e0529bbb9b4e5fe748cb948d43f8c3f7d32d62e41f34ff2`
+The optimized Wasm artifact is 833,423 bytes with SHA-256
+`469f6df75aa63ffac27e3b7099456a6238ca89c0d1950637b292564eba44781b`
 (base: 831,928 bytes). A ten-iteration/two-warmup npm public-path run measured
 111.44 ms/iteration with a 1,794-byte payload; the short run is a boundary
 validation, not a timing claim. The CLI preserved
