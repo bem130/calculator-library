@@ -6372,6 +6372,44 @@ mod tests {
     }
 
     #[test]
+    fn mixed_outer_acos_endpoints_retain_canonical_fallback() {
+        for (lower_value, upper_value) in [
+            (rational(2, 3), rational(3, 4)),
+            (rational(-3, 4), rational(-2, 3)),
+        ] {
+            let input = from_rational_bounds(&lower_value, &upper_value, 128).unwrap();
+            let lower_endpoint = dyadic_to_rational(&input.lower).unwrap();
+            let upper_endpoint = dyadic_to_rational(&input.upper).unwrap();
+            for precision_bits in [1_u32, 64, 128] {
+                let lower_direct = acos_endpoint_uses_direct_outer_transform(&upper_endpoint);
+                let upper_direct = acos_endpoint_uses_direct_outer_transform(&lower_endpoint);
+                assert_ne!(lower_direct, upper_direct);
+                let pi = pi_bounds(precision_bits).unwrap();
+                let lower = acos_rational_bound_with_pi(
+                    &upper_endpoint,
+                    precision_bits,
+                    BoundDirection::Lower,
+                    Some(&pi),
+                    lower_direct,
+                )
+                .unwrap();
+                let upper = acos_rational_bound_with_pi(
+                    &lower_endpoint,
+                    precision_bits,
+                    BoundDirection::Upper,
+                    Some(&pi),
+                    upper_direct,
+                )
+                .unwrap();
+                assert_eq!(
+                    acos(&input, precision_bits).unwrap(),
+                    from_rational_bounds(&lower, &upper, precision_bits).unwrap(),
+                );
+            }
+        }
+    }
+
+    #[test]
     fn nondegenerate_positive_outer_acos_uses_direct_antitone_endpoints() {
         for precision_bits in [64_u32, 128] {
             let input =
