@@ -41,3 +41,13 @@ The optimized Wasm artifact moved from 830,189 bytes to 830,350 bytes
 below budget. Ten-iteration/two-warmup boundary runs retained 1,824- and
 1,794-byte payloads for tiny dyadic and negative-10000 exp and measured 0.323
 and 3.682 ms/iteration; these short runs establish integration, not timing.
+
+Repository validation passed formatting, workspace/all-feature and wasm-target
+Clippy, no-default check/test, 381 core tests, 37 native Wasm tests, 23 Node
+Wasm tests, doctests, generated/protocol/no-float checks, `cargo deny`, DTO
+regeneration, package check, example build, arithmetic oracle, package-size
+budget, browser E2E, and rustdoc. The added focused regression covers ordinary,
+direct-dyadic, positive/negative binary-scaled points and a non-degenerate
+interval against independent endpoint routes. Both pnpm audits remain blocked
+by the registry's retired endpoint returning HTTP 410; manifests and lockfiles
+are unchanged.
