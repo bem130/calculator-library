@@ -2219,12 +2219,13 @@ fn log_binary_split_leaf_block(
             .checked_mul(2)
             .and_then(|value| value.checked_add(1))
             .ok_or(IntervalError::ExponentTooLarge)?;
-        let step_numerator = numerator_squared * odd_before;
-        let step_denominator = denominator_squared * odd_after;
-        sum_numerator *= &step_denominator;
-        sum_numerator += &product_numerator * &step_numerator;
-        product_numerator *= step_numerator;
-        product_denominator *= step_denominator;
+        product_numerator *= numerator_squared;
+        product_numerator *= odd_before;
+        sum_numerator *= denominator_squared;
+        sum_numerator *= odd_after;
+        sum_numerator += &product_numerator;
+        product_denominator *= denominator_squared;
+        product_denominator *= odd_after;
     }
     Ok(LogBinarySplit {
         product_numerator: Some(product_numerator),
