@@ -3068,6 +3068,38 @@ lower). Endpoint-pair regressions cover negative, zero, positive, mixed, and
 different binary exponents against the former independent directed evaluator.
 The remaining dominant work is endpoint-specific reduced-series arithmetic.
 
+## In-place logarithm leaf factors (Issue 103)
+
+This same-host comparison used base `baf394f` and candidate `7ed36a6`, with
+Rust 1.97.0, Node 22.23.1, wasm-pack 0.15.0, wasm-opt 130, and pnpm 10.14.0.
+Hybrid binary-split leaves now apply the numerator/denominator square and bounded
+odd factors directly to retained products and the scaled sum. The exact
+`T' = Tq + Pp`, `P' = Pp`, `Q' = Qq` recurrence is unchanged.
+
+One public `ln(2+sin(1))` calculation moved from 194,825 bytes / 1,236 blocks
+to 158,569 / 946, with peak allocation unchanged at 12,798 / 44. Logical work
+remained 200,220 units and the complete logical-work SHA-256 remained
+`a925d3238a37ac073ae380a8c0200c9c654944a71f9a3e573660740d55d6fbd7`.
+Concurrent 20-sample Criterion ranges moved from 183.56--192.05 us to
+165.37--180.79 us, with a detected improvement.
+
+Allocation controls were byte/block/peak-identical: `ln(2)` 10,022 / 406 /
+1,574, large positive log 95,980 / 938 / 12,146, general power 101,425 / 696 /
+6,223, and `exp(-10000)` 502,372 / 1,460 / 16,047. A rejected variant retaining
+the combined denominator factor measured 161,449 / 1,018, confirming that direct
+denominator updates remove a further 2,880 bytes and 72 blocks.
+
+The ten-iteration/two-warmup Wasm/npm path retained its 1,772-byte payload and
+measured 1.565 ms/iteration base versus 1.716 ms candidate; this short run is
+boundary evidence only. The artifact moved from 829,645 bytes
+(`10bea59a6984261b3fe247e3cb3a493d3c4ddb0ca39d6ff437c7a90fd2816b9f`)
+to 829,606 bytes
+(`0efe50189549911e2be400ee92f860d1e5632254646a3b1a3231775a5a8ec4d3`).
+
+Reproduce with allocation case `approximate_log_non_degenerate`, Criterion
+component `log_non_degenerate`, the logical-work runner, and npm benchmark case
+`log_non_degenerate`; use the listed controls to verify dispatch isolation.
+
 ## Unit-numerator reduced logarithm recurrence
 
 For the positive-series variable `z=a/b`, a unit numerator makes every unweighted
