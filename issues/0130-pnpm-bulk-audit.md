@@ -9,8 +9,9 @@ the source change under test.
 
 ## Requirements
 
-- Update the pinned package manager to a compatible pnpm 10 release that uses
-  npm's supported bulk-advisory endpoint.
+- Update the pinned package manager to a compatible pnpm release that uses
+  npm's supported bulk-advisory endpoint. Pnpm 10 remains unsuitable while its
+  latest release still falls back to the retired quick/full audit endpoints.
 - Preserve frozen-lockfile installs, package/example builds, browser E2E and
   the existing audit severity policy.
 - Regenerate only package-manager-owned lockfile metadata when required.
