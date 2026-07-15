@@ -673,6 +673,32 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Owned shared logarithm-two endpoint bounds
+
+At base `c5722de`, a non-degenerate log with two nonzero binary exponents
+selected shared raw `ln(2)` bounds through borrowed references and cloned both
+BigInts for each endpoint. The candidate consumes the pair: distinct selected
+sides move directly, while equal selected sides require one clone. Zero binary
+exponents request no corresponding bound.
+
+On 2026-07-15 with Rust 1.97.0, Node 22.23.1, wasm-pack 0.15, wasm-opt 130,
+and pnpm 10.14, deterministic one-call `ln(2+sin(1))` allocation moved from
+158,569 bytes / 946 blocks (12,798 bytes / 44 blocks peak) to 158,393 / 942
+(12,590 / 40 peak). The `ln(2)`, large-positive-log, general-power, and
+`exp(-10000)` controls were byte/block/peak-identical. Logical work remained
+200,220 and the full output SHA-256 remained
+`a925d3238a37ac073ae380a8c0200c9c654944a71f9a3e573660740d55d6fbd7`.
+Overlapping twenty-sample Criterion ranges (165.37--180.79 us base,
+171.92--178.32 us candidate) support no timing claim.
+
+The optimized Wasm artifact moved from 829,606 bytes
+(`0efe50189549911e2be400ee92f860d1e5632254646a3b1a3231775a5a8ec4d3`) to
+830,189 bytes
+(`b1dde55f5ad549a2fb0f90879f037cf42f9bc41fa6628bc91a72cce484c3cb1e`),
+within the package budget. Ten iterations after two warmups retained the
+1,772-byte npm payload and measured 1.716 ms/iteration base versus 1.075 ms
+candidate; these short boundary runs are not a timing claim.
+
 ## Bulk dyadic normalization baseline (Issue 97)
 
 The previous `normalize_dyadic` loop shifted one bit and added one to a

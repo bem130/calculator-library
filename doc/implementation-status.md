@@ -142,6 +142,7 @@ exact dyadicの正規化は非zero係数のtrailing-zero数を一度だけ構造
 source lexerはnumber payloadを構築しない共通lexeme scannerで入力全体を事前検証して非whitespace token数を正確に数え、そのcapacityを一度だけ確保してから同じscannerでtokenをmaterializeする。長い単一literalをsource byte数で過剰reserveせず、number/exponent、identifier、Unicode、span、error precedence、implicit multiplication、logical-work、公開protocolを維持する。
 source parserは全入力のallocation-free lexical preflight後、source cursorとowned lookahead token 1個だけを保持して同じscannerを逐次実行する。全token vectorを保持せず、number payloadはsource ASTへ直接moveする。lexical error precedence、UTF-8 byte span、trailing whitespace前のunexpected-end offset、precedence、implicit multiplication、logical-work、公開protocolを維持する。
 nonunit logのhybrid binary-split leafは、各項のnumerator/denominator square factorとbounded odd factorを累積積・scaled sumへ直接掛ける。直後に消費していたcombined step factorと追加`P*p`を構築せず、`T'=Tq+Pp`、`P'=Pp`、`Q'=Qq`、tail、directed bound、logical-work、公開protocolを維持する。
+非退化log endpointが共有するraw `ln(2)` pairは、正負binary exponentが異なる方向を選ぶ場合に各側をendpointへmoveし、同じ方向を選ぶ場合だけ一方を一度cloneする。zero exponentはそのendpoint用boundを構築せず、range reduction、方向付き保証、logical-work、公開protocolを維持する。
 
 ## Deliberately Not Contract
 
