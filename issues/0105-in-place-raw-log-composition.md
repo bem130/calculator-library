@@ -24,3 +24,20 @@ log endpoint, including non-degenerate intervals.
 - Cover the in-place operation against an independent expression-form oracle,
   then complete focused/repository gates, diff and whole-system reviews, and
   merge-granularity review before one integration into `main`.
+
+## Profiling result
+
+Two ownership variants were measured and rejected before integration. Moving
+the owned reduced numerator/denominator through in-place multiplication left
+`ln(2+sin(1))` unchanged at 158,393 bytes / 942 blocks; consuming the raw
+numerator during final dyadic scaling also left total allocation unchanged and
+reduced peak bytes only by trading 40 peak blocks for 51. A zero-reduced-term
+composition fast path likewise left `ln(2)`, the large-positive-log control,
+and the non-degenerate target byte/block/peak totals exactly unchanged at
+10,022 / 406 / 1,574, 95,980 / 938 / 12,146, and 158,393 / 942 / 12,590.
+
+`num-bigint` must grow these buffers for the following product or precision
+shift, so syntactic ownership does not remove an allocator operation at this
+boundary. No implementation change is retained. Further work should profile
+inside the endpoint-specific binary-split recurrence rather than add a
+branch or ownership rewrite at raw composition/rounding.
