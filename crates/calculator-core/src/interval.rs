@@ -225,28 +225,29 @@ pub(crate) fn exp(
     value: &CertifiedInterval,
     precision_bits: u32,
 ) -> Result<CertifiedInterval, IntervalError> {
+    if value.lower == value.upper {
+        let point = dyadic_to_rational(&value.lower)?;
+        if exp_uses_binary_scaling(&point) {
+            let plan = exp_binary_scaling_plan(&point, precision_bits)?;
+            return Ok(CertifiedInterval {
+                lower: exp_binary_scaled_bound_with_plan(&point, BoundDirection::Lower, &plan)?,
+                upper: exp_binary_scaled_bound_with_plan(&point, BoundDirection::Upper, &plan)?,
+            });
+        }
+        if exp_can_round_series_directly(&point) {
+            let series_plan = exp_series_plan(precision_bits)?;
+            return exp_series_dyadic_bounds_with_plan(&point, &series_plan, precision_bits);
+        }
+        let (lower, upper) = exp_rational_bounds(&point, precision_bits)?;
+        return from_rational_bounds(&lower, &upper, precision_bits);
+    }
     let lower = dyadic_to_rational(&value.lower)?;
     let upper = dyadic_to_rational(&value.upper)?;
     if exp_uses_binary_scaling(&lower) || exp_uses_binary_scaling(&upper) {
-        if lower == upper {
-            let plan = exp_binary_scaling_plan(&lower, precision_bits)?;
-            return Ok(CertifiedInterval {
-                lower: exp_binary_scaled_bound_with_plan(&lower, BoundDirection::Lower, &plan)?,
-                upper: exp_binary_scaled_bound_with_plan(&upper, BoundDirection::Upper, &plan)?,
-            });
-        }
         return Ok(CertifiedInterval {
             lower: exp_binary_scaled_bound(&lower, precision_bits, BoundDirection::Lower)?,
             upper: exp_binary_scaled_bound(&upper, precision_bits, BoundDirection::Upper)?,
         });
-    }
-    if lower == upper && exp_can_round_series_directly(&lower) {
-        let series_plan = exp_series_plan(precision_bits)?;
-        return exp_series_dyadic_bounds_with_plan(&lower, &series_plan, precision_bits);
-    }
-    if lower == upper {
-        let (lower, upper) = exp_rational_bounds(&lower, precision_bits)?;
-        return from_rational_bounds(&lower, &upper, precision_bits);
     }
     let series_plan = exp_series_plan(precision_bits)?;
     let term_count = series_plan.term_count;
