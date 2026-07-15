@@ -91,6 +91,9 @@ fn main() {
         "approximate_acos_non_degenerate_negative_central" => {
             Some(String::from("acos((-1+sin(1))/3)"))
         }
+        "approximate_acos_non_degenerate_negative_outer" => {
+            Some(String::from("acos((-6+sin(1))/7)"))
+        }
         "approximate_sqrt_two" => Some(String::from("sqrt(2)")),
         "approximate_power_log_product" => Some(String::from("sqrt(2)*ln(2)")),
         "approximate_exp_power_log_product" => Some(String::from("exp(sqrt(2)*ln(2))")),

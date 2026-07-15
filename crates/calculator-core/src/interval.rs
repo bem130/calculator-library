@@ -811,10 +811,10 @@ pub(crate) fn acos(
         let (lower, upper) = acos_rational_bounds(&lower_endpoint, precision_bits)?;
         return from_rational_bounds(&lower, &upper, precision_bits);
     }
-    let upper_direct = acos_endpoint_uses_direct_outer_transform(&upper_endpoint);
-    let lower_direct = acos_endpoint_uses_direct_outer_transform(&lower_endpoint);
-    let shared_pi = if acos_endpoint_requires_pi(&upper_endpoint, upper_direct)
-        || acos_endpoint_requires_pi(&lower_endpoint, lower_direct)
+    let upper_plan = acos_endpoint_transform_plan(&upper_endpoint);
+    let lower_plan = acos_endpoint_transform_plan(&lower_endpoint);
+    let shared_pi = if acos_endpoint_requires_pi(&upper_endpoint, upper_plan.is_direct())
+        || acos_endpoint_requires_pi(&lower_endpoint, lower_plan.is_direct())
     {
         Some(pi_bounds(precision_bits)?)
     } else {
@@ -825,14 +825,14 @@ pub(crate) fn acos(
         precision_bits,
         BoundDirection::Lower,
         shared_pi.as_ref(),
-        upper_direct,
+        upper_plan,
     )?;
     let upper = acos_rational_bound_with_pi(
         &lower_endpoint,
         precision_bits,
         BoundDirection::Upper,
         shared_pi.as_ref(),
-        lower_direct,
+        lower_plan,
     )?;
     from_rational_bounds(&lower, &upper, precision_bits)
 }
@@ -3295,16 +3295,26 @@ fn rational_square_is_below_half(value: &Rational) -> bool {
 fn one_minus_rational_square(value: &Rational) -> Result<Rational, IntervalError> {
     let numerator_squared = &value.numerator.inner * &value.numerator.inner;
     let denominator_squared = &value.denominator.inner.inner * &value.denominator.inner.inner;
+    Ok(one_minus_rational_square_from_squares(
+        numerator_squared,
+        denominator_squared,
+    ))
+}
+
+fn one_minus_rational_square_from_squares(
+    numerator_squared: BigInt,
+    denominator_squared: BigInt,
+) -> Rational {
     let numerator = &denominator_squared - numerator_squared;
     if numerator.is_zero() {
-        return Ok(Rational::zero());
+        return Rational::zero();
     }
-    Ok(Rational {
+    Rational {
         numerator: Integer::from_bigint(numerator),
         denominator: PositiveInteger {
             inner: Integer::from_bigint(denominator_squared),
         },
-    })
+    }
 }
 
 fn asin_unit_rational_bounds(
@@ -3581,7 +3591,7 @@ fn acos_rational_bound_with_pi(
     precision_bits: u32,
     direction: BoundDirection,
     shared_pi: Option<&(Rational, Rational)>,
-    direct_outer_transform: bool,
+    transform_plan: AcosEndpointTransformPlan,
 ) -> Result<Rational, IntervalError> {
     if is_negative_one_rational(value) {
         let pi = shared_pi.ok_or(IntervalError::UnsupportedExpression)?;
@@ -3600,7 +3610,11 @@ fn acos_rational_bound_with_pi(
             BoundDirection::Upper => halve_rational(&pi.1),
         };
     }
-    if direct_outer_transform {
+    if let AcosEndpointTransformPlan::Direct {
+        numerator_squared,
+        denominator_squared,
+    } = transform_plan
+    {
         let magnitude_storage;
         let magnitude = if value.is_negative() {
             magnitude_storage = value.negate();
@@ -3608,7 +3622,14 @@ fn acos_rational_bound_with_pi(
         } else {
             value
         };
-        return direct_outer_acos_bound(value, magnitude, precision_bits, direction, shared_pi);
+        return direct_outer_acos_bound(
+            value,
+            magnitude,
+            precision_bits,
+            direction,
+            shared_pi,
+            Some((numerator_squared, denominator_squared)),
+        );
     }
     let pi = shared_pi.ok_or(IntervalError::UnsupportedExpression)?;
     let asin_direction = match direction {
@@ -3623,14 +3644,24 @@ fn acos_rational_bound_with_pi(
     Ok(halve_rational(pi_bound)?.subtract(&asin_bound))
 }
 
-fn acos_endpoint_uses_direct_outer_transform(value: &Rational) -> bool {
-    !value.is_zero()
-        && !is_positive_one_rational(value)
-        && !is_negative_one_rational(value)
-        && !rational_absolute_square_is_below_half(value)
+enum AcosEndpointTransformPlan {
+    Legacy,
+    Direct {
+        numerator_squared: BigInt,
+        denominator_squared: BigInt,
+    },
 }
 
-fn rational_absolute_square_is_below_half(value: &Rational) -> bool {
+impl AcosEndpointTransformPlan {
+    fn is_direct(&self) -> bool {
+        matches!(self, Self::Direct { .. })
+    }
+}
+
+fn acos_endpoint_transform_plan(value: &Rational) -> AcosEndpointTransformPlan {
+    if value.is_zero() || is_positive_one_rational(value) || is_negative_one_rational(value) {
+        return AcosEndpointTransformPlan::Legacy;
+    }
     let numerator_magnitude = value.numerator.inner.magnitude();
     let denominator_magnitude = value.denominator.inner.inner.magnitude();
     if denominator_magnitude
@@ -3638,11 +3669,18 @@ fn rational_absolute_square_is_below_half(value: &Rational) -> bool {
         .saturating_sub(numerator_magnitude.bits())
         >= 2
     {
-        return true;
+        return AcosEndpointTransformPlan::Legacy;
     }
     let numerator_squared = &value.numerator.inner * &value.numerator.inner;
     let denominator_squared = &value.denominator.inner.inner * &value.denominator.inner.inner;
-    numerator_squared * 2_u8 < denominator_squared
+    if &numerator_squared * 2_u8 < denominator_squared {
+        AcosEndpointTransformPlan::Legacy
+    } else {
+        AcosEndpointTransformPlan::Direct {
+            numerator_squared,
+            denominator_squared,
+        }
+    }
 }
 
 fn acos_endpoint_requires_pi(value: &Rational, direct_outer_transform: bool) -> bool {
@@ -3658,6 +3696,7 @@ fn direct_outer_acos_bound(
     precision_bits: u32,
     direction: BoundDirection,
     shared_pi: Option<&(Rational, Rational)>,
+    classification_squares: Option<(BigInt, BigInt)>,
 ) -> Result<Rational, IntervalError> {
     let direct_direction = if value.is_negative() {
         match direction {
@@ -3667,7 +3706,12 @@ fn direct_outer_acos_bound(
     } else {
         direction
     };
-    let complement = one_minus_rational_square(magnitude)?;
+    let complement = match classification_squares {
+        Some((numerator_squared, denominator_squared)) => {
+            one_minus_rational_square_from_squares(numerator_squared, denominator_squared)
+        }
+        None => one_minus_rational_square(magnitude)?,
+    };
     let numerator = match direct_direction {
         BoundDirection::Lower => sqrt_rational_lower(&complement, precision_bits)?,
         BoundDirection::Upper => sqrt_rational_upper(&complement, precision_bits)?,
@@ -6196,7 +6240,7 @@ mod tests {
                     128,
                     BoundDirection::Lower,
                     Some(&pi),
-                    acos_endpoint_uses_direct_outer_transform(&value),
+                    acos_endpoint_transform_plan(&value),
                 )
                 .unwrap(),
                 lower,
@@ -6207,7 +6251,7 @@ mod tests {
                     128,
                     BoundDirection::Upper,
                     Some(&pi),
-                    acos_endpoint_uses_direct_outer_transform(&value),
+                    acos_endpoint_transform_plan(&value),
                 )
                 .unwrap(),
                 upper,
@@ -6242,7 +6286,7 @@ mod tests {
                             precision_bits,
                             direction,
                             Some(&pi),
-                            true,
+                            acos_endpoint_transform_plan(value),
                         )
                         .unwrap(),
                         atan_rational_bound(&ratio, precision_bits, direction).unwrap()
@@ -6256,7 +6300,7 @@ mod tests {
                     precision_bits,
                     BoundDirection::Lower,
                     None,
-                    true,
+                    acos_endpoint_transform_plan(&positive),
                 )
                 .unwrap();
                 let direct_upper = acos_rational_bound_with_pi(
@@ -6264,7 +6308,7 @@ mod tests {
                     precision_bits,
                     BoundDirection::Upper,
                     None,
-                    true,
+                    acos_endpoint_transform_plan(&positive),
                 )
                 .unwrap();
                 assert!(compare_rationals(&legacy_lower, &direct_lower) != Ordering::Greater);
@@ -6285,7 +6329,7 @@ mod tests {
                     precision_bits,
                     BoundDirection::Lower,
                     Some(&pi),
-                    true,
+                    acos_endpoint_transform_plan(&negative),
                 )
                 .unwrap();
                 let actual_upper = acos_rational_bound_with_pi(
@@ -6293,7 +6337,7 @@ mod tests {
                     precision_bits,
                     BoundDirection::Upper,
                     Some(&pi),
-                    true,
+                    acos_endpoint_transform_plan(&negative),
                 )
                 .unwrap();
                 assert!(compare_rationals(&actual_lower, &legacy_lower) != Ordering::Less);
@@ -6310,8 +6354,8 @@ mod tests {
                 from_rational_bounds(&rational(3, 4), &rational(4, 5), precision_bits).unwrap();
             let lower_endpoint = dyadic_to_rational(&input.lower).unwrap();
             let upper_endpoint = dyadic_to_rational(&input.upper).unwrap();
-            assert!(acos_endpoint_uses_direct_outer_transform(&lower_endpoint));
-            assert!(acos_endpoint_uses_direct_outer_transform(&upper_endpoint));
+            assert!(acos_endpoint_transform_plan(&lower_endpoint).is_direct());
+            assert!(acos_endpoint_transform_plan(&upper_endpoint).is_direct());
             assert!(!acos_endpoint_requires_pi(&lower_endpoint, true));
             assert!(!acos_endpoint_requires_pi(&upper_endpoint, true));
             let expected = from_rational_bounds(
@@ -6321,6 +6365,7 @@ mod tests {
                     precision_bits,
                     BoundDirection::Lower,
                     None,
+                    None,
                 )
                 .unwrap(),
                 &direct_outer_acos_bound(
@@ -6328,6 +6373,7 @@ mod tests {
                     &lower_endpoint,
                     precision_bits,
                     BoundDirection::Upper,
+                    None,
                     None,
                 )
                 .unwrap(),
@@ -6341,10 +6387,10 @@ mod tests {
     #[test]
     fn outer_acos_classification_and_negative_antitone_endpoints_match_boundaries() {
         for value in [rational(707, 1_000), rational(-707, 1_000)] {
-            assert!(!acos_endpoint_uses_direct_outer_transform(&value));
+            assert!(!acos_endpoint_transform_plan(&value).is_direct());
         }
         for value in [rational(708, 1_000), rational(-708, 1_000)] {
-            assert!(acos_endpoint_uses_direct_outer_transform(&value));
+            assert!(acos_endpoint_transform_plan(&value).is_direct());
         }
 
         for precision_bits in [64_u32, 128] {
@@ -6362,6 +6408,7 @@ mod tests {
                     precision_bits,
                     BoundDirection::Lower,
                     Some(&pi),
+                    None,
                 )
                 .unwrap(),
                 &direct_outer_acos_bound(
@@ -6370,12 +6417,33 @@ mod tests {
                     precision_bits,
                     BoundDirection::Upper,
                     Some(&pi),
+                    None,
                 )
                 .unwrap(),
                 precision_bits,
             )
             .unwrap();
             assert_eq!(acos(&input, precision_bits).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn outer_acos_plan_reuses_exact_classification_squares_for_complement() {
+        for positive in [rational(708, 1_000), rational(3, 4), rational(999, 1_000)] {
+            for value in [positive.clone(), positive.negate()] {
+                let expected = one_minus_rational_square(&positive).unwrap();
+                let AcosEndpointTransformPlan::Direct {
+                    numerator_squared,
+                    denominator_squared,
+                } = acos_endpoint_transform_plan(&value)
+                else {
+                    panic!("outer endpoint must retain its classification squares");
+                };
+                assert_eq!(
+                    one_minus_rational_square_from_squares(numerator_squared, denominator_squared),
+                    expected
+                );
+            }
         }
     }
 
