@@ -942,6 +942,39 @@ pub(crate) fn acos(
 ) -> Result<CertifiedInterval, IntervalError> {
     let (lower_endpoint, upper_endpoint) = inverse_sine_cosine_domain_bounds(value)?;
     if lower_endpoint == upper_endpoint {
+        if acos_endpoint_uses_direct_outer_transform(&lower_endpoint) {
+            let (lower, upper) = if lower_endpoint.is_negative() {
+                let pi = pi_bounds(precision_bits)?;
+                (
+                    negative_outer_acos_dyadic_bound(
+                        &lower_endpoint,
+                        precision_bits,
+                        BoundDirection::Lower,
+                        &pi,
+                    )?,
+                    negative_outer_acos_dyadic_bound(
+                        &upper_endpoint,
+                        precision_bits,
+                        BoundDirection::Upper,
+                        &pi,
+                    )?,
+                )
+            } else {
+                (
+                    positive_outer_acos_dyadic_bound(
+                        &lower_endpoint,
+                        precision_bits,
+                        BoundDirection::Lower,
+                    )?,
+                    positive_outer_acos_dyadic_bound(
+                        &upper_endpoint,
+                        precision_bits,
+                        BoundDirection::Upper,
+                    )?,
+                )
+            };
+            return ordered_dyadic_interval(lower, upper);
+        }
         let (lower, upper) = acos_rational_bounds(&lower_endpoint, precision_bits)?;
         return from_rational_bounds(&lower, &upper, precision_bits);
     }
@@ -7684,6 +7717,28 @@ mod tests {
                 let (lower, upper) = asin_rational_bounds(&value, precision_bits).unwrap();
                 assert_eq!(
                     asin(&input, precision_bits).unwrap(),
+                    from_rational_bounds(&lower, &upper, precision_bits).unwrap(),
+                    "value={value:?}, precision={precision_bits}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn exact_outer_acos_dispatch_matches_canonical_paired_bounds() {
+        for value in [
+            rational(-1, 1),
+            rational(-3, 4),
+            rational(-5, 8),
+            rational(5, 8),
+            rational(3, 4),
+            rational(1, 1),
+        ] {
+            let input = from_rational_bounds(&value, &value, 128).unwrap();
+            for precision_bits in [1_u32, 64, 128] {
+                let (lower, upper) = acos_rational_bounds(&value, precision_bits).unwrap();
+                assert_eq!(
+                    acos(&input, precision_bits).unwrap(),
                     from_rational_bounds(&lower, &upper, precision_bits).unwrap(),
                     "value={value:?}, precision={precision_bits}",
                 );
