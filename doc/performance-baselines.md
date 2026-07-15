@@ -3478,6 +3478,29 @@ controls are unchanged. Same-host 20-sample Criterion ranges overlap: base
 11.997--13.347 ms and candidate 11.657--12.354 ms, so no timing claim is made.
 Logical-work SHA-256 remains
 `7342dcca027f7a801364ddc8624fba95d88617161fbfc32dec27e63ea11c4773`.
+The optimized Wasm artifact moved from 831,928 to 833,490 bytes and remains
+within budget; its candidate SHA-256 is
+`841e4fd24ae0837a359458e2e1ec67ba2731494400c00cd95f419a3b30ee37fe`.
+A ten-iteration/two-warmup npm public-path run measured 111.44 ms/iteration
+with a 1,794-byte payload. This short run validates the Wasm/npm boundary and
+is not a timing claim. CLI and browser checks preserve the exact symbolic
+source and verify a strictly positive enclosure below two radians.
+
+Reproduce with:
+
+```sh
+CALCULATOR_ALLOCATION_ITERATIONS=1 cargo run --profile bench \
+  -p calculator-core --features std --example allocation_baseline -- \
+  approximate_acos_non_degenerate_transform
+cargo bench -p calculator-core --bench representative_paths --features std \
+  -- approximate_components/acos_non_degenerate_transform --sample-size 20
+cargo run --profile bench -p calculator-core --features std \
+  --example logical_work_baseline
+corepack pnpm --dir examples/vanilla-web run build
+CALCULATOR_BENCH_CASE=acos_non_degenerate_transform \
+  CALCULATOR_BENCH_ITERATIONS=10 CALCULATOR_BENCH_WARMUP=2 \
+  corepack pnpm --silent --dir packages/calculator run benchmark
+```
 
 ## Rejected balanced dyadic exponential finite sum
 

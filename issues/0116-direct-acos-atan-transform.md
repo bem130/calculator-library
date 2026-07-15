@@ -46,3 +46,17 @@ ranges were 11.997--13.347 ms at base and 11.657--12.354 ms for the candidate;
 the ranges overlap, so no timing claim is made. Expanded logical-work output is
 byte-identical with SHA-256
 `7342dcca027f7a801364ddc8624fba95d88617161fbfc32dec27e63ea11c4773`.
+
+The optimized Wasm artifact is 833,490 bytes with SHA-256
+`841e4fd24ae0837a359458e2e1ec67ba2731494400c00cd95f419a3b30ee37fe`
+(base: 831,928 bytes). A ten-iteration/two-warmup npm public-path run measured
+111.44 ms/iteration with a 1,794-byte payload; the short run is a boundary
+validation, not a timing claim. The CLI preserved
+`acos(1/3*sin(1)+2/3)`, and the browser regression confirmed a positive
+certified enclosure below two radians.
+
+Repository gates passed formatting, clippy, 389 core tests, 37 native Wasm
+tests, 23 wasm32 tests, doc tests, generated DTO/protocol/no-float checks,
+package/example builds, browser E2E, size budgets, and `cargo deny`. Both pnpm
+audit commands reached the registry's retired endpoint and returned HTTP 410;
+this is an external audit-service failure rather than an advisory result.
