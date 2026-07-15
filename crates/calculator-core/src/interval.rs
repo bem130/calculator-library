@@ -692,6 +692,10 @@ pub(crate) fn atan(
     value: &CertifiedInterval,
     precision_bits: u32,
 ) -> Result<CertifiedInterval, IntervalError> {
+    if value.lower == value.upper {
+        let point = dyadic_to_rational(&value.lower)?;
+        return atan_rational_dyadic_bounds(&point, precision_bits);
+    }
     let lower = dyadic_to_rational(&value.lower)?;
     let upper = dyadic_to_rational(&value.upper)?;
     validate_ordered_rational_bounds(&lower, &upper)?;
@@ -5180,6 +5184,65 @@ mod tests {
                 pi_upper,
             );
         }
+    }
+
+    #[test]
+    fn exact_point_atan_dispatch_matches_independent_endpoint_routes() {
+        let precision_bits = 128;
+        for value in [
+            rational(-2, 1),
+            Rational::zero(),
+            rational(1, 2),
+            rational(2, 1),
+        ] {
+            let input = from_rational_bounds(&value, &value, precision_bits).unwrap();
+            let point = dyadic_to_rational(&input.lower).unwrap();
+            assert_eq!(
+                atan(&input, precision_bits).unwrap(),
+                atan_rational_dyadic_bounds(&point, precision_bits).unwrap(),
+            );
+        }
+
+        let noncanonical_equal = CertifiedInterval {
+            lower: ExactDyadic {
+                coefficient: Integer::one(),
+                exponent_two: Integer::zero(),
+            },
+            upper: ExactDyadic {
+                coefficient: Integer::from(2),
+                exponent_two: Integer::from(-1),
+            },
+        };
+        assert_eq!(
+            atan(&noncanonical_equal, precision_bits).unwrap(),
+            atan_rational_dyadic_bounds(&Rational::one(), precision_bits).unwrap(),
+        );
+
+        let input =
+            from_rational_bounds(&rational(-1, 2), &rational(2, 1), precision_bits).unwrap();
+        let lower = dyadic_to_rational(&input.lower).unwrap();
+        let upper = dyadic_to_rational(&input.upper).unwrap();
+        let pi = pi_bounds(precision_bits).unwrap();
+        assert_eq!(
+            atan(&input, precision_bits).unwrap(),
+            ordered_dyadic_interval(
+                atan_rational_dyadic_bound_with_pi(
+                    &lower,
+                    precision_bits,
+                    BoundDirection::Lower,
+                    None,
+                )
+                .unwrap(),
+                atan_rational_dyadic_bound_with_pi(
+                    &upper,
+                    precision_bits,
+                    BoundDirection::Upper,
+                    Some(&pi),
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        );
     }
 
     #[test]
