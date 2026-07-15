@@ -426,6 +426,15 @@ pub(crate) fn log(
     value: &CertifiedInterval,
     precision_bits: u32,
 ) -> Result<CertifiedInterval, IntervalError> {
+    if value.lower == value.upper {
+        let point = dyadic_to_rational(&value.lower)?;
+        if point.is_negative() || point.is_zero() {
+            return Err(IntervalError::Domain(
+                DomainErrorKind::LogarithmOfNonPositive,
+            ));
+        }
+        return log_rational_dyadic_bounds(&point, precision_bits);
+    }
     let lower = dyadic_to_rational(&value.lower)?;
     let upper = dyadic_to_rational(&value.upper)?;
     if upper.is_negative() || upper.is_zero() {
@@ -4922,6 +4931,42 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn exact_point_log_dispatch_matches_independent_endpoint_routes() {
+        let precision_bits = 128;
+        for value in [
+            rational(1, 2),
+            rational(3, 2),
+            rational(2, 1),
+            rational_from_parts((BigInt::one() << 128_usize) + 1_u8, BigInt::one()).unwrap(),
+        ] {
+            let input = from_rational_bounds(&value, &value, precision_bits).unwrap();
+            let point = dyadic_to_rational(&input.lower).unwrap();
+            assert_eq!(
+                log(&input, precision_bits).unwrap(),
+                log_rational_dyadic_bounds(&point, precision_bits).unwrap(),
+            );
+        }
+
+        for value in [Rational::zero(), rational(-1, 1)] {
+            let input = from_rational_bounds(&value, &value, precision_bits).unwrap();
+            assert_eq!(
+                log(&input, precision_bits),
+                Err(IntervalError::Domain(
+                    DomainErrorKind::LogarithmOfNonPositive
+                )),
+            );
+        }
+
+        let input = from_rational_bounds(&rational(1, 2), &rational(3, 2), precision_bits).unwrap();
+        let lower = dyadic_to_rational(&input.lower).unwrap();
+        let upper = dyadic_to_rational(&input.upper).unwrap();
+        assert_eq!(
+            log(&input, precision_bits).unwrap(),
+            log_rational_directed_dyadic_endpoint_bounds(&lower, &upper, precision_bits).unwrap(),
+        );
     }
 
     #[test]
