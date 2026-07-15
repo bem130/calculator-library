@@ -673,6 +673,18 @@ CALCULATOR_BENCH_ITERATIONS=3 CALCULATOR_BENCH_WARMUP=1 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Shared non-degenerate logarithm term planning
+
+At base `466d3ed`, temporarily restoring independent precision-only planning
+for lower, upper, and required log-two evaluation used 159,673 bytes / 1,032
+blocks (12,590 / 40 peak) for `ln(2+sin(1))`. The shared plan uses 158,393 /
+942 with the same peak, saving 1,280 bytes and 90 blocks. Exact-point controls
+were byte/block/peak-identical: large-positive log 95,900 / 934, `ln(2)` 9,990
+/ 402, and general power 101,393 / 692. Ten-sample non-degenerate ranges were
+187.39--190.10 us independent versus 186.81--214.34 us shared; Criterion found
+no significant difference, so no timing improvement is claimed. Issue 66
+records endpoint/error-precedence oracle coverage and removal of the prototype.
+
 ## Canonical logarithm range scaling
 
 At base `a12ffbc`, temporarily restoring generic Rational multiplication and
