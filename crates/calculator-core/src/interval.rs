@@ -3631,6 +3631,15 @@ fn acos_endpoint_uses_direct_outer_transform(value: &Rational) -> bool {
 }
 
 fn rational_absolute_square_is_below_half(value: &Rational) -> bool {
+    let numerator_magnitude = value.numerator.inner.magnitude();
+    let denominator_magnitude = value.denominator.inner.inner.magnitude();
+    if denominator_magnitude
+        .bits()
+        .saturating_sub(numerator_magnitude.bits())
+        >= 2
+    {
+        return true;
+    }
     let numerator_squared = &value.numerator.inner * &value.numerator.inner;
     let denominator_squared = &value.denominator.inner.inner * &value.denominator.inner.inner;
     numerator_squared * 2_u8 < denominator_squared

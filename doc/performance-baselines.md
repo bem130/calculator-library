@@ -3478,19 +3478,20 @@ controls are unchanged. Same-host 20-sample Criterion ranges overlap: base
 11.997--13.347 ms and candidate 11.657--12.354 ms, so no timing claim is made.
 Logical-work SHA-256 remains
 `7342dcca027f7a801364ddc8624fba95d88617161fbfc32dec27e63ea11c4773`.
-The optimized Wasm artifact moved from 831,928 to 833,490 bytes and remains
+The optimized Wasm artifact moved from 831,928 to 833,392 bytes and remains
 within budget; its candidate SHA-256 is
-`841e4fd24ae0837a359458e2e1ec67ba2731494400c00cd95f419a3b30ee37fe`.
+`41dc6351ef70d4773e0529bbb9b4e5fe748cb948d43f8c3f7d32d62e41f34ff2`.
 A ten-iteration/two-warmup npm public-path run measured 111.44 ms/iteration
 with a 1,794-byte payload. This short run validates the Wasm/npm boundary and
 is not a timing claim. CLI and browser checks preserve the exact symbolic
 source and verify a strictly positive enclosure below two radians.
-Review added a negative central non-degenerate control: base 1,019,757 bytes /
-1,793 blocks versus candidate 1,020,045 / 1,797, with the same 48,790 / 74 peak.
-The residual 288 bytes / four blocks classify the two endpoints; eager
-negative-magnitude cloning was removed and the central evaluator retains its
-legacy path. Boundary regressions cover both signs immediately below and above
-the direct-transform threshold.
+Review added a negative central non-degenerate control, unchanged from base at
+1,019,757 bytes / 1,793 blocks (48,790 / 74 peak). A bit-length proof classifies
+values strictly below one half without constructing integer squares; only
+boundary-near values use the exact square comparison. Eager negative-magnitude
+cloning was removed and the central evaluator retains its legacy path. Boundary
+regressions cover both signs immediately below and above the direct-transform
+threshold.
 
 Reproduce with:
 
