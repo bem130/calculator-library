@@ -84,7 +84,7 @@ if (selectedCase === undefined || selectedCase === "session_dispatch_sequence") 
 
 process.stdout.write(`${JSON.stringify({
     schemaVersion: 1,
-    benchmarkDefinition: "representative-paths-v23",
+    benchmarkDefinition: "representative-paths-v24",
     artifact: {
         wasmSha256: createHash("sha256").update(wasmBytes).digest("hex"),
         wasmBytes: wasmBytes.byteLength,
