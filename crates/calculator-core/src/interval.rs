@@ -3365,6 +3365,7 @@ fn inverse_sine_cosine_domain_bounds(
     Ok((lower, upper))
 }
 
+#[cfg(test)]
 fn asin_rational_bounds(
     value: &Rational,
     precision_bits: u32,
