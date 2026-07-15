@@ -3509,6 +3509,25 @@ CALCULATOR_BENCH_CASE=acos_non_degenerate_transform \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Rejected outer-acos classification-square reuse
+
+At base `461a8d4`, an owned endpoint plan was prototyped to carry the exact
+`n²,d²` classification operands into `1-x²`. The positive non-degenerate target
+moved from 958,986 bytes / 2,470 blocks to 958,826 / 2,468 with unchanged
+58,069 / 81 peak. A negative outer control moved from 1,102,868 / 2,742 to
+1,102,820 / 2,741 with unchanged 62,086 / 86 peak; the negative central
+control stayed exactly 1,019,757 / 1,793 (48,790 / 74 peak). Logical-work output
+remained byte-identical with SHA-256
+`7342dcca027f7a801364ddc8624fba95d88617161fbfc32dec27e63ea11c4773`.
+
+Successive 30-sample candidate timing ranges varied from 17.771--20.167 ms to
+14.753--15.897 ms; base measured 12.636--13.525 ms, so no speed claim is made.
+The optimized Wasm artifact grew from 833,423 to 833,565 bytes. The 48--160 byte
+and one--two block transient saving does not justify the ownership enum, wider
+endpoint signatures, and 142-byte artifact growth. The runtime experiment was
+fully reverted. Issue 117 records the exact design, focused tests, controls,
+and the condition for reconsideration.
+
 ## Rejected balanced dyadic exponential finite sum
 
 At base `f13b268`, `approximate_general_power` used 101,393 bytes / 692 blocks
