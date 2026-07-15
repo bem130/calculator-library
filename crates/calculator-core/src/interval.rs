@@ -820,21 +820,21 @@ pub(crate) fn acos(
     } else {
         None
     };
-    let lower = acos_rational_bound_with_pi(
+    let lower = acos_dyadic_bound_with_pi(
         &upper_endpoint,
         precision_bits,
         BoundDirection::Lower,
         shared_pi.as_ref(),
         upper_direct,
     )?;
-    let upper = acos_rational_bound_with_pi(
+    let upper = acos_dyadic_bound_with_pi(
         &lower_endpoint,
         precision_bits,
         BoundDirection::Upper,
         shared_pi.as_ref(),
         lower_direct,
     )?;
-    from_rational_bounds(&lower, &upper, precision_bits)
+    ordered_dyadic_interval(lower, upper)
 }
 
 pub(crate) fn tan(
@@ -3623,6 +3623,32 @@ fn acos_rational_bound_with_pi(
         BoundDirection::Upper => &pi.1,
     };
     Ok(halve_rational(pi_bound)?.subtract(&asin_bound))
+}
+
+fn acos_dyadic_bound_with_pi(
+    value: &Rational,
+    precision_bits: u32,
+    direction: BoundDirection,
+    shared_pi: Option<&(Rational, Rational)>,
+    direct_outer_transform: bool,
+) -> Result<ExactDyadic, IntervalError> {
+    if direct_outer_transform && !value.is_negative() {
+        let complement = one_minus_rational_square(value)?;
+        let numerator = match direction {
+            BoundDirection::Lower => sqrt_rational_lower(&complement, precision_bits)?,
+            BoundDirection::Upper => sqrt_rational_upper(&complement, precision_bits)?,
+        };
+        let ratio = divide_rational(&dyadic_to_rational(&numerator)?, value)?;
+        return atan_rational_dyadic_bound_with_pi(&ratio, precision_bits, direction, None);
+    }
+    let bound = acos_rational_bound_with_pi(
+        value,
+        precision_bits,
+        direction,
+        shared_pi,
+        direct_outer_transform,
+    )?;
+    Ok(rational_to_dyadic_bound(&bound, precision_bits, direction))
 }
 
 fn acos_endpoint_uses_direct_outer_transform(value: &Rational) -> bool {
