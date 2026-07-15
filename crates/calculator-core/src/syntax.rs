@@ -975,6 +975,25 @@ mod tests {
     }
 
     #[test]
+    fn lexical_preflight_matches_materialized_token_count_and_errors() {
+        for source in [
+            "  12.5e-3 + pi ",
+            "sin(π/2)^2+cos(pi/2)^2",
+            "2(3+4)!%",
+            "root(81, 4)",
+        ] {
+            let expected = count_tokens(source).expect(source);
+            let tokens = lex(source).expect(source);
+            assert_eq!(tokens.len(), expected, "{source}");
+            assert_eq!(tokens.capacity(), expected, "{source}");
+        }
+
+        for source in ["1e+", ".5", "unknown_name", "λ"] {
+            assert_eq!(count_tokens(source), lex(source).map(|tokens| tokens.len()));
+        }
+    }
+
+    #[test]
     fn percent_policy_can_reject_percent_token() {
         let settings = ParseSettings {
             percent: PercentParsePolicy::RejectPercent,
