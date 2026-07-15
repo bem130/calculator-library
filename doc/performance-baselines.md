@@ -3630,6 +3630,20 @@ Wasm moved from 836,732 to 837,564 bytes; candidate SHA-256 is
 The v26 npm case moved from 20.086 to 2.732 ms/iteration with the same
 1,788-byte payload. Issue 123 records fallback, CLI, browser, and gate evidence.
 
+## Raw half-pi-minus-atan endpoints for positive high asin
+
+At base `625a1ef`, transformed asin canonicalized its atan series and
+`pi/2-atan` before dyadic rounding. Raw final-boundary composition reduced
+`asin((2+sin(1))/3)` from 733,736 bytes / 1,874 blocks (40,893 / 79 peak) to
+606,168 / 1,793 (36,757 / 73 peak). Native ranges moved from 24.17--27.74 ms
+to 1.419--1.504 ms. The target's 200,442-unit logical-work baseline remained
+byte-identical at SHA-256
+`c26664ee5491163d519586976c98f433a1e45c8aed35ded9effa4d0b81d50e30`.
+Wasm moved from 837,564 to 838,728 bytes; candidate SHA-256 is
+`68af2bc35f8da0980707e709492e413e1097f34fb59cf65892732959dc05cb4b`.
+The v26 npm case moved from 113.742 to 5.192 ms/iteration with the same
+1,788-byte payload. Issue 124 records public dispatch, fallback, and gates.
+
 ## Rejected balanced dyadic exponential finite sum
 
 At base `f13b268`, `approximate_general_power` used 101,393 bytes / 692 blocks
