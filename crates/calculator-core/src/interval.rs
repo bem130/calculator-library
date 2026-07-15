@@ -556,26 +556,8 @@ fn log_rational_directed_dyadic_endpoint_bounds(
         log_reduced_raw_bound_with_terms(&lower_reduced, term_count, BoundDirection::Lower)?;
     let upper_bound =
         log_reduced_raw_bound_with_terms(&upper_reduced, term_count, BoundDirection::Upper)?;
-    let shared_log_two = if lower_exponent_two != 0 && upper_exponent_two != 0 {
-        Some(log_reduced_raw_bounds_with_terms(
-            &rational_integer(2),
-            term_count,
-        )?)
-    } else {
-        None
-    };
-    let lower_log_two = raw_log_two_for_endpoint(
-        lower_exponent_two,
-        BoundDirection::Lower,
-        term_count,
-        shared_log_two.as_ref(),
-    )?;
-    let upper_log_two = raw_log_two_for_endpoint(
-        upper_exponent_two,
-        BoundDirection::Upper,
-        term_count,
-        shared_log_two.as_ref(),
-    )?;
+    let (lower_log_two, upper_log_two) =
+        raw_log_two_for_endpoints(lower_exponent_two, upper_exponent_two, term_count)?;
     let lower = compose_raw_log_bound(lower_bound, lower_log_two, lower_exponent_two);
     let upper = compose_raw_log_bound(upper_bound, upper_log_two, upper_exponent_two);
     ordered_dyadic_interval(
@@ -584,34 +566,45 @@ fn log_rational_directed_dyadic_endpoint_bounds(
     )
 }
 
-fn raw_log_two_for_endpoint(
-    exponent_two: i64,
-    direction: BoundDirection,
+fn raw_log_two_for_endpoints(
+    lower_exponent_two: i64,
+    upper_exponent_two: i64,
     term_count: u32,
-    shared: Option<&(RawFractionParts, RawFractionParts)>,
-) -> Result<Option<RawFractionParts>, IntervalError> {
-    if exponent_two == 0 {
-        return Ok(None);
-    }
-    let selected = if exponent_two > 0 {
-        direction
-    } else {
-        match direction {
-            BoundDirection::Lower => BoundDirection::Upper,
-            BoundDirection::Upper => BoundDirection::Lower,
+) -> Result<(Option<RawFractionParts>, Option<RawFractionParts>), IntervalError> {
+    fn selected_direction(exponent_two: i64, direction: BoundDirection) -> BoundDirection {
+        if exponent_two > 0 {
+            direction
+        } else {
+            match direction {
+                BoundDirection::Lower => BoundDirection::Upper,
+                BoundDirection::Upper => BoundDirection::Lower,
+            }
         }
-    };
-    if let Some((lower, upper)) = shared {
-        let parts = match selected {
-            BoundDirection::Lower => lower,
-            BoundDirection::Upper => upper,
-        };
-        return Ok(Some(RawFractionParts {
-            numerator: parts.numerator.clone(),
-            denominator: parts.denominator.clone(),
-        }));
     }
-    log_reduced_raw_bound_with_terms(&rational_integer(2), term_count, selected).map(Some)
+
+    let lower_direction = selected_direction(lower_exponent_two, BoundDirection::Lower);
+    let upper_direction = selected_direction(upper_exponent_two, BoundDirection::Upper);
+    if lower_exponent_two == 0 && upper_exponent_two == 0 {
+        return Ok((None, None));
+    }
+    if lower_exponent_two == 0 {
+        let upper =
+            log_reduced_raw_bound_with_terms(&rational_integer(2), term_count, upper_direction)?;
+        return Ok((None, Some(upper)));
+    }
+    if upper_exponent_two == 0 {
+        let lower =
+            log_reduced_raw_bound_with_terms(&rational_integer(2), term_count, lower_direction)?;
+        return Ok((Some(lower), None));
+    }
+
+    let (lower, upper) = log_reduced_raw_bounds_with_terms(&rational_integer(2), term_count)?;
+    Ok(match (lower_direction, upper_direction) {
+        (BoundDirection::Lower, BoundDirection::Upper) => (Some(lower), Some(upper)),
+        (BoundDirection::Upper, BoundDirection::Lower) => (Some(upper), Some(lower)),
+        (BoundDirection::Lower, BoundDirection::Lower) => (Some(lower.clone()), Some(lower)),
+        (BoundDirection::Upper, BoundDirection::Upper) => (Some(upper.clone()), Some(upper)),
+    })
 }
 
 #[cfg(test)]
@@ -2246,6 +2239,7 @@ fn atan_rational_bounds(
     atan_nonnegative_rational_bounds(value, precision_bits)
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct RawFractionParts {
     numerator: BigInt,
     denominator: BigInt,
@@ -4966,6 +4960,44 @@ mod tests {
             log_rational_directed_endpoint_bounds(&Rational::one(), &rational(3, 2), u32::MAX,),
             Err(IntervalError::ExponentTooLarge),
         );
+    }
+
+    #[test]
+    fn owned_log_two_endpoint_selection_matches_independent_directions() {
+        let term_count = log_series_terms(128).unwrap();
+        for (lower_exponent, upper_exponent) in
+            [(-3, -1), (2, 5), (-4, 3), (4, -3), (0, 3), (-3, 0), (0, 0)]
+        {
+            let actual =
+                raw_log_two_for_endpoints(lower_exponent, upper_exponent, term_count).unwrap();
+            let expected_lower = if lower_exponent == 0 {
+                None
+            } else {
+                let direction = if lower_exponent > 0 {
+                    BoundDirection::Lower
+                } else {
+                    BoundDirection::Upper
+                };
+                Some(
+                    log_reduced_raw_bound_with_terms(&rational_integer(2), term_count, direction)
+                        .unwrap(),
+                )
+            };
+            let expected_upper = if upper_exponent == 0 {
+                None
+            } else {
+                let direction = if upper_exponent > 0 {
+                    BoundDirection::Upper
+                } else {
+                    BoundDirection::Lower
+                };
+                Some(
+                    log_reduced_raw_bound_with_terms(&rational_integer(2), term_count, direction)
+                        .unwrap(),
+                )
+            };
+            assert_eq!(actual, (expected_lower, expected_upper));
+        }
     }
 
     #[test]
