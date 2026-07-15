@@ -3662,6 +3662,14 @@ within budget. The v26 npm case moved from 128.257 to 6.093 ms/iteration with
 the same 1,796-byte payload. Issue 125 records dispatch, fallback, CLI, browser,
 and gate evidence.
 
+## Raw atan endpoints for mid-transform asin
+
+At base `9d4e4fb`, `asin((1+sin(1))/3)` used 626,612 bytes / 1,797 blocks
+(28,517 / 81 peak). Direct raw endpoint rounding uses 560,500 / 1,757 with
+the same peak. Same-host ten-sample Criterion ranges moved from 7.790--10.102
+ms to 0.998--1.105 ms. The full logical-work baseline is byte-identical at
+SHA-256 `cf0253618aa3db0f6f42135ac47cbe71dd4623c2f60d4404f10cae6283775be2`.
+
 ## Rejected balanced dyadic exponential finite sum
 
 At base `f13b268`, `approximate_general_power` used 101,393 bytes / 692 blocks
