@@ -6671,6 +6671,44 @@ mod tests {
     }
 
     #[test]
+    fn positive_central_acos_mixed_endpoints_retain_canonical_fallback() {
+        for (lower_value, upper_value) in [
+            (rational(1, 3), rational(3, 4)),
+            (Rational::zero(), rational(1, 3)),
+            (rational(-1, 3), rational(1, 3)),
+        ] {
+            let input = from_rational_bounds(&lower_value, &upper_value, 128).unwrap();
+            let lower_endpoint = dyadic_to_rational(&input.lower).unwrap();
+            let upper_endpoint = dyadic_to_rational(&input.upper).unwrap();
+            for precision_bits in [0_u32, 64, 128] {
+                let pi = pi_bounds(precision_bits).unwrap();
+                let lower_direct = acos_endpoint_uses_direct_outer_transform(&upper_endpoint);
+                let upper_direct = acos_endpoint_uses_direct_outer_transform(&lower_endpoint);
+                let lower = acos_rational_bound_with_pi(
+                    &upper_endpoint,
+                    precision_bits,
+                    BoundDirection::Lower,
+                    Some(&pi),
+                    lower_direct,
+                )
+                .unwrap();
+                let upper = acos_rational_bound_with_pi(
+                    &lower_endpoint,
+                    precision_bits,
+                    BoundDirection::Upper,
+                    Some(&pi),
+                    upper_direct,
+                )
+                .unwrap();
+                assert_eq!(
+                    acos(&input, precision_bits).unwrap(),
+                    from_rational_bounds(&lower, &upper, precision_bits).unwrap(),
+                );
+            }
+        }
+    }
+
+    #[test]
     fn positive_outer_acos_rejects_reversed_input_before_coarse_rounding() {
         let lower = from_rational(&rational(4, 5), 128);
         let upper = from_rational(&rational(3, 4), 128);
