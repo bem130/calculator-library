@@ -806,6 +806,28 @@ CALCULATOR_BENCH_CASE=exp_negative_10000 CALCULATOR_BENCH_ITERATIONS=10 \
   corepack pnpm --silent --dir packages/calculator run benchmark
 ```
 
+## Exact central acos raw endpoints
+
+At base `21b3ddb`, exact nonzero central acos points still normalized paired
+canonical Rational endpoints before dyadic rounding. The retained dispatcher
+uses the existing positive/negative raw directed endpoint helpers with one
+shared pi enclosure. For `acos(3/8)`, deterministic one-call allocation moved
+from 41,237 bytes / 800 blocks (5,383 / 49 peak) to 31,973 / 805
+(4,567 / 49 peak). Total blocks increased by five, while total bytes fell 22.5%,
+peak bytes fell 15.2%, and peak blocks were unchanged.
+
+Same-host ten-sample Criterion ranges moved from 498.76--536.51 us to
+285.70--301.08 us. The logical-work output was byte-identical at SHA-256
+`86667e251f7da693d5551e16c99c870f4d44f44f3168184baec4f0ebddfc8404`.
+With 20 iterations and five warmups, the npm/Wasm public path moved from 3.174
+to 2.155 ms/iteration with the same 1,766-byte payload. The optimized Wasm
+artifact moved from 840,383 to 840,987 bytes; candidate SHA-256 is
+`273307c9f45c3014c769954c88358a4ba8be89a6c2aef0c9d258fd9413e14782`.
+
+Reproduce with allocation case `approximate_acos_three_eighths`, Criterion
+component `acos_three_eighths`, the logical-work runner, and npm benchmark case
+`acos_three_eighths`.
+
 ## Convergent integer square-root baseline (Issue 98)
 
 The prior floor square root doubled a bound and then bisected the entire input
