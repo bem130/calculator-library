@@ -42,6 +42,7 @@ fn main() {
             "acos_non_degenerate_negative_central",
             "acos((-1+sin(1))/3)",
         ),
+        ("acos_non_degenerate_positive_central", "acos((1+sin(1))/4)"),
         ("acos_three_fourths", "acos(3/4)"),
         ("acos_five_eighths", "acos(5/8)"),
         ("sin_one", "sin(1)"),
