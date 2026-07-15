@@ -3467,6 +3467,19 @@ A three-iteration/one-warmup Wasm/npm snapshot used artifact
 (784,484 bytes); approximate evaluation measured 7.14 ms/iteration and retained
 the unchanged 1,812-byte payload.
 
+## Rejected balanced dyadic exponential finite sum
+
+At base `f13b268`, `approximate_general_power` used 101,393 bytes / 692 blocks
+(6,223 / 43 peak). A fully balanced Taylor ratio tree used 82,033 / 1,039
+(7,311 / 52 peak); hybrid leaf widths 8, 16, and 32 used 72,737 / 807, 73,825 /
+783, and 84,345 / 758, all with roughly 7.3 KB / 52 blocks peak. Reverse nested
+evaluation used 110,585 / 716 (6,511 / 47 peak). The tree retained both child
+products and a scaled sum at merges; nested evaluation materialized the growing
+dyadic denominator. Since every variant regressed blocks and peak, and nested
+evaluation also regressed bytes, no runtime change was retained. Do not repeat
+leaf-width tuning without a representation that removes that simultaneous live
+state.
+
 ## Negative tiny exact exponential planning
 
 At base `dc28555`, a negative canonical exact point bypassed the value-aware
