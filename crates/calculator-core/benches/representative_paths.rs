@@ -170,6 +170,11 @@ const APPROXIMATE_COMPONENTS: &[(&str, &str, ExpectedExact)] = &[
     ),
     ("acos_third", "acos(1/3)", ExpectedExact::GeneralSymbolic),
     (
+        "acos_three_eighths",
+        "acos(3/8)",
+        ExpectedExact::GeneralSymbolic,
+    ),
+    (
         "acos_three_fourths",
         "acos(3/4)",
         ExpectedExact::GeneralSymbolic,

@@ -43,6 +43,7 @@ fn main() {
             "asin((-2-sin(1))/3)",
         ),
         ("acos_third", "acos(1/3)"),
+        ("acos_three_eighths", "acos(3/8)"),
         ("acos_non_degenerate_transform", "acos((2+sin(1))/3)"),
         (
             "acos_non_degenerate_negative_central",
