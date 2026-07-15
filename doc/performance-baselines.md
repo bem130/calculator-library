@@ -746,12 +746,12 @@ byte-identical with SHA-256
 `a925d3238a37ac073ae380a8c0200c9c654944a71f9a3e573660740d55d6fbd7`.
 
 The ten-iteration/two-warmup Wasm/npm combined approximate path retained a
-1,812-byte payload and measured 1.068 ms/iteration base versus 1.296 ms
+1,812-byte payload and measured 1.068 ms/iteration base versus 0.866 ms
 candidate; the short boundary run is not used for a timing claim. Base artifact
 `9f80e03f47ebbfae9ff417689a6f9f01447d09d0ac1732eaf54c6b68f33f3108`
 was 829,237 bytes; candidate
-`1b615b409d886d2ed4ef0bc2fc85e407e72805e4a5e3f17e4bb1470d15b27e70`
-is 829,421 bytes and remains below budget.
+`c89a824645735bcbd10e266dc8bbb191f8431a9b44be847b5b3acee2fbda93ac`
+is 829,184 bytes and remains below budget.
 
 Reproduce allocation and native timing with separate base/candidate worktrees
 and target directories:
