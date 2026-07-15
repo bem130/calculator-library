@@ -7573,6 +7573,7 @@ mod tests {
         for (lower_value, upper_value) in [
             (rational(3, 4), rational(4, 5)),
             (rational(5, 8), rational(3, 4)),
+            (rational(1, 2), rational(3, 4)),
             (rational(-3, 4), rational(3, 4)),
             (rational(3, 4), Rational::one()),
         ] {
