@@ -55,6 +55,7 @@ fn benchmark_request() -> CalculationRequest {
 enum ExpectedExact {
     GeneralSymbolic,
     Radical,
+    RationalPiMultiple,
 }
 
 const APPROXIMATE_COMPONENTS: &[(&str, &str, ExpectedExact)] = &[
@@ -169,6 +170,7 @@ const APPROXIMATE_COMPONENTS: &[(&str, &str, ExpectedExact)] = &[
         ExpectedExact::GeneralSymbolic,
     ),
     ("acos_third", "acos(1/3)", ExpectedExact::GeneralSymbolic),
+    ("acos_zero", "acos(0)", ExpectedExact::RationalPiMultiple),
     (
         "acos_three_eighths",
         "acos(3/8)",
@@ -527,6 +529,10 @@ fn profile_approximate_components(criterion: &mut Criterion) {
                     | RecognizedExact::RationalPiMultiple(_)
                     | RecognizedExact::GeneralSymbolic => false,
                 },
+                ExpectedExact::RationalPiMultiple => matches!(
+                    evaluation.value.recognized_exact,
+                    RecognizedExact::RationalPiMultiple(_)
+                ),
             });
             assert!(matches!(
                 evaluation.value.certified_enclosure,

@@ -91,6 +91,7 @@ fn main() {
             Some(String::from("asin((-2-sin(1))/3)"))
         }
         "approximate_acos_third" => Some(String::from("acos(1/3)")),
+        "approximate_acos_zero" => Some(String::from("acos(0)")),
         "approximate_acos_three_eighths" => Some(String::from("acos(3/8)")),
         "approximate_acos_three_fourths" => Some(String::from("acos(3/4)")),
         "approximate_acos_five_eighths" => Some(String::from("acos(5/8)")),
