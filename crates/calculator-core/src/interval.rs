@@ -571,39 +571,34 @@ fn raw_log_two_for_endpoints(
     upper_exponent_two: i64,
     term_count: u32,
 ) -> Result<(Option<RawFractionParts>, Option<RawFractionParts>), IntervalError> {
-    fn selected_direction(exponent_two: i64, direction: BoundDirection) -> BoundDirection {
-        if exponent_two > 0 {
-            direction
-        } else {
-            match direction {
-                BoundDirection::Lower => BoundDirection::Upper,
-                BoundDirection::Upper => BoundDirection::Lower,
-            }
-        }
-    }
-
-    let lower_direction = selected_direction(lower_exponent_two, BoundDirection::Lower);
-    let upper_direction = selected_direction(upper_exponent_two, BoundDirection::Upper);
     if lower_exponent_two == 0 && upper_exponent_two == 0 {
         return Ok((None, None));
     }
     if lower_exponent_two == 0 {
-        let upper =
-            log_reduced_raw_bound_with_terms(&rational_integer(2), term_count, upper_direction)?;
+        let direction = if upper_exponent_two > 0 {
+            BoundDirection::Upper
+        } else {
+            BoundDirection::Lower
+        };
+        let upper = log_reduced_raw_bound_with_terms(&rational_integer(2), term_count, direction)?;
         return Ok((None, Some(upper)));
     }
     if upper_exponent_two == 0 {
-        let lower =
-            log_reduced_raw_bound_with_terms(&rational_integer(2), term_count, lower_direction)?;
+        let direction = if lower_exponent_two > 0 {
+            BoundDirection::Lower
+        } else {
+            BoundDirection::Upper
+        };
+        let lower = log_reduced_raw_bound_with_terms(&rational_integer(2), term_count, direction)?;
         return Ok((Some(lower), None));
     }
 
     let (lower, upper) = log_reduced_raw_bounds_with_terms(&rational_integer(2), term_count)?;
-    Ok(match (lower_direction, upper_direction) {
-        (BoundDirection::Lower, BoundDirection::Upper) => (Some(lower), Some(upper)),
-        (BoundDirection::Upper, BoundDirection::Lower) => (Some(upper), Some(lower)),
-        (BoundDirection::Lower, BoundDirection::Lower) => (Some(lower.clone()), Some(lower)),
-        (BoundDirection::Upper, BoundDirection::Upper) => (Some(upper.clone()), Some(upper)),
+    Ok(match (lower_exponent_two > 0, upper_exponent_two > 0) {
+        (true, true) => (Some(lower), Some(upper)),
+        (false, false) => (Some(upper), Some(lower)),
+        (true, false) => (Some(lower.clone()), Some(lower)),
+        (false, true) => (Some(upper.clone()), Some(upper)),
     })
 }
 
