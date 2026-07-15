@@ -7768,14 +7768,29 @@ mod tests {
             rational(-3, 4),
             rational(-5, 8),
             rational(-1, 2),
-            rational(-1, 3),
+            rational(-3, 8),
             Rational::zero(),
-            rational(1, 3),
+            rational(3, 8),
             rational(1, 2),
             rational(5, 8),
             rational(3, 4),
             rational(1, 1),
         ] {
+            let input = from_rational_bounds(&value, &value, 128).unwrap();
+            for precision_bits in [1_u32, 64, 128] {
+                let (lower, upper) = acos_rational_bounds(&value, precision_bits).unwrap();
+                assert_eq!(
+                    acos(&input, precision_bits).unwrap(),
+                    from_rational_bounds(&lower, &upper, precision_bits).unwrap(),
+                    "value={value:?}, precision={precision_bits}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn nondegenerate_acos_dispatch_contains_canonical_paired_bounds() {
+        for value in [rational(-1, 3), rational(1, 3)] {
             let input = from_rational_bounds(&value, &value, 128).unwrap();
             for precision_bits in [1_u32, 64, 128] {
                 let (lower, upper) = acos_rational_bounds(&value, precision_bits).unwrap();
