@@ -97,91 +97,108 @@ enum TokenKind {
 }
 
 fn lex(source: &str) -> Result<Vec<Token>, ParseError> {
-    let mut tokens = Vec::new();
+    let token_count = count_tokens(source)?;
+    let mut tokens = Vec::with_capacity(token_count);
     let mut cursor = 0;
 
     while cursor < source.len() {
-        let ch = next_char(source, cursor);
-        if ch.is_whitespace() {
-            cursor += ch.len_utf8();
-            continue;
-        }
-
-        if ch.is_ascii_digit() {
-            let (literal, end) = lex_number(source, cursor)?;
-            tokens.push(Token {
-                kind: TokenKind::Number(literal),
-                span: span(cursor, end),
-            });
-            cursor = end;
-            continue;
-        }
-
-        if ch == '.' {
-            return Err(ParseError {
-                kind: ParseErrorKind::InvalidNumberLiteral,
-                span: span(cursor, cursor + ch.len_utf8()),
-                expected: vec![ExpectedToken {
-                    kind: ExpectedTokenKind::Number,
-                }],
-            });
-        }
-
-        if ch.is_ascii_alphabetic() {
-            let end = lex_identifier_end(source, cursor);
-            let kind = identifier_token(&source[cursor..end]).ok_or_else(|| ParseError {
-                kind: ParseErrorKind::UnknownIdentifier,
-                span: span(cursor, end),
-                expected: Vec::new(),
-            })?;
+        let (lexeme, end) = scan_lexeme(source, cursor)?;
+        if let Some(kind) = lexeme.into_token_kind(source, cursor, end) {
             tokens.push(Token {
                 kind,
                 span: span(cursor, end),
             });
-            cursor = end;
-            continue;
         }
-
-        if ch == 'π' {
-            let end = cursor + ch.len_utf8();
-            tokens.push(Token {
-                kind: TokenKind::Constant(Constant::Pi),
-                span: span(cursor, end),
-            });
-            cursor = end;
-            continue;
-        }
-
-        let kind = match ch {
-            '+' => TokenKind::Plus,
-            '-' => TokenKind::Minus,
-            '*' => TokenKind::Star,
-            '/' => TokenKind::Slash,
-            '^' => TokenKind::Caret,
-            '%' => TokenKind::Percent,
-            '!' => TokenKind::Bang,
-            '(' => TokenKind::OpenParen,
-            ')' => TokenKind::CloseParen,
-            ',' => TokenKind::Comma,
-            _ => {
-                return Err(ParseError {
-                    kind: ParseErrorKind::UnexpectedToken,
-                    span: span(cursor, cursor + ch.len_utf8()),
-                    expected: Vec::new(),
-                });
-            }
-        };
-        tokens.push(Token {
-            kind,
-            span: span(cursor, cursor + ch.len_utf8()),
-        });
-        cursor += ch.len_utf8();
+        cursor = end;
     }
 
+    debug_assert_eq!(tokens.len(), token_count);
     Ok(tokens)
 }
 
-fn lex_number(source: &str, start: usize) -> Result<(String, usize), ParseError> {
+fn count_tokens(source: &str) -> Result<usize, ParseError> {
+    let mut count = 0_usize;
+    let mut cursor = 0_usize;
+    while cursor < source.len() {
+        let (lexeme, end) = scan_lexeme(source, cursor)?;
+        count += usize::from(!matches!(lexeme, Lexeme::Whitespace));
+        cursor = end;
+    }
+    Ok(count)
+}
+
+enum Lexeme {
+    Whitespace,
+    Number,
+    Token(TokenKind),
+}
+
+impl Lexeme {
+    fn into_token_kind(self, source: &str, start: usize, end: usize) -> Option<TokenKind> {
+        match self {
+            Self::Whitespace => None,
+            Self::Number => Some(TokenKind::Number(String::from(&source[start..end]))),
+            Self::Token(kind) => Some(kind),
+        }
+    }
+}
+
+fn scan_lexeme(source: &str, cursor: usize) -> Result<(Lexeme, usize), ParseError> {
+    let ch = next_char(source, cursor);
+    if ch.is_whitespace() {
+        return Ok((Lexeme::Whitespace, cursor + ch.len_utf8()));
+    }
+    if ch.is_ascii_digit() {
+        return Ok((Lexeme::Number, lex_number_end(source, cursor)?));
+    }
+    if ch == '.' {
+        return Err(ParseError {
+            kind: ParseErrorKind::InvalidNumberLiteral,
+            span: span(cursor, cursor + ch.len_utf8()),
+            expected: vec![ExpectedToken {
+                kind: ExpectedTokenKind::Number,
+            }],
+        });
+    }
+    if ch.is_ascii_alphabetic() {
+        let end = lex_identifier_end(source, cursor);
+        let kind = identifier_token(&source[cursor..end]).ok_or_else(|| ParseError {
+            kind: ParseErrorKind::UnknownIdentifier,
+            span: span(cursor, end),
+            expected: Vec::new(),
+        })?;
+        return Ok((Lexeme::Token(kind), end));
+    }
+    if ch == 'π' {
+        return Ok((
+            Lexeme::Token(TokenKind::Constant(Constant::Pi)),
+            cursor + ch.len_utf8(),
+        ));
+    }
+
+    let kind = match ch {
+        '+' => TokenKind::Plus,
+        '-' => TokenKind::Minus,
+        '*' => TokenKind::Star,
+        '/' => TokenKind::Slash,
+        '^' => TokenKind::Caret,
+        '%' => TokenKind::Percent,
+        '!' => TokenKind::Bang,
+        '(' => TokenKind::OpenParen,
+        ')' => TokenKind::CloseParen,
+        ',' => TokenKind::Comma,
+        _ => {
+            return Err(ParseError {
+                kind: ParseErrorKind::UnexpectedToken,
+                span: span(cursor, cursor + ch.len_utf8()),
+                expected: Vec::new(),
+            });
+        }
+    };
+    Ok((Lexeme::Token(kind), cursor + ch.len_utf8()))
+}
+
+fn lex_number_end(source: &str, start: usize) -> Result<usize, ParseError> {
     let mut cursor = consume_ascii_digits(source, start);
 
     if source[cursor..].starts_with('.') {
@@ -200,13 +217,13 @@ fn lex_number(source: &str, start: usize) -> Result<(String, usize), ParseError>
         if let Some(end) = consume_exponent(source, cursor)? {
             cursor = end;
         }
-        return Ok((String::from(&source[start..cursor]), cursor));
+        return Ok(cursor);
     }
 
     if let Some(end) = consume_exponent(source, cursor)? {
         cursor = end;
     }
-    Ok((String::from(&source[start..cursor]), cursor))
+    Ok(cursor)
 }
 
 fn consume_exponent(source: &str, cursor: usize) -> Result<Option<usize>, ParseError> {
