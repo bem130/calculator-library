@@ -1508,24 +1508,26 @@ pub(crate) fn floor_nth_root_nonnegative(value: &BigInt, index: u32) -> BigInt {
     if index == 1 {
         return value.clone();
     }
+    if index == 2 {
+        return floor_sqrt_nonnegative(value);
+    }
     if value.is_zero() {
         return BigInt::zero();
     }
+    if value.is_one() || u64::from(index) >= value.bits() {
+        return BigInt::one();
+    }
 
-    let mut high = BigInt::one();
-    while high.pow(index) <= *value {
-        high <<= 1_u8;
-    }
-    let mut low = &high >> 1_u8;
-    while &low + 1_u8 < high {
-        let mid = (&low + &high) >> 1_u8;
-        if mid.pow(index) <= *value {
-            low = mid;
-        } else {
-            high = mid;
+    let root_bits = value.bits().div_ceil(u64::from(index));
+    let mut estimate = BigInt::one() << root_bits;
+    loop {
+        let divisor = estimate.pow(index - 1);
+        let next = (&estimate * (index - 1) + value / divisor) / index;
+        if next >= estimate {
+            return estimate;
         }
+        estimate = next;
     }
-    low
 }
 
 #[cfg(test)]
@@ -2191,6 +2193,57 @@ mod tests {
             let root = floor_sqrt_nonnegative(&value);
             assert!(&root * &root <= value);
             assert!((&root + 1_u8) * (&root + 1_u8) > value);
+        }
+    }
+
+    #[test]
+    fn convergent_integer_nth_root_matches_bitwise_oracle() {
+        fn bitwise(value: &BigInt, index: u32) -> BigInt {
+            if index == 1 {
+                return value.clone();
+            }
+            if value.is_zero() {
+                return BigInt::zero();
+            }
+            let mut high = BigInt::one();
+            while high.pow(index) <= *value {
+                high <<= 1_u8;
+            }
+            let mut low = &high >> 1_u8;
+            while &low + 1_u8 < high {
+                let mid = (&low + &high) >> 1_u8;
+                if mid.pow(index) <= *value {
+                    low = mid;
+                } else {
+                    high = mid;
+                }
+            }
+            low
+        }
+
+        let mut values = vec![
+            BigInt::zero(),
+            BigInt::one(),
+            BigInt::from(2_u8),
+            BigInt::from(26_u8),
+            BigInt::from(27_u8),
+            BigInt::from(28_u8),
+        ];
+        for input_bits in [31_u64, 32, 33, 63, 64, 65, 127, 128, 129, 1_000] {
+            values.extend([
+                BigInt::one() << (input_bits - 1),
+                (BigInt::one() << input_bits) - 1_u8,
+            ]);
+        }
+        for value in values {
+            for index in [1_u32, 2, 3, 5, 31, 32, 33, 127] {
+                assert_eq!(
+                    floor_nth_root_nonnegative(&value, index),
+                    bitwise(&value, index),
+                    "value_bits={} index={index}",
+                    value.bits(),
+                );
+            }
         }
     }
 }
