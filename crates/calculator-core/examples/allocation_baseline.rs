@@ -92,6 +92,9 @@ fn main() {
         "approximate_acos_non_degenerate_negative_central" => {
             Some(String::from("acos((-1+sin(1))/3)"))
         }
+        "approximate_acos_non_degenerate_positive_central" => {
+            Some(String::from("acos((1+sin(1))/4)"))
+        }
         "approximate_acos_non_degenerate_negative_outer" => {
             Some(String::from("acos((-6+sin(1))/7)"))
         }
